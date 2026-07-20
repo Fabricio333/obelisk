@@ -7,7 +7,7 @@ import { isWebLNAvailable, requestZapInvoice } from '@nostr-wot/wallet';
 import type { NostrSigner } from '@nostr-wot/signers';
 import { getDefaultRelays } from '@nostr-wot/data';
 import { useProfile, useSigner } from '@nostr-wot/data/react';
-import { getBridgeImpl, useCurrentRelayUrl } from '@/lib/nostr-bridge';
+import { getBridgeImpl, isImportableRelayUrl, useCurrentRelayUrl } from '@/lib/nostr-bridge';
 import ModalShell from '@/components/ModalShell';
 
 const QUICK_AMOUNTS = [21, 100, 500, 1000, 5000, 21000];
@@ -66,7 +66,7 @@ function MessageZapModalInner({ target, close }: { target: ZapTarget; close: () 
       const relays = Array.from(new Set([
         ...(currentRelay ? [currentRelay] : []),
         ...getDefaultRelays(),
-      ]));
+      ].filter(isImportableRelayUrl)));
       const amountMsats = amount * 1000;
       const { invoice, zapRequest } = await requestZapInvoice(signer as unknown as NostrSigner, {
         recipientPubkey: target.recipientPubkey,

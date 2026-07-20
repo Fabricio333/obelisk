@@ -41,6 +41,8 @@ import { wotEngine } from '@/lib/wot/engine';
 import { useModerationStore } from '@/store/moderation';
 import { resetAllClientState } from '@/lib/reset';
 import { pushActivity, resolveActivity, failActivity, trackActivity, dismissActivity } from '@/lib/activity-log';
+import { getPreferences } from '@/lib/preferences';
+import { pushRelayDebug } from './relay-debug';
 import { useReadStateStore } from '@/store/read-state';
 import { isUserWatchingDM, isUserWatchingChannel } from '@/lib/read-gates';
 import { extractMentionPubkeysFromMessage } from '@/lib/mentions';
@@ -140,6 +142,17 @@ function getAllTags(ev: NostrEvent, name: string): string[] {
     if (t[0] === name && typeof t[1] === 'string' && t[1].length > 0) out.push(t[1]);
   }
   return out;
+}
+
+function eventKindDescription(kind: number): string {
+  if (kind === 22242) return 'NIP-42 relay auth';
+  if (kind === 9) return 'Send message';
+  if (kind === 4) return 'Direct message';
+  if (kind === 39000) return 'Group metadata';
+  if (kind === 39001) return 'Group admins';
+  if (kind === 39002) return 'Group members';
+  if (kind === 7) return 'Reaction';
+  return 'Nostr event';
 }
 
 /**
@@ -581,23 +594,10 @@ class BridgeImpl implements NostrBridge {
   private isActiveRelay(url: string): boolean {
     const target = normalizeRelayUrl(url);
     if (this.relays.some((r) => normalizeRelayUrl(r) === target)) return true;
-    // Relays the bridge has been explicitly told to subscribe on via
-    // {@link subscribeFilterWatched}'s `relays` override count as
-    // "active enough" to sign NIP-42 AUTH for. The SFU RPC path needs
-    // this — without it, a tab whose primary relay is public.obelisk.ar
-    // can publish requests to the SFU's trusted relay (relay.obelisk.ar)
-    // but never receive the responses, because the relay's AUTH
-    // challenge gets declined by the auto-auth callback.
     return this.authAllowedRelays.has(target);
   }
 
-  /**
-   * Extra relays that the auto-auth NIP-42 callback should sign for —
-   * populated by subscribeFilterWatched when callers pass an explicit
-   * `relays` override. Lives next to `this.relays` (the user-active list)
-   * but is purely additive for AUTH purposes; readers/publishers still
-   * resolve relays explicitly per call.
-   */
+  /** DM relay NIP-42 allow-list. Only populated from subscribeIncomingDMs() after DM opt-in. */
   private authAllowedRelays = new Set<string>();
 
   /**
@@ -1269,6 +1269,7 @@ class BridgeImpl implements NostrBridge {
     try {
       const parsed = JSON.parse(raw) as PersistedSession;
       parsed.relayUrl = normalizeRelayUrl(parsed.relayUrl);
+      if (!isImportableRelayUrl(parsed.relayUrl)) parsed.relayUrl = DEFAULT_RELAY;
       this.session = parsed;
       this.currentRelayUrl.set(parsed.relayUrl);
       this.relays = [parsed.relayUrl];
@@ -1970,8 +1971,10 @@ class BridgeImpl implements NostrBridge {
     this.connectionState.set('Connecting');
     const activityId = pushActivity(
       'Connecting to relays',
-      this.relays.length === 1 ? this.relays[0] : `${this.relays.length} relays`,
+      this.relays.length === 1 ? this.relays[0] : String(this.relays.length) + " relays",
+      { operation: 'connect' },
     );
+    pushRelayDebug({ kind: 'connect-start', relays: relaySnapshot });
     try {
       // SimplePool.subscribe is lazy and synchronous — it doesn't wait for
       // the WebSocket handshake, so previously every relay (even bogus
@@ -1997,8 +2000,10 @@ class BridgeImpl implements NostrBridge {
       const handles = relaySnapshot.map((url) =>
         (async () => {
           validateRelayUrl(url);
+          pushRelayDebug({ kind: 'handshake-start', relay: url });
           const relay = await this.pool.ensureRelay(url, { connectionTimeout: PER_RELAY_TIMEOUT_MS });
-          if (!relay.connected) throw new Error(`relay ${url} did not complete handshake`);
+          if (!relay.connected) throw new Error("relay " + url + " did not complete handshake");
+          pushRelayDebug({ kind: 'handshake-ok', relay: url });
           // Mark the pool's socket alive so subsequent close() calls
           // attempt the network CLOSE; cleared in the onclose handler.
           this.poolSocketAlive = true;
@@ -2024,8 +2029,9 @@ class BridgeImpl implements NostrBridge {
       // proceeds only after the first successful handshake.
       handles.forEach((p, i) => {
         const url = relaySnapshot[i];
-        p.catch(() => {
+        p.catch((e) => {
           if (generation !== this.connectGeneration) return;
+          pushRelayDebug({ kind: 'handshake-error', relay: url, reason: e instanceof Error ? e.message : String(e) });
           this.setRelayAccess(url, 'unreachable');
         });
       });
@@ -2201,6 +2207,7 @@ class BridgeImpl implements NostrBridge {
   async switchRelay(url: string): Promise<void> {
     const normalized = normalizeRelayUrl(url);
     validateRelayUrl(normalized);
+    if (!isImportableRelayUrl(normalized)) throw new Error("relay URL must be a public wss:// hostname");
     // Same teardown semantics as resetPoolForSessionChange: skip the
     // pool.close() sweep to avoid CLOSING/CLOSED spam, just stop each
     // watched-sub's retry loop and replace the pool reference.
@@ -2312,6 +2319,7 @@ class BridgeImpl implements NostrBridge {
     const trimmed = normalizeRelayUrl(url);
     if (!trimmed) return;
     validateRelayUrl(trimmed);
+    if (!isImportableRelayUrl(trimmed)) throw new Error("relay URL must be a public wss:// hostname");
     // Register in the rail only — do NOT push into `this.relays` (the active
     // subscription set). NIP-29 channels are per-relay, so subscribing to
     // multiple relays simultaneously mixes channels from different servers
@@ -2481,6 +2489,10 @@ class BridgeImpl implements NostrBridge {
   subscribeDirectMessages(
     cb: (byPeer: Readonly<Record<string, ReadonlyArray<JsDirectMessage>>>) => void,
   ): Unsubscribe {
+    if (!getPreferences().directMessagesEnabled) {
+      cb({});
+      return () => {};
+    }
     if (!this.dmSubscribed) this.subscribeIncomingDMs();
     return this.dmsByPeer.subscribe(cb);
   }
@@ -2491,6 +2503,7 @@ class BridgeImpl implements NostrBridge {
     }
     this.dmSubHandles = [];
     this.dmSubscribed = false;
+    this.authAllowedRelays.clear();
     this.myDmRelays = [];
   }
 
@@ -3492,10 +3505,6 @@ class BridgeImpl implements NostrBridge {
           ? [...options.relays]
           : [...this.relays, ...options.relays]))
       : this.relays;
-    if (options?.relays) {
-      for (const r of options.relays) this.authAllowedRelays.add(normalizeRelayUrl(r));
-    }
-
     const pool = this.voicePool ?? (this.voicePool = this.createPool());
     for (const r of targetRelays) this.voicePoolRelays.add(r);
     this.voicePoolRefs += 1;
@@ -3544,16 +3553,6 @@ class BridgeImpl implements NostrBridge {
           ? [...options.relays]
           : [...this.relays, ...options.relays]))
       : this.relays;
-    if (options?.relays) {
-      // Tell auto-auth to sign for these too — without this the relay
-      // can challenge us, our auto-auth declines because they aren't
-      // in `this.relays`, and the sub never delivers events. The set
-      // is leaky on purpose: removing on close would race with future
-      // overlapping subs to the same relay (e.g. a second voice channel
-      // on the same SFU). The cost is signing AUTH on a relay we no
-      // longer subscribe to, which is harmless.
-      for (const r of options.relays) this.authAllowedRelays.add(normalizeRelayUrl(r));
-    }
     const sub = this.subscribeWatched(targetRelays, filter, onEvent, undefined, options);
     return () => sub.close();
   }
@@ -3706,6 +3705,7 @@ class BridgeImpl implements NostrBridge {
       attempt++;
       alive = false;
       armed = true;
+      pushRelayDebug({ kind: "sub-start", relays, filter, payload: { attempt } });
       const sub = pool.subscribe(relays, filter, {
         onevent: (ev) => {
           // switchRelay / resetPoolForSessionChange / dispose call markClosed
@@ -3719,7 +3719,7 @@ class BridgeImpl implements NostrBridge {
           // `cacheSet(this.currentRelayUrl.get(), ...)` in the ingest
           // functions. That's the "channels from another relay leaking into
           // Uncategorized" bug.
-          if (closed) return;
+          if (closed) { pushRelayDebug({ kind: "sub-stale-event", relays, filter, eventKind: ev.kind }); return; }
           alive = true;
           armed = false;
           clearTimer();
@@ -3735,13 +3735,15 @@ class BridgeImpl implements NostrBridge {
           // is disabled the predicate is a constant `true` and this is a
           // no-op. See docs/wot-integration-plan.md.
           if (!wotEngine.isAllowed(ev.pubkey, ev.kind)) return;
+          pushRelayDebug({ kind: "sub-event", relays, filter, eventKind: ev.kind });
           onevent(ev);
         },
         oneose: () => {
           // Same staleness guard as onevent — a late EOSE on a markClosed sub
           // would otherwise flip flags like `groupMetadataEose` for the new
           // relay based on the old relay's response.
-          if (closed) return;
+          if (closed) { pushRelayDebug({ kind: "sub-stale-eose", relays, filter }); return; }
+          pushRelayDebug({ kind: "sub-eose", relays, filter });
           alive = true;
           // Intentionally do NOT disarm here. EOSE alone is not proof of
           // success on auth-gated relays — they routinely send EOSE (empty
@@ -3758,7 +3760,8 @@ class BridgeImpl implements NostrBridge {
           // shouldn't update relay-access state or trigger retries against
           // the new pool. `scheduleRetry` already short-circuits via
           // `closed`, but bail early so we don't even classify reasons.
-          if (closed) return;
+          if (closed) { pushRelayDebug({ kind: "sub-stale-close", relays, filter, payload: { reasons } }); return; }
+          pushRelayDebug({ kind: "sub-close", relays, filter, payload: { reasons } });
           // nostr-tools fires onclose with one reason string per relay,
           // index-aligned with the `relays` array. Local closes look like
           // 'closed by caller' and yield no rejection match — we leave the
@@ -3917,6 +3920,7 @@ class BridgeImpl implements NostrBridge {
           'Waiting for extension signature',
           () => win.signEvent(evt) as Promise<VerifiedEvent>,
           'NIP-42 relay auth',
+          { operation: 'sign', eventKind: evt.kind, description: eventKindDescription(evt.kind) },
         );
       }
       if (this.session?.loginMethod === 'bunker') {
@@ -3925,6 +3929,7 @@ class BridgeImpl implements NostrBridge {
           'Waiting for bunker signature',
           () => b.signEvent(evt as unknown as EventTemplate & { pubkey: string }) as Promise<VerifiedEvent>,
           'NIP-42 relay auth',
+          { operation: 'sign', eventKind: evt.kind, description: eventKindDescription(evt.kind) },
         );
       }
       throw new Error('Cannot sign auth event with current login method');
@@ -3950,9 +3955,6 @@ class BridgeImpl implements NostrBridge {
         break;
       case 'subscribeAllAdminMember':
         this.subscribeAllAdminMember();
-        break;
-      case 'subscribeIncomingDMs':
-        this.subscribeIncomingDMs();
         break;
       case 'subscribeMyContactList':
         this.subscribeMyContactList();
@@ -5384,6 +5386,7 @@ class BridgeImpl implements NostrBridge {
   }
 
   private subscribeIncomingDMs(): void {
+    if (!getPreferences().directMessagesEnabled) return;
     if (!this.session || this.dmSubscribed) return;
     this.dmSubscribed = true;
     const me = this.session.pubKeyHex;
@@ -5403,6 +5406,7 @@ class BridgeImpl implements NostrBridge {
       const extras = urls.filter((u) => !this.relays.includes(u));
       if (extras.length === 0) return;
       this.myDmRelays = extras;
+      for (const r of extras) this.authAllowedRelays.add(normalizeRelayUrl(r));
       for (const f of [filterIn, filterOut]) {
         const sub = this.subscribeWatched(extras, f, (ev) => this.ingestIncomingDM(ev));
         this.subs.push(sub);
@@ -6049,7 +6053,12 @@ class BridgeImpl implements NostrBridge {
     // `quiet`: best-effort background publish (e.g. lazy member self-add).
     // Suppress the activity-bar lifecycle so the user doesn't see a
     // Publishing/Failed toast for a write the relay routinely declines.
-    const signId = opts?.quiet ? null : pushActivity(signLabel, `kind ${template.kind}`);
+    const signId = opts?.quiet ? null : pushActivity(
+      signLabel,
+      "kind " + template.kind,
+      { operation: "sign", eventKind: template.kind, description: eventKindDescription(template.kind) },
+    );
+    pushRelayDebug({ kind: "sign-start", eventKind: template.kind, status: eventKindDescription(template.kind) });
     let event: NostrEvent;
     try {
       if (this.session.loginMethod === 'nsec' && this.session.privKeyHex) {
@@ -6069,15 +6078,22 @@ class BridgeImpl implements NostrBridge {
         this.ingestMeshVoicePresence(event);
       }
       if (signId != null) resolveActivity(signId);
+      pushRelayDebug({ kind: "sign-ok", eventKind: template.kind, status: eventKindDescription(template.kind) });
     } catch (e) {
       if (signId != null) failActivity(signId, e instanceof Error ? e.message : String(e));
+      pushRelayDebug({ kind: "sign-error", eventKind: template.kind, status: eventKindDescription(template.kind), reason: e instanceof Error ? e.message : String(e) });
       throw e;
     }
 
     const targetRelays = mode === 'replace'
       ? Array.from(new Set(extraRelays))
       : Array.from(new Set([...this.relays, ...extraRelays]));
-    const pubId = opts?.quiet ? null : pushActivity('Publishing to relays', `kind ${template.kind} → ${targetRelays.length} relay(s)`);
+    const pubId = opts?.quiet ? null : pushActivity(
+      'Publishing to relays',
+      "kind " + template.kind + " -> " + targetRelays.length + " relay(s)",
+      { operation: "publish", eventKind: template.kind, description: eventKindDescription(template.kind) },
+    );
+    pushRelayDebug({ kind: "publish-start", relays: targetRelays, eventKind: template.kind, status: eventKindDescription(template.kind) });
     const publishes = this.pool.publish(targetRelays, event, { onauth: this.getAuthSigner() });
 
     // Ephemeral events (NIP-01: kinds 20000-29999) are not stored and some
@@ -6103,6 +6119,7 @@ class BridgeImpl implements NostrBridge {
     results.forEach((r, i) => {
       if (r.status !== 'rejected') return;
       const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
+      pushRelayDebug({ kind: "publish-reject", relay: targetRelays[i], eventKind: event.kind, reason });
       const state = parseRelayRejection(reason);
       if (!state) return;
       // Same logic as the read-path onclose: auth/whitelist rejections during
@@ -6130,6 +6147,7 @@ class BridgeImpl implements NostrBridge {
         return reason.includes('time') && reason.includes('out');
       });
     if (allTimedOut) {
+      pushRelayDebug({ kind: "publish-retry", relays: targetRelays, eventKind: event.kind, reason: "all relays timed out" });
       const retry = this.pool.publish(targetRelays, event, { onauth: this.getAuthSigner() });
       finalResults = await Promise.allSettled(retry);
       finalResults.forEach((r, i) => {
@@ -6151,9 +6169,11 @@ class BridgeImpl implements NostrBridge {
         .join('; ');
       const msg = `Relay rejected event (kind ${event.kind}). ${reasons || 'no relay accepted'}`;
       if (pubId != null) failActivity(pubId, msg);
+      pushRelayDebug({ kind: "publish-error", relays: targetRelays, eventKind: event.kind, reason: msg });
       throw new Error(msg);
     }
-    if (pubId != null) resolveActivity(pubId, `accepted by ${accepted.length}/${targetRelays.length}`);
+    if (pubId != null) resolveActivity(pubId, "accepted by " + accepted.length + "/" + targetRelays.length);
+    pushRelayDebug({ kind: "publish-ok", relays: targetRelays, eventKind: event.kind, payload: { accepted: accepted.length, total: targetRelays.length } });
     return event;
   }
 
@@ -6195,7 +6215,9 @@ export function isImportableRelayUrl(url: string): boolean {
   if (p.protocol !== 'wss:') return false;
   const host = p.hostname.toLowerCase();
   if (!host) return false;
+  if (host.endsWith('.onion')) return false;
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return false;
+  if (host === 'host.docker.internal') return false;
   // IPv4 ranges that have no business in a relay list.
   if (/^127\./.test(host)) return false;
   if (/^10\./.test(host)) return false;
@@ -6235,6 +6257,7 @@ function uniqueRelayUrls(urls: readonly string[]): string[] {
     try {
       const normalized = normalizeRelayUrl(raw);
       validateRelayUrl(normalized);
+      if (!isImportableRelayUrl(normalized)) continue;
       if (seen.has(normalized)) continue;
       seen.add(normalized);
       out.push(normalized);

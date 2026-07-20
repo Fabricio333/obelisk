@@ -104,7 +104,7 @@ function matches(f: Filter, ev: NostrEvent): boolean {
 }
 
 // Import bridge AFTER the mock is registered.
-import { getBridge, decodeNsec } from './client';
+import { getBridge, decodeNsec, isImportableRelayUrl } from './client';
 
 function bytesToHex(b: Uint8Array): string {
   return Array.from(b).map((x) => x.toString(16).padStart(2, '0')).join('');
@@ -146,6 +146,14 @@ describe('nostr-bridge', () => {
     const decoded = decodeNsec(nsec);
     expect(decoded.privKeyHex).toBe(skHex);
     expect(decoded.pubKeyHex).toBe(pkHex);
+  });
+
+  it('rejects local and private relay URLs from imported relay lists', () => {
+    expect(isImportableRelayUrl('ws://localhost:4869/')).toBe(false);
+    expect(isImportableRelayUrl('wss://localhost:4869/')).toBe(false);
+    expect(isImportableRelayUrl('wss://host.docker.internal:3334/')).toBe(false);
+    expect(isImportableRelayUrl('wss://vvearoljdsmlkhnvms673x3ra6szhcftz66powh6bbmgodk3rs63wdid.onion/')).toBe(false);
+    expect(isImportableRelayUrl('wss://relay.obelisk.ar/')).toBe(true);
   });
 
   it('logs in with nsec and exposes the public key', async () => {
@@ -389,6 +397,8 @@ describe('nostr-bridge', () => {
 
     const bridgeA = await getBridgeAlice();
     await bridgeA.loginWithNsec(alice.skHex, alice.pkHex);
+    const { setPreference } = await import('@/lib/preferences');
+    setPreference('directMessagesEnabled', true);
     bridgeA.subscribeDirectMessages(() => {});
 
     await bridgeA.sendDirectMessage(bob.pkHex, 'meet me at the obelisk');
@@ -405,6 +415,31 @@ describe('nostr-bridge', () => {
     const { nip04 } = await import('nostr-tools');
     const plaintext = await nip04.decrypt(bob.skHex, alice.pkHex, dms[0].content);
     expect(plaintext).toBe('meet me at the obelisk');
+  });
+
+  it('does not open DM relay subscriptions until local DM opt-in is enabled', async () => {
+    const { getBridge } = await import('./client');
+    const { setPreference } = await import('@/lib/preferences');
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+    await flush();
+
+    const countDmSubs = () => fake.state.subscriptions.filter((sub) =>
+      Array.isArray((sub.filter as any).kinds) && (sub.filter as any).kinds.includes(4),
+    ).length;
+
+    expect(countDmSubs()).toBe(0);
+    const unsubDisabled = bridge.subscribeDirectMessages((byPeer) => {
+      expect(byPeer).toEqual({});
+    });
+    expect(countDmSubs()).toBe(0);
+    unsubDisabled();
+
+    setPreference('directMessagesEnabled', true);
+    const unsubEnabled = bridge.subscribeDirectMessages(() => {});
+    expect(countDmSubs()).toBe(2);
+    unsubEnabled();
   });
 
   it('putUser, removeUser, removePermission, deleteGroupEvent publish the right NIP-29 kinds', async () => {

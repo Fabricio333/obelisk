@@ -13,6 +13,7 @@ describe('HistoryPaginationStatus', () => {
       <HistoryPaginationStatus
         loading
         reachedStart={false}
+        atTop
         loadingLabel="Loading earlier messages..."
         endLabel="No earlier messages"
       />,
@@ -32,6 +33,7 @@ describe('HistoryPaginationStatus', () => {
       <HistoryPaginationStatus
         loading={false}
         reachedStart
+        atTop
         loadingLabel="Loading earlier messages..."
         endLabel="No earlier messages"
       />,
@@ -39,5 +41,19 @@ describe('HistoryPaginationStatus', () => {
 
     expect(screen.getByTestId('messages-history-end')).toHaveTextContent('No earlier messages');
     expect(screen.queryByTestId('messages-history-loading')).toBeNull();
+  });
+
+  it("hides the confirmed end state when the user scrolls away from the top", () => {
+    render(
+      <HistoryPaginationStatus
+        loading={false}
+        reachedStart
+        atTop={false}
+        loadingLabel="Loading earlier messages..."
+        endLabel="No earlier messages"
+      />,
+    );
+
+    expect(screen.queryByTestId("messages-history-end")).toBeNull();
   });
 });

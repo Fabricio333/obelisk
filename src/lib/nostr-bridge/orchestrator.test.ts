@@ -69,7 +69,7 @@ describe('runConnectFanOut', () => {
   it('honors a custom plan', async () => {
     const customPlan: TierPlan = {
       P0: ['subscribeGroupMetadata'],
-      P2: ['subscribeIncomingDMs'],
+      P2: ['subscribeMyContactList'],
     };
     const calls: TierAction[] = [];
     runConnectFanOut({
@@ -79,7 +79,7 @@ describe('runConnectFanOut', () => {
     });
     expect(calls).toEqual(['subscribeGroupMetadata']);
     await Promise.resolve();
-    expect(calls).toEqual(['subscribeGroupMetadata', 'subscribeIncomingDMs']);
+    expect(calls).toEqual(['subscribeGroupMetadata', 'subscribeMyContactList']);
   });
 
   it('default plan puts preflightRelayAccess first, then subscribeGroupMetadata (channel-menu priority)', () => {

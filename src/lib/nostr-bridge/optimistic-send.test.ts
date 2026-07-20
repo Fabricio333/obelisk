@@ -278,6 +278,8 @@ describe('optimistic direct messages', () => {
     const peer = makeKeypair();
     const bridge = await getBridge();
     await bridge.loginWithNsec(me.skHex, me.pkHex);
+    const { setPreference } = await import('@/lib/preferences');
+    setPreference('directMessagesEnabled', true);
 
     let last: Readonly<Record<string, ReadonlyArray<{ id: string; outgoing: boolean; pending?: boolean; failed?: boolean; content: string; clientTag?: string }>>> = {};
     bridge.subscribeDirectMessages((byPeer) => {
@@ -321,6 +323,8 @@ describe('optimistic direct messages', () => {
     const peer = makeKeypair();
     const bridge = await getBridge();
     await bridge.loginWithNsec(me.skHex, me.pkHex);
+    const { setPreference } = await import('@/lib/preferences');
+    setPreference('directMessagesEnabled', true);
 
     let last: Readonly<Record<string, ReadonlyArray<{ pending?: boolean; failed?: boolean; clientTag?: string }>>> = {};
     bridge.subscribeDirectMessages((byPeer) => {

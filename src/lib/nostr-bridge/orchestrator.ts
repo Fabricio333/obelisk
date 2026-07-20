@@ -34,7 +34,6 @@ export type TierAction =
   | 'subscribeGroupMetadata'
   | 'ensureMyMetadata'
   | 'subscribeAllAdminMember'
-  | 'subscribeIncomingDMs'
   | 'subscribeMyContactList'
   | 'subscribeMyMuteList'
   | 'subscribeMyAuthoredGroups'

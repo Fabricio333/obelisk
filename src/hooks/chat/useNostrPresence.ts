@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import type { Event as NostrEvent } from 'nostr-tools/pure';
 import { getPool, getDefaultRelays } from '@nostr-wot/data';
+import { isImportableRelayUrl } from '@/lib/nostr-bridge';
 import { useChatStore } from '@/store/chat';
 
 /** A user counts as online if they published an event in this window. */
@@ -41,7 +42,7 @@ export function useNostrPresence(pubkeys: string[]): void {
     if (!authors.length) return;
 
     const pool = getPool();
-    const relays = getDefaultRelays();
+    const relays = getDefaultRelays().filter(isImportableRelayUrl);
     const since = Math.floor((Date.now() - PRESENCE_WINDOW_MS) / 1000);
     const sub = pool.subscribeMany(
       relays,

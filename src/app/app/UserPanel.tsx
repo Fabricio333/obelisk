@@ -396,6 +396,12 @@ export function PreferencesPanel() {
       <LanguagePreference />
       <AppearancePreferenceControls />
       <ToggleRow
+        label="Developer relay logs"
+        description="Log relay calls to the console and window.__obeliskRelayDebug."
+        checked={prefs.developerRelayDebug}
+        onChange={(v) => setPreference('developerRelayDebug', v)}
+      />
+      <ToggleRow
         label={t('preferences.activity.label')}
         description={t('preferences.activity.description')}
         checked={prefs.showActivityIndicator}

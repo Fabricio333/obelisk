@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 interface HistoryPaginationStatusProps {
   readonly loading: boolean;
   readonly reachedStart: boolean;
+  readonly atTop: boolean;
   readonly loadingLabel: string;
   readonly endLabel: string;
 }
@@ -12,6 +13,7 @@ interface HistoryPaginationStatusProps {
 export default function HistoryPaginationStatus({
   loading,
   reachedStart,
+  atTop,
   loadingLabel,
   endLabel,
 }: HistoryPaginationStatusProps) {
@@ -29,12 +31,12 @@ export default function HistoryPaginationStatus({
   }, [loading]);
 
   const visibleLoading = loading && showLoading;
-  const active = visibleLoading || reachedStart;
+  const active = atTop && (visibleLoading || reachedStart);
 
   useEffect(() => {
     if (visibleLoading) setLastMode('loading');
-    else if (reachedStart) setLastMode('end');
-  }, [reachedStart, visibleLoading]);
+    else if (atTop && reachedStart) setLastMode('end');
+  }, [atTop, reachedStart, visibleLoading]);
 
   useEffect(() => {
     if (active) {

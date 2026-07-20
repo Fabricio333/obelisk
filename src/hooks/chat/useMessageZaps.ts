@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Event as NostrEvent } from 'nostr-tools/pure';
 import { sharedCoalescer, getDefaultRelays, parseZapMsats } from '@nostr-wot/data';
 import { validateZapReceipt, type RawNostrEvent } from '@nostr-wot/wallet';
-import { useConfiguredRelays } from '@/lib/nostr-bridge';
+import { isImportableRelayUrl, useConfiguredRelays } from '@/lib/nostr-bridge';
 
 export interface MessageZapTotal {
   totalSats: number;
@@ -73,7 +73,7 @@ export function useMessageZaps(messageIds: ReadonlyArray<string>): Map<string, M
   // Stable key so a re-render of the same id list doesn't re-subscribe.
   const idsKey = useMemo(() => [...messageIds].sort().join(','), [messageIds]);
   const relaysKey = useMemo(
-    () => Array.from(new Set([...configuredRelays, ...getDefaultRelays()])).sort().join(','),
+    () => Array.from(new Set([...configuredRelays, ...getDefaultRelays()].filter(isImportableRelayUrl))).sort().join(','),
     [configuredRelays],
   );
 

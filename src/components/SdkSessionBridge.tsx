@@ -20,7 +20,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { NostrSessionProvider } from '@nostr-wot/ui';
-import { useLogin, useLogout, useSigner } from '@nostr-wot/data/react';
+import { useLogin, useLogout } from '@nostr-wot/data/react';
 import { setPool } from '@nostr-wot/data';
 import type { SessionSigner } from '@nostr-wot/data/react';
 import { getBridge } from '@/lib/nostr-bridge';
@@ -48,7 +48,6 @@ function buildAdapter(bridge: NostrBridge): SessionSigner {
 function BridgeToSdkSync({ children }: { children: ReactNode }): ReactNode {
   const login = useLogin();
   const logout = useLogout();
-  const sdkSigner = useSigner();
   const [bridge, setBridge] = useState<NostrBridge | null>(null);
 
   // Resolve the bridge instance once.
@@ -67,7 +66,6 @@ function BridgeToSdkSync({ children }: { children: ReactNode }): ReactNode {
     if (!bridge) return undefined;
 
     let lastPubkey: string | null = null;
-    let lastLoggedIn: boolean | null = null;
     let cancelled = false;
 
     const sync = () => {
@@ -84,27 +82,16 @@ function BridgeToSdkSync({ children }: { children: ReactNode }): ReactNode {
     };
 
     const unsubPubkey = bridge.subscribeMyPubkey(() => sync());
-    const unsubLogged = bridge.subscribeIsLoggedIn((v) => {
-      lastLoggedIn = v;
-      sync();
-    });
 
     // Initial sync (in case the bridge already has a session before our
     // subscribers fire).
     sync();
-    void lastLoggedIn; // referenced to silence unused-warning; kept for debug clarity
 
     return () => {
       cancelled = true;
       unsubPubkey();
-      unsubLogged();
     };
   }, [bridge, login, logout]);
-
-  // Reference sdkSigner so React doesn't warn about an unused hook return —
-  // we don't gate on it directly but mounting the hook keeps the provider
-  // active during reconciliation.
-  void sdkSigner;
 
   return children;
 }

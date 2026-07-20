@@ -4,11 +4,22 @@ import { useSyncExternalStore } from 'react';
 
 export type ActivityStatus = 'pending' | 'ok' | 'error';
 
+export type ActivityOperation = 'connect' | 'subscribe' | 'query' | 'sign' | 'publish';
+
+export interface ActivityMeta {
+  operation?: ActivityOperation;
+  eventKind?: number;
+  description?: string;
+}
+
 export interface ActivityEntry {
   id: number;
   label: string;
   status: ActivityStatus;
   detail?: string;
+  operation?: ActivityOperation;
+  eventKind?: number;
+  description?: string;
   startedAt: number;
   endedAt?: number;
 }
@@ -25,9 +36,9 @@ function emit() {
   listeners.forEach((l) => l());
 }
 
-export function pushActivity(label: string, detail?: string): number {
+export function pushActivity(label: string, detail?: string, meta?: ActivityMeta): number {
   const id = nextId++;
-  entries.set(id, { id, label, status: 'pending', detail, startedAt: Date.now() });
+  entries.set(id, { id, label, status: 'pending', detail, ...meta, startedAt: Date.now() });
   emit();
   return id;
 }
@@ -66,8 +77,9 @@ export async function trackActivity<T>(
   label: string,
   fn: () => Promise<T>,
   detail?: string,
+  meta?: ActivityMeta,
 ): Promise<T> {
-  const id = pushActivity(label, detail);
+  const id = pushActivity(label, detail, meta);
   try {
     const out = await fn();
     resolveActivity(id);

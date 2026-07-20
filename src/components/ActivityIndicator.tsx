@@ -13,9 +13,7 @@ export default function ActivityIndicator() {
   // is staring at an extension/bunker prompt and needs to know the app is
   // blocked on their action, even if a later activity (e.g. "Publishing to
   // relays") was pushed after the sign waiter.
-  const pendingSign = items.find(
-    (e) => e.status === 'pending' && /waiting for .* signature/i.test(e.label),
-  );
+  const pendingSign = items.find((e) => e.status === 'pending' && e.operation === 'sign');
   const visible = pendingSign ? [pendingSign] : items.slice(0, 1);
   return (
     <div
@@ -47,9 +45,9 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
       <StatusGlyph status={entry.status} />
       <div className="min-w-0 flex-1">
         <div className="font-semibold leading-tight">{entry.label}</div>
-        {entry.detail ? (
+        {activityDetail(entry) ? (
           <div className="mt-0.5 break-words text-[11px] leading-snug opacity-80">
-            {entry.detail}
+            {activityDetail(entry)}
           </div>
         ) : null}
       </div>
@@ -65,6 +63,12 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
       ) : null}
     </div>
   );
+}
+
+function activityDetail(entry: ActivityEntry): string | undefined {
+  const kind = entry.eventKind == null ? null : 'kind ' + entry.eventKind;
+  if (entry.description && kind) return entry.description + ' · ' + kind;
+  return entry.description ?? kind ?? entry.detail;
 }
 
 function StatusGlyph({ status }: { status: ActivityEntry['status'] }) {

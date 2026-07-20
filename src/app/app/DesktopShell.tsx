@@ -2085,6 +2085,7 @@ function ChatPanel({
     onNearBottomChange: setNearBottom,
   });
   const { loadEarlier, loading: loadingEarlier, reachedStart } = useLoadEarlier(groupId);
+  const [nearHistoryTop, setNearHistoryTop] = useState(false);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -2092,6 +2093,7 @@ function ChatPanel({
       const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
       const near = dist < 100;
       setNearBottom(near);
+      setNearHistoryTop(el.scrollTop < 80);
       // Top-of-list pagination. Anchor by pre-load scrollHeight so the
       // viewport stays on the same message after the older page is
       // prepended instead of snapping to the new top.
@@ -2110,6 +2112,7 @@ function ChatPanel({
         });
       }
     };
+    onScroll();
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
   }, [loadEarlier, loadingEarlier, reachedStart, setNearBottom]);
@@ -2534,6 +2537,7 @@ function ChatPanel({
         <HistoryPaginationStatus
           loading={loadingEarlier}
           reachedStart={reachedStart}
+          atTop={nearHistoryTop}
           loadingLabel={t('desktop.channel.loadingEarlier')}
           endLabel={t('desktop.channel.noEarlierMessages')}
         />

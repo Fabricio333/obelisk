@@ -214,20 +214,6 @@ either way, so silent rehydrate on reload still works.
 nsec → hex via `nostr-tools/nip19`, and routes to the corresponding
 bridge entrypoint.
 
-## Migration paths (for obelisk-dex / obelisk-classic)
-
-The bridge (`src/lib/nostr-bridge/client.ts`) owns auth in obelisk-dex —
-not React context. Three reasonable cutover strategies:
-
-1. **UI-only swap, bridge stays.** Add `bridge.loginWithSigner(signer)`
-   that accepts any `NostrSigner`, then replace the modal with
-   `<LoginButton>` and forward the signer in `onLogin`.
-2. **Side-by-side.** Mount the SDK login at `/dev/sdk-login` and write
-   the resulting signer through a thin bridge adapter. A/B without
-   touching the prod login.
-3. **No migration yet.** Iterate in the playground, open the upstream
-   PR when ready, come back to obelisk later.
-
 ## Migration history — obelisk-dex login modal
 
 **Decided 2026-05-04, shipped 2026-05-07.** `src/app/app/LoginModal.tsx`

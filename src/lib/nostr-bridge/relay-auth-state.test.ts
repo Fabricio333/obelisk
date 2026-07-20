@@ -298,6 +298,29 @@ describe('relay-access "authenticating" state', () => {
     expect(impl.relayAccess.get()[key]).toBe('auth-required');
   });
 
+
+  it('does not AUTH an override relay used by a watched subscription', async () => {
+    const clientMod = await import('./client');
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await clientMod.getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+
+    const impl = clientMod.getBridgeImpl()!;
+    const pool = fake.state.pools.at(-1)!;
+    const auxUrl = 'wss://relay.extra.example';
+    const stop = impl.subscribeFilterWatched(
+      { kinds: [1] },
+      () => {},
+      { relays: [auxUrl], relayMode: 'replace' },
+    );
+
+    expect(fake.state.subscriptions.at(-1)?.relays).toEqual([auxUrl]);
+    expect(pool.authHandler!(auxUrl)).toBeNull();
+    expect(impl.relayAccess.get()[normalizeRelayUrl(auxUrl)]).toBeUndefined();
+    stop();
+  });
+
+
   it('does not enter "authenticating" for an auxiliary (non-active) relay', async () => {
     const clientMod = await import('./client');
     const { skHex, pkHex } = makeKeypair();
@@ -306,16 +329,10 @@ describe('relay-access "authenticating" state', () => {
 
     const impl = clientMod.getBridgeImpl()!;
     const pool = fake.state.pools.at(-1)!;
-
-    // Pretend an auxiliary relay (e.g. profile lookup) sends an AUTH
-    // challenge. The bridge guards this in `automaticallyAuth` to avoid
-    // leaking the user's pubkey and to keep the active-relay state
-    // store clean.
     const auxUrl = 'wss://relay.damus.io';
-    const auxSigner = pool.authHandler!(auxUrl);
-    expect(auxSigner).toBeNull();
 
-    // No active-relay state should have been set as a side effect.
+    expect(pool.authHandler!(auxUrl)).toBeNull();
+
     const activeKey = normalizeRelayUrl(impl.currentRelayUrl.get());
     expect(impl.relayAccess.get()[activeKey]).toBeUndefined();
   });

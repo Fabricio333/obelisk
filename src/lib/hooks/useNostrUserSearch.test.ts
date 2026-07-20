@@ -4,7 +4,8 @@ import { useNostrUserSearch } from './useNostrUserSearch';
 
 // Mock the underlying NIP-50 hook so tests don't open real WebSockets.
 const mockUseNostrQuery = vi.fn();
-vi.mock('@/lib/nostr-hooks', () => ({
+vi.mock('@nostr-wot/data/react', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@nostr-wot/data/react')>()),
   useNostrQuery: (...args: unknown[]) => mockUseNostrQuery(...args),
 }));
 

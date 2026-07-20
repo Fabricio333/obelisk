@@ -21,17 +21,12 @@
     "snap-guides": "tsx scripts/snap-guide-svgs.ts"
   },
   "dependencies": {
-    "@emoji-mart/data": "^1.2.1",
     "@noble/hashes": "^2.0.1",
-    "@noble/secp256k1": "^3.0.0",
-    "@nostr-dev-kit/ndk": "^3.0.3",
-    "@nostr-dev-kit/ndk-cache-dexie": "^2.6.44",
     "@nostr-wot/data": "^0.5.1",
     "@nostr-wot/dm": "^0.5.0",
     "@nostr-wot/signers": "^0.4.0",
     "@nostr-wot/ui": "^0.6.0",
     "@nostr-wot/wallet": "^0.3.1",
-    "emoji-mart": "^5.6.0",
     "gray-matter": "^4.0.3",
     "html-to-image": "^1.11.13",
     "light-bolt11-decoder": "^3.2.0",
@@ -39,13 +34,11 @@
     "next": "16.2.2",
     "next-mdx-remote": "^5.0.0",
     "nostr-tools": "^2.23.3",
-    "qrcode.react": "^4.2.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "shiki": "^4.0.2",
-    "socket.io-client": "^4.8.3",
     "zustand": "^5.0.12"
   },
   "devDependencies": {

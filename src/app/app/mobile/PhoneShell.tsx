@@ -120,6 +120,7 @@ import {
 import { useChatStore } from '@/store/chat';
 import { useDMStore } from '@/store/dm';
 import { setDmOptInEnabled, useDmOptInEnabled } from '@/lib/dm/opt-in';
+import { setPreference, usePreferences } from '@/lib/preferences';
 import { useMessageZapStore } from '@/store/messageZap';
 import { useNostrPresence, PRESENCE_WINDOW_MS } from '@/hooks/chat/useNostrPresence';
 import MessageZapModal from '@/components/chat/MessageZapModal';
@@ -2756,10 +2757,12 @@ function ChannelScreen({
   // history is paged in here when the user scrolls near the top. Anchor
   // by pre-load scrollHeight to keep the viewport on the same message.
   const { loadEarlier, loading: loadingEarlier, reachedStart } = useLoadEarlier(groupId);
+  const [nearHistoryTop, setNearHistoryTop] = useState(false);
   useEffect(() => {
     const el = messagesRef.current;
     if (!el) return;
     const onScroll = () => {
+      setNearHistoryTop(el.scrollTop < 80);
       if (el.scrollTop < 80 && !loadingEarlier && !reachedStart) {
         const loadKey = scrollKeyRef.current;
         const prevHeight = el.scrollHeight;
@@ -2775,6 +2778,7 @@ function ChannelScreen({
         });
       }
     };
+    onScroll();
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
   }, [loadEarlier, loadingEarlier, reachedStart]);
@@ -2898,6 +2902,7 @@ function ChannelScreen({
         <HistoryPaginationStatus
           loading={loadingEarlier}
           reachedStart={reachedStart}
+          atTop={nearHistoryTop}
           loadingLabel={t('mobile.channel.loadingEarlier')}
           endLabel={t('mobile.channel.noEarlierMessages')}
         />
@@ -5341,6 +5346,7 @@ export function SettingsPrefsScreen({ go }: { go: (s: ScreenName) => void }) {
   const relays = useConfiguredRelays();
   const currentRelay = useCurrentRelayUrl();
   const dmOptInEnabled = useDmOptInEnabled();
+  const prefs = usePreferences();
 
   return (
     <div className="screen active" data-screen="settings-prefs">
@@ -5391,8 +5397,26 @@ export function SettingsPrefsScreen({ go }: { go: (s: ScreenName) => void }) {
               data-testid="mobile-dm-opt-in-toggle"
             />
           </button>
+          <button
+            type="button"
+            className="settings-row action"
+            onClick={() => setPreference("developerRelayDebug", !prefs.developerRelayDebug)}
+          >
+            <span style={{ minWidth: 0, flex: 1 }}>
+              <span style={{ display: "block" }}>Developer relay logs</span>
+              <span className="settings-row-meta muted" style={{ display: "block", maxWidth: "100%", marginTop: 3 }}>
+                Console and window.__obeliskRelayDebug.
+              </span>
+            </span>
+            <span
+              className={"toggle " + (prefs.developerRelayDebug ? "on" : "")}
+              role="switch"
+              aria-checked={prefs.developerRelayDebug}
+              data-testid="mobile-developer-relay-debug-toggle"
+            />
+          </button>
           <div className="settings-row">
-            <span>{t('preferences.mobile.version')}</span>
+            <span>{t("preferences.mobile.version")}</span>
             <span className="settings-row-meta muted">obelisk · mobile</span>
           </div>
         </div>

@@ -11,6 +11,7 @@ describe('preferences store', () => {
 
     expect(getPreferences()).toMatchObject({
       directMessagesEnabled: false,
+      developerRelayDebug: false,
       accentColor: '#b4f953',
       backgroundColor: '#0a0a0a',
       buttonColor: '#b4f953',
@@ -19,6 +20,7 @@ describe('preferences store', () => {
     });
 
     setPreference('directMessagesEnabled', true);
+    setPreference('developerRelayDebug', true);
     setPreference('accentColor', '#7ec8ff');
     setPreference('backgroundColor', '#111827');
     setPreference('buttonColor', '#f0c14a');
@@ -27,6 +29,7 @@ describe('preferences store', () => {
 
     expect(getPreferences()).toMatchObject({
       directMessagesEnabled: true,
+      developerRelayDebug: true,
       accentColor: '#7ec8ff',
       backgroundColor: '#111827',
       buttonColor: '#f0c14a',
@@ -35,6 +38,7 @@ describe('preferences store', () => {
     });
     expect(JSON.parse(localStorage.getItem('obelisk:preferences') ?? '{}')).toMatchObject({
       directMessagesEnabled: true,
+      developerRelayDebug: true,
       accentColor: '#7ec8ff',
       backgroundColor: '#111827',
       buttonColor: '#f0c14a',
@@ -61,6 +65,7 @@ describe('preferences store', () => {
   it('sanitizes invalid persisted color values and can reset appearance defaults', async () => {
     localStorage.setItem('obelisk:preferences', JSON.stringify({
       showActivityIndicator: false,
+      developerRelayDebug: 'yes',
       accentColor: 'red',
       backgroundColor: '#111111',
       buttonColor: 'url(javascript:bad)',
@@ -71,6 +76,7 @@ describe('preferences store', () => {
     const { getPreferences, resetAppearancePreferences } = await import('./preferences');
     expect(getPreferences()).toMatchObject({
       showActivityIndicator: false,
+      developerRelayDebug: false,
       accentColor: '#b4f953',
       backgroundColor: '#111111',
       buttonColor: '#b4f953',
@@ -82,6 +88,7 @@ describe('preferences store', () => {
 
     expect(getPreferences()).toMatchObject({
       showActivityIndicator: false,
+      developerRelayDebug: false,
       accentColor: '#b4f953',
       backgroundColor: '#0a0a0a',
       buttonColor: '#b4f953',
