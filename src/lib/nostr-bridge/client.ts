@@ -2307,6 +2307,15 @@ export class BridgeImpl {
     const previousRelays = [...this.relays];
     const shouldClosePool = this.poolSocketAlive;
     this.connectGeneration++;
+    // Mounted consumers keep their store listeners across a relay switch,
+    // so carry their per-group REQs onto the replacement pool. Otherwise a
+    // channel with the same id on both relays stays loading until refresh.
+    this.pendingResubscribe = {
+      messages: Array.from(this.messageSubscribedGroups),
+      reactions: Array.from(this.reactionSubscribedGroups),
+      adminMember: Array.from(this.adminMemberSubscribedGroups),
+      metadata: Array.from(this.metadataRequested),
+    };
     this.subs.forEach((s) => (s.markClosed ?? s.close)());
     this.subs = [];
     this.dmSubHandles = [];

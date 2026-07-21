@@ -1621,6 +1621,30 @@ describe('nostr-bridge', () => {
     });
   });
 
+  it("keeps mounted channel subscriptions alive across relay switches", async () => {
+    const { getBridge } = await import("./client");
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+    const groupId = "general";
+    const seen: string[][] = [];
+    bridge.subscribeMessages(groupId, (messages) => seen.push(messages.map((message) => message.content)));
+    await flush();
+
+    await bridge.switchRelay("wss://other.example");
+    await flush();
+    deliver(await fakeRelayMessage({ groupId, content: "loaded without refresh" }));
+    await flush();
+
+    expect(seen.at(-1)).toContain("loaded without refresh");
+    expect(fake.state.subscriptions.some((sub) => {
+      const filter = sub.filter as { kinds?: number[]; "#h"?: string[] };
+      return sub.relays?.includes("wss://other.example")
+        && filter.kinds?.includes(9)
+        && filter["#h"]?.includes(groupId);
+    })).toBe(true);
+  });
+
   it("pauses while offline and reconnects immediately when the browser returns online", async () => {
     const { getBridge, getBridgeImpl } = await import("./client");
     const { skHex, pkHex } = makeKeypair();
