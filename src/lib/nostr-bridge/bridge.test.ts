@@ -26,6 +26,7 @@ const fake = vi.hoisted(() => {
     poolSeq: 0,
     poolOptions: [] as Array<Record<string, unknown>>,
     closeCalls: [] as Array<{ poolId: number; relays: string[] }>,
+    closeOpenSubscriptionCounts: [] as Array<{ poolId: number; count: number }>,
   };
 
   function matchesInternal(f: Record<string, unknown>, ev: { kind: number; pubkey: string; tags: string[][] }): boolean {
@@ -64,6 +65,10 @@ const fake = vi.hoisted(() => {
       return [Promise.resolve('ok')];
     }
     close(relays: string[]): void {
+      state.closeOpenSubscriptionCounts.push({
+        poolId: this.id,
+        count: state.subscriptions.filter((sub) => sub.poolId === this.id).length,
+      });
       state.closeCalls.push({ poolId: this.id, relays });
       const closing = new Set(relays);
       state.subscriptions = state.subscriptions.filter((sub) =>
@@ -133,7 +138,7 @@ function setVisibility(value: DocumentVisibilityState): void {
 }
 
 beforeEach(() => {
-  (() => { fake.state.published = []; fake.state.subscriptions = []; fake.state.ensureRelayCalls = []; fake.state.ensureRelayImpl = null; fake.state.querySyncCalls = []; fake.state.poolSeq = 0; fake.state.poolOptions = []; fake.state.closeCalls = []; })();
+  (() => { fake.state.published = []; fake.state.subscriptions = []; fake.state.ensureRelayCalls = []; fake.state.ensureRelayImpl = null; fake.state.querySyncCalls = []; fake.state.poolSeq = 0; fake.state.poolOptions = []; fake.state.closeCalls = []; fake.state.closeOpenSubscriptionCounts = []; })();
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
     ok: false,
     json: vi.fn().mockResolvedValue({}),
@@ -150,7 +155,7 @@ beforeEach(() => {
 afterEach(async () => {
   const { getBridgeImpl } = await import('./client');
   getBridgeImpl()?.dispose();
-  (() => { fake.state.published = []; fake.state.subscriptions = []; fake.state.ensureRelayCalls = []; fake.state.ensureRelayImpl = null; fake.state.querySyncCalls = []; fake.state.poolSeq = 0; fake.state.poolOptions = []; fake.state.closeCalls = []; })();
+  (() => { fake.state.published = []; fake.state.subscriptions = []; fake.state.ensureRelayCalls = []; fake.state.ensureRelayImpl = null; fake.state.querySyncCalls = []; fake.state.poolSeq = 0; fake.state.poolOptions = []; fake.state.closeCalls = []; fake.state.closeOpenSubscriptionCounts = []; })();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -1611,7 +1616,7 @@ describe('nostr-bridge', () => {
     const { skHex, pkHex } = makeKeypair();
     const bridge = await getBridge();
     await bridge.loginWithNsec(skHex, pkHex);
-    fake.state.closeCalls = [];
+    fake.state.closeCalls = []; fake.state.closeOpenSubscriptionCounts = [];
 
     await bridge.switchRelay("wss://other.example");
 
@@ -1619,6 +1624,7 @@ describe('nostr-bridge', () => {
       poolId: 2,
       relays: ["wss://public.obelisk.ar"],
     });
+    expect(fake.state.closeOpenSubscriptionCounts).toContainEqual({ poolId: 2, count: 0 });
   });
 
   it("keeps mounted channel subscriptions alive across relay switches", async () => {

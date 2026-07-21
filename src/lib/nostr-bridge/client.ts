@@ -1400,14 +1400,17 @@ export class BridgeImpl {
     this.cancelReconnectTimer();
     this.reconnectInFlight = false;
     this.connectGeneration++;
-    // pool.close() handles the network teardown atomically; calling each
-    // sub's close beforehand is redundant and races with the pool's own
-    // closeAllSubscriptions sweep, producing CLOSING/CLOSED warnings.
-    this.subs.forEach((s) => (s.markClosed ?? s.close)());
+    const pool = this.pool;
+    const relays = [...this.relays];
+    // Close REQs first, then close the socket on the next microtask so
+    // nostr-tools can flush its queued CLOSE frames while it is still open.
+    this.subs.forEach((s) => s.close());
     this.subs = [];
     this.dmSubHandles = [];
     if (this.poolSocketAlive) {
-      try { this.pool.close(this.relays); } catch { /* ignore */ }
+      queueMicrotask(() => {
+        try { pool.close(relays); } catch { /* ignore */ }
+      });
     }
     this.closeVoicePool();
     this.poolSocketAlive = false;
@@ -1702,14 +1705,16 @@ export class BridgeImpl {
       adminMember: Array.from(this.adminMemberSubscribedGroups),
       metadata: Array.from(this.metadataRequested),
     };
-    // markClosed: stop each subscribeWatched closure's watchdog/retry loop
-    // without sending per-sub CLOSE frames on the old pool's sockets.
-    this.subs.forEach((s) => (s.markClosed ?? s.close)());
+    // Close REQs while the old socket is still open; the pool closes on the
+    // next microtask after nostr-tools flushes those queued CLOSE frames.
+    this.subs.forEach((s) => s.close());
     this.subs = [];
     this.dmSubHandles = [];
     this.poolSocketAlive = false;
     if (shouldClosePool) {
-      try { previousPool.close(previousRelays); } catch { /* ignore */ }
+      queueMicrotask(() => {
+        try { previousPool.close(previousRelays); } catch { /* ignore */ }
+      });
     }
     this.pool = this.createPool();
     this.messageSubscribedGroups.clear();
@@ -2317,12 +2322,14 @@ export class BridgeImpl {
       adminMember: this.adminMemberSubscribedGroups.has(activeGroup) ? [activeGroup] : [],
       metadata: [],
     } : null;
-    this.subs.forEach((s) => (s.markClosed ?? s.close)());
+    this.subs.forEach((s) => s.close());
     this.subs = [];
     this.dmSubHandles = [];
     this.poolSocketAlive = false;
     if (shouldClosePool) {
-      try { previousPool.close(previousRelays); } catch { /* ignore */ }
+      queueMicrotask(() => {
+        try { previousPool.close(previousRelays); } catch { /* ignore */ }
+      });
     }
     this.pool = this.createPool();
     this.relays = [normalized];
@@ -3575,6 +3582,9 @@ export class BridgeImpl {
       affectsRelayAccess?: boolean;
     },
   ): () => void {
+    if (options?.relays && options.relayMode === "replace") {
+      return this.subscribeVoiceFilterWatched(filter, onEvent, options);
+    }
     // Optional `relays` override merges with the bridge's default relay
     // list. Used by callers that need to listen on relays the bridge
     // hasn't been switched to — e.g. the SFU RPC client, where the SFU
@@ -3587,7 +3597,11 @@ export class BridgeImpl {
           ? [...options.relays]
           : [...this.relays, ...options.relays]))
       : this.relays;
-    const start = () => this.subscribeWatched(targetRelays, filter, onEvent, undefined, options);
+    const start = () => {
+      const sub = this.subscribeWatched(targetRelays, filter, onEvent, undefined, options);
+      this.subs.push(sub);
+      return sub;
+    };
     if (!options?.relays && !this.poolSocketAlive) {
       let closed = false;
       let sub: ReturnType<typeof start> | null = null;
@@ -3601,11 +3615,11 @@ export class BridgeImpl {
       return () => {
         closed = true;
         stopWaiting();
-        sub?.close();
+        if (sub) this.closeTrackedSub(sub);
       };
     }
     const sub = start();
-    return () => sub.close();
+    return () => this.closeTrackedSub(sub);
   }
 
   // -- Internals ---------------------------------------------------------
@@ -3878,6 +3892,7 @@ export class BridgeImpl {
 
     return {
       close: () => {
+        if (closed) return;
         closed = true;
         clearTimer();
         // Only attempt the network CLOSE frame if the pool's socket is
@@ -3890,14 +3905,10 @@ export class BridgeImpl {
           return;
         }
         try { activeSub?.close(); } catch { /* ignore */ }
+        activeSub = null;
       },
-      // For pool-replacement paths (resetPoolForSessionChange / switchRelay /
-      // dispose). Marks the closure dead so its retry/watchdog logic stops,
-      // but does NOT send a CLOSE frame on the WebSocket — the caller will
-      // call pool.close() once for the whole pool right after, and the
-      // duplicate per-sub CLOSE racing with the pool teardown is what
-      // produces the "WebSocket is already in CLOSING or CLOSED state"
-      // warnings users were seeing on re-login.
+      // Emergency teardown for a socket that is already dead: stop local
+      // retry logic without attempting another network CLOSE.
       markClosed: () => {
         closed = true;
         clearTimer();
