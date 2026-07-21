@@ -2112,9 +2112,6 @@ export class BridgeImpl {
       } catch {
         throw new Error('no relays connected');
       }
-      // Announce a relay change only after its socket is ready. Mounted UI
-      // hooks react to this store and open relay-scoped REQs immediately.
-      if (relaySnapshot.length === 1) this.currentRelayUrl.set(relaySnapshot[0]);
       // The standard relay path is authoritative and must not wait behind
       // optional HTTP bootstrap discovery/signing.
       this.preflightRelayAccess();
@@ -2329,6 +2326,7 @@ export class BridgeImpl {
     }
     this.pool = this.createPool();
     this.relays = [normalized];
+    this.currentRelayUrl.set(normalized);
     this.ensureRelayInList(normalized);
     if (this.session) this.session.relayUrl = normalized;
     this.persist();
@@ -3589,7 +3587,24 @@ export class BridgeImpl {
           ? [...options.relays]
           : [...this.relays, ...options.relays]))
       : this.relays;
-    const sub = this.subscribeWatched(targetRelays, filter, onEvent, undefined, options);
+    const start = () => this.subscribeWatched(targetRelays, filter, onEvent, undefined, options);
+    if (!options?.relays && !this.poolSocketAlive) {
+      let closed = false;
+      let sub: ReturnType<typeof start> | null = null;
+      let stopWaiting: () => void = () => {};
+      stopWaiting = this.connectionState.subscribe((state) => {
+        if (closed || sub || state !== "Connected" || !this.poolSocketAlive) return;
+        sub = start();
+        stopWaiting();
+      });
+      if (sub) stopWaiting();
+      return () => {
+        closed = true;
+        stopWaiting();
+        sub?.close();
+      };
+    }
+    const sub = start();
     return () => sub.close();
   }
 

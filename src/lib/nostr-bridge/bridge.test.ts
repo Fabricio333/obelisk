@@ -1646,7 +1646,7 @@ describe('nostr-bridge', () => {
     })).toBe(true);
   });
 
-  it("does not announce a relay switch before its handshake is ready", async () => {
+  it("announces a relay switch immediately but defers mounted REQs until the handshake", async () => {
     const { getBridge } = await import("./client");
     const { skHex, pkHex } = makeKeypair();
     const bridge = await getBridge();
@@ -1656,11 +1656,14 @@ describe('nostr-bridge', () => {
     fake.state.ensureRelayImpl = () => new Promise((resolve) => { resolveRelay = resolve; });
 
     const seenRelays: string[] = [];
-    bridge.subscribeCurrentRelayUrl((url) => seenRelays.push(url));
+    bridge.subscribeCurrentRelayUrl((url) => {
+      seenRelays.push(url);
+      if (url === relay) bridge.subscribeFilterWatched({ kinds: [30078] }, () => {});
+    });
     const switchPromise = bridge.switchRelay(relay);
     await flush();
 
-    expect(seenRelays.at(-1)).toBe("wss://public.obelisk.ar");
+    expect(seenRelays.at(-1)).toBe(relay);
     expect(fake.state.subscriptions.filter((sub) => sub.relays?.includes(relay))).toHaveLength(0);
 
     resolveRelay({ connected: true });
@@ -1671,6 +1674,10 @@ describe('nostr-bridge', () => {
     expect(fake.state.subscriptions.some((sub) => {
       const kinds = sub.filter.kinds as number[] | undefined;
       return sub.relays?.includes(relay) && kinds?.includes(39000);
+    })).toBe(true);
+    expect(fake.state.subscriptions.some((sub) => {
+      const kinds = sub.filter.kinds as number[] | undefined;
+      return sub.relays?.includes(relay) && kinds?.includes(30078);
     })).toBe(true);
   });
 
