@@ -29,13 +29,15 @@ import {
   useMyMutes,
   useRelayAccess,
   useMyLoginMethod,
+  useGroupMemberInfo,
+  useMyPubkey,
+  useUserMetadata as useProfile,
   type JsGroup,
   type JsForumTag,
   type JsMessage,
   type JsUserMetadata,
 } from '@/lib/nostr-bridge';
 import { getBridge, getBridgeImpl, getBridgeSync } from '@/lib/nostr-bridge';
-import { useProfile, usePubkey } from '@nostr-wot/data/react';
 import { initializeWot, useWotEnabled, wotEngine } from '@/lib/wot';
 import { wotColorClass } from '@/lib/wot/colors';
 import { faviconFor, fetchRelayInfo } from '@/lib/relay-info';
@@ -52,7 +54,6 @@ import { MentionText } from '@/components/chat/MentionText';
 import MentionNavigator from '@/components/chat/MentionNavigator';
 import HistoryPaginationStatus from '@/components/chat/HistoryPaginationStatus';
 import MemberList from '@/components/chat/MemberList';
-import ChatStoreMembersAdapter from '@/components/chat/ChatStoreMembersAdapter';
 import RelayAdminPanel from '@/components/admin/RelayAdminPanel';
 import VoiceRoom from '@/components/voice/VoiceRoom';
 import ForumView from '@/components/chat/ForumView';
@@ -81,11 +82,9 @@ import { npubToHex } from '@nostr-wot/data';
 import {
   useChannelLayout,
   useRelayOperatorPubkey,
-  applyLayout,
-  publishLayout,
-  newCategoryId,
   type ChannelLayout,
 } from '@/lib/channel-layout';
+import { useChannelLayoutEditor } from '@/hooks/useChannelLayoutEditor';
 import {
   useRelayBranding,
   publishBranding,
@@ -100,7 +99,7 @@ import {
   mergeCustomEmojiMaps,
   type CustomEmojiMap,
 } from '@/lib/custom-emoji-tags';
-import { resolveReactionEmoji } from '@/lib/emoji-shortcodes';
+import { groupReactions, resolveReactionEmoji } from '@/lib/emoji-shortcodes';
 import { channelScrollPositionKey } from '@/lib/channel-scroll-position';
 import { channelInitialAnchorFromCursor } from '@/lib/channel-scroll-anchor';
 import { useChannelScrollPosition } from '@/hooks/chat/useChannelScrollPosition';
@@ -1486,120 +1485,24 @@ function ManageLayoutModal({
   channels: ReadonlyArray<JsGroup>;
   onClose: () => void;
 }) {
-  const [draft, setDraft] = useState<ChannelLayout>(layout);
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [newCatName, setNewCatName] = useState('');
-
-  // Whenever the upstream layout changes (e.g. relay echo) refresh the
-  // draft *only* if the user hasn't started editing yet.
-  useEffect(() => {
-    setDraft((d) => (d.updatedAt === 0 ? layout : d));
-  }, [layout]);
-
+  const {
+    error: err,
+    laidOut,
+    newCategoryName: newCatName,
+    saving,
+    setNewCategoryName: setNewCatName,
+    addCategory,
+    deleteCategory,
+    moveCategory,
+    moveChannel,
+    renameCategory,
+    save,
+    setChannelCategory,
+  } = useChannelLayoutEditor(relayUrl, layout, channels, onClose);
   const channelsById = useMemo(
-    () => Object.fromEntries(channels.map((g) => [g.id, g])),
+    () => Object.fromEntries(channels.map((group) => [group.id, group])),
     [channels],
   );
-
-  const laidOut = useMemo(
-    () => applyLayout(draft, channels.map((g) => g.id)),
-    [draft, channels],
-  );
-
-  function addCategory() {
-    const name = newCatName.trim();
-    if (!name) return;
-    setDraft((d) => ({
-      ...d,
-      categories: [...d.categories, { id: newCategoryId(), name, position: d.categories.length }],
-    }));
-    setNewCatName('');
-  }
-
-  function renameCategory(id: string, name: string) {
-    setDraft((d) => ({
-      ...d,
-      categories: d.categories.map((c) => (c.id === id ? { ...c, name } : c)),
-    }));
-  }
-
-  function deleteCategory(id: string) {
-    setDraft((d) => ({
-      categories: d.categories.filter((c) => c.id !== id),
-      // Channels in this cat fall back to uncategorized.
-      channels: d.channels.map((ch) =>
-        ch.categoryId === id ? { ...ch, categoryId: null } : ch,
-      ),
-      updatedAt: d.updatedAt,
-    }));
-  }
-
-  function moveCategory(id: string, delta: number) {
-    setDraft((d) => {
-      const arr = [...d.categories];
-      const i = arr.findIndex((c) => c.id === id);
-      const j = i + delta;
-      if (i < 0 || j < 0 || j >= arr.length) return d;
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-      return { ...d, categories: arr.map((c, k) => ({ ...c, position: k })) };
-    });
-  }
-
-  function setChannelCategory(channelId: string, categoryId: string | null) {
-    setDraft((d) => {
-      const others = d.channels.filter((c) => c.id !== channelId);
-      const sameBucket = others.filter((c) => c.categoryId === categoryId);
-      return {
-        ...d,
-        channels: [
-          ...others,
-          { id: channelId, categoryId, position: sameBucket.length },
-        ],
-      };
-    });
-  }
-
-  function moveChannel(channelId: string, delta: number) {
-    setDraft((d) => {
-      const ch = d.channels.find((c) => c.id === channelId);
-      const catId = ch ? ch.categoryId : null;
-      const bucket = laidOut.categories.find((c) => c.id === catId)?.channelIds
-        ?? (catId === null ? laidOut.uncategorized : []);
-      const i = bucket.indexOf(channelId);
-      const j = i + delta;
-      if (i < 0 || j < 0 || j >= bucket.length) return d;
-      const newOrder = [...bucket];
-      [newOrder[i], newOrder[j]] = [newOrder[j], newOrder[i]];
-      const others = d.channels.filter((c) => c.categoryId !== catId);
-      return {
-        ...d,
-        channels: [
-          ...others,
-          ...newOrder.map((id, k) => ({ id, categoryId: catId, position: k })),
-        ],
-      };
-    });
-  }
-
-  async function save() {
-    setSaving(true);
-    setErr(null);
-    try {
-      // Normalize positions before publishing.
-      const normalized: ChannelLayout = {
-        categories: draft.categories.map((c, i) => ({ ...c, position: i })),
-        channels: draft.channels.map((c, i) => ({ ...c, position: i })),
-        updatedAt: Math.floor(Date.now() / 1000),
-      };
-      await publishLayout(relayUrl, normalized);
-      onClose();
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  }
 
   return (
     <ModalShell
@@ -1823,11 +1726,6 @@ function ChannelOrderRow({
   );
 }
 
-// Use the SDK's usePubkey via re-alias so call sites keep their existing
-// `useMyPubkey()` name. The local localStorage-reading shim was replaced
-// during the SDK migration — the SDK session context (synced from the
-// bridge in <SdkSessionBridge>) is now the source of truth.
-const useMyPubkey = usePubkey;
 
 function SidebarMe() {
   const myPubkey = useMyPubkey();
@@ -2997,52 +2895,14 @@ function MessageRow({
       document.removeEventListener('keydown', onEsc);
     };
   }, [menuOpen, panelPinned, pickerOpen]);
-  // Dedupe reactions by (pubkey, emoji) — each user can only count once per
-  // emoji even if the relay re-delivered or the user double-tapped before the
-  // first kind:7 round-tripped.
-  const reactionsByEmoji = useMemo(() => {
-    const m = new Map<string, {
-      emoji: string;
-      customEmojis: CustomEmojiMap;
-      pubkeys: Set<string>;
-      reactionIds: string[];
-      myReactionId: string | null;
-    }>();
-    for (const r of reactions) {
-      const customEmojis = mergeCustomEmojiMaps(serverEmojis, r.customEmojis as CustomEmojiMap | undefined);
-      const resolved = resolveReactionEmoji(r.emoji, customEmojis);
-      const key = resolved.kind === 'custom'
-        ? `custom:${resolved.name}:${resolved.url}`
-        : `unicode:${resolved.char}`;
-      let entry = m.get(key);
-      if (!entry) {
-        entry = {
-          emoji: resolved.kind === 'custom' ? `:${resolved.name}:` : resolved.char,
-          customEmojis: resolved.kind === 'custom' ? { [resolved.name]: resolved.url } : {},
-          pubkeys: new Set<string>(),
-          reactionIds: [],
-          myReactionId: null,
-        };
-        m.set(key, entry);
-      }
-      entry.pubkeys.add(r.pubkey);
-      entry.reactionIds.push(r.id);
-      if (r.pubkey === myPubkey) entry.myReactionId = r.id;
-    }
-    return m;
-  }, [reactions, serverEmojis, myPubkey]);
   const counts = useMemo(
-    () => Array.from(reactionsByEmoji.values())
-      .map((entry) => ({ ...entry, count: entry.pubkeys.size }))
-      .sort((a, b) => b.count - a.count),
-    [reactionsByEmoji],
+    () => groupReactions(reactions, myPubkey, serverEmojis),
+    [reactions, myPubkey, serverEmojis],
   );
-  const myReactedEmojis = useMemo(() => {
-    if (!myPubkey) return new Set<string>();
-    const out = new Set<string>();
-    for (const entry of reactionsByEmoji.values()) if (entry.myReactionId) out.add(entry.emoji);
-    return out;
-  }, [reactionsByEmoji, myPubkey]);
+  const myReactedEmojis = useMemo(
+    () => new Set(counts.filter((reaction) => reaction.mine).map((reaction) => reaction.emoji)),
+    [counts],
+  );
   const onReactionClick = (
     emoji: string,
     customEmojis?: CustomEmojiMap,
@@ -3404,9 +3264,8 @@ function MembersPanel({ groupId }: { groupId: string }) {
   const ready = useMembershipReady(groupId);
   return (
     <>
-      <ChatStoreMembersAdapter groupId={groupId} />
       {ready ? (
-        <MemberList profileCache={EMPTY_PROFILE_CACHE} />
+        <MemberList groupId={groupId} />
       ) : (
         <div
           className="w-60 h-full bg-lc-dark border-l border-lc-border flex flex-col items-center justify-center gap-3 text-sm text-lc-muted"
@@ -3421,7 +3280,6 @@ function MembersPanel({ groupId }: { groupId: string }) {
   );
 }
 
-const EMPTY_PROFILE_CACHE = new Map<string, { name?: string; picture?: string }>();
 
 function ProfilePopupBridge() {
   const popupPubkey = useChatStore((s) => s.profilePopupPubkey);

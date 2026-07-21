@@ -12,7 +12,7 @@ const localIPs = Object.values(networkInterfaces())
 // site-wide (proxy.ts is HTML-only via its matcher).
 
 const nextConfig: NextConfig = {
-  transpilePackages: ['@nostr-wot/ui', '@nostr-wot/data', '@nostr-wot/signers'],
+  transpilePackages: ['@nostr-wot/ui', '@nostr-wot/data'],
   allowedDevOrigins: [...localIPs, 'obelisk.fabri.lat', 'obelisk.wearebitcoin.org', 'obelisk.nostr-wtf.com', 'dex-test.obelisk.ar', 'obelisk.ar'],
   // Temporary: skip typecheck during voice mesh-test runs to unblock the
   // diagnostic harness. The pre-existing LoginModal/relay-sync.test type

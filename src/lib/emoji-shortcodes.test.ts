@@ -4,6 +4,7 @@ import {
   replaceShortcodes,
   searchShortcodes,
   resolveReactionEmoji,
+  groupReactions,
   CUSTOM_EMOJI_PLACEHOLDER_REGEX,
 } from './emoji-shortcodes';
 
@@ -120,6 +121,22 @@ describe('resolveReactionEmoji', () => {
     expect(resolveReactionEmoji(':notreal:')).toEqual({
       kind: 'unicode',
       char: ':notreal:',
+    });
+  });
+});
+
+describe('groupReactions', () => {
+  it('deduplicates relay echoes by author and resolves custom emoji', () => {
+    const grouped = groupReactions([
+      { id: '1', pubkey: 'me', emoji: '🔥' },
+      { id: '2', pubkey: 'me', emoji: '🔥' },
+      { id: '3', pubkey: 'other', emoji: ':party:', customEmojis: { party: 'https://cdn/party.png' } },
+    ], 'me', {});
+
+    expect(grouped).toHaveLength(2);
+    expect(grouped.find((item) => item.emoji === '🔥')).toMatchObject({ count: 1, mine: true });
+    expect(grouped.find((item) => item.emoji === ':party:')?.customEmojis).toEqual({
+      party: 'https://cdn/party.png',
     });
   });
 });

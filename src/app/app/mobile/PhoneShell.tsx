@@ -29,6 +29,8 @@ import {
   useMessagesByGroup,
   useMessagesStatus,
   useSignerReady,
+  useMyPubkey,
+  useUserMetadata,
   useLoadEarlier,
   useDirectMessages,
   useAdmins,
@@ -53,9 +55,7 @@ import {
   type JsDirectMessage,
   type JsUserMetadata,
 } from '@/lib/nostr-bridge';
-import { useFollows, useProfile, usePubkey, usePublishProfile } from '@nostr-wot/data/react';
-const useMyPubkey = usePubkey;
-const useUserMetadata = useProfile;
+import { useFollows } from '@nostr-wot/data/react';
 import LoginModal from '../LoginModal';
 import DMOptInGate from '../DMOptInGate';
 import { RelayStatusBadge } from '../RelayStatusBanner';
@@ -70,15 +70,13 @@ import HistoryPaginationStatus from '@/components/chat/HistoryPaginationStatus';
 import EmojiPicker, { type PickedCustomEmoji } from '@/components/chat/EmojiPicker';
 import { uploadToBlossom } from '@/lib/blossom';
 import { formatPubkey, hexToNpub as pubkeyToNpub } from '@nostr-wot/data';
-import { faviconFor, fetchRelayInfo } from '@/lib/relay-info';
+import { faviconFor, fetchRelayInfo, SUGGESTED_RELAYS } from '@/lib/relay-info';
 import {
   useChannelLayout,
   useRelayOperatorPubkey,
-  applyLayout,
-  publishLayout,
-  newCategoryId,
   type ChannelLayout,
 } from '@/lib/channel-layout';
+import { useChannelLayoutEditor } from '@/hooks/useChannelLayoutEditor';
 import {
   useRelayBranding,
   publishBranding,
@@ -94,7 +92,7 @@ import {
   mergeCustomEmojiMaps,
   type CustomEmojiMap,
 } from '@/lib/custom-emoji-tags';
-import { resolveReactionEmoji } from '@/lib/emoji-shortcodes';
+import { groupReactions, resolveReactionEmoji } from '@/lib/emoji-shortcodes';
 import BlossomImageInput from '@/components/BlossomImageInput';
 import RelayAdminPanel from '@/components/admin/RelayAdminPanel';
 import RelayEmojiAdminModal from '@/components/admin/RelayEmojiAdminModal';
@@ -404,17 +402,6 @@ function LoginScreen() {
   );
 }
 
-// Mirrors the desktop ServerRail's suggested-relays list so users get the
-// same starting set of NIP-29 relays from the mobile + tile.
-const SUGGESTED_RELAYS: ReadonlyArray<{ url: string; fallbackName?: string; fallbackDescription?: string }> = [
-  { url: 'wss://relay.obelisk.ar', fallbackName: 'Obelisk relay', fallbackDescription: 'Default NIP-29 relay for Obelisk groups.' },
-  { url: 'wss://lacrypta-relay.obelisk.ar', fallbackName: 'La Crypta relay', fallbackDescription: 'NIP-29 relay for La Crypta.' },
-  { url: 'wss://public.obelisk.ar', fallbackName: 'Obelisk public', fallbackDescription: 'Open NIP-29 relay run by Obelisk.' },
-  { url: 'wss://groups.0xchat.com', fallbackName: '0xchat Groups relay', fallbackDescription: 'NIP-29 relay powering 0xchat group messaging.' },
-  { url: 'wss://relay.groups.nip29.com', fallbackName: 'relay.groups.nip29.com', fallbackDescription: 'Public NIP-29 groups relay.' },
-  { url: 'wss://groups.hzrd149.com', fallbackName: "hzrd149's groups", fallbackDescription: 'A NIP-29 groups relay for hzrd149.' },
-  { url: 'wss://pyramid.fiatjaf.com', fallbackName: 'the fiatjaf pyramid', fallbackDescription: 'Invite-only NIP-29 relay run by fiatjaf.' },
-];
 
 export function RelayMenuSheet({
   close,
@@ -1061,110 +1048,25 @@ function ManageCategoriesSheet({
   channels: ReadonlyArray<JsGroup>;
   close: () => void;
 }) {
-  const [draft, setDraft] = useState<ChannelLayout>(layout);
-  const [newCatName, setNewCatName] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    setDraft((d) => (d.updatedAt === 0 ? layout : d));
-  }, [layout]);
-
+  const {
+    draft,
+    error: err,
+    laidOut,
+    newCategoryName: newCatName,
+    saving,
+    setNewCategoryName: setNewCatName,
+    addCategory,
+    deleteCategory,
+    moveCategory,
+    moveChannel,
+    renameCategory,
+    save,
+    setChannelCategory,
+  } = useChannelLayoutEditor(relayUrl, layout, channels, close);
   const channelsById = useMemo(
-    () => Object.fromEntries(channels.map((g) => [g.id, g])),
+    () => Object.fromEntries(channels.map((group) => [group.id, group])),
     [channels],
   );
-  const laidOut = useMemo(
-    () => applyLayout(draft, channels.map((g) => g.id)),
-    [draft, channels],
-  );
-
-  const addCategory = () => {
-    const trimmed = newCatName.trim();
-    if (!trimmed) return;
-    setDraft((d) => ({
-      ...d,
-      categories: [
-        ...d.categories,
-        { id: newCategoryId(), name: trimmed, position: d.categories.length },
-      ],
-    }));
-    setNewCatName('');
-  };
-
-  const renameCategory = (id: string, name: string) => {
-    setDraft((d) => ({
-      ...d,
-      categories: d.categories.map((c) => (c.id === id ? { ...c, name } : c)),
-    }));
-  };
-
-  const deleteCategory = (id: string) => {
-    setDraft((d) => ({
-      categories: d.categories.filter((c) => c.id !== id),
-      channels: d.channels.map((ch) => (ch.categoryId === id ? { ...ch, categoryId: null } : ch)),
-      updatedAt: d.updatedAt,
-    }));
-  };
-
-  const moveCategory = (id: string, delta: number) => {
-    setDraft((d) => {
-      const arr = [...d.categories];
-      const i = arr.findIndex((c) => c.id === id);
-      const j = i + delta;
-      if (i < 0 || j < 0 || j >= arr.length) return d;
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-      return { ...d, categories: arr.map((c, k) => ({ ...c, position: k })) };
-    });
-  };
-
-  const setChannelCategory = (channelId: string, categoryId: string | null) => {
-    setDraft((d) => {
-      const others = d.channels.filter((c) => c.id !== channelId);
-      const sameBucket = others.filter((c) => c.categoryId === categoryId);
-      return {
-        ...d,
-        channels: [...others, { id: channelId, categoryId, position: sameBucket.length }],
-      };
-    });
-  };
-
-  const moveChannel = (channelId: string, delta: number) => {
-    setDraft((d) => {
-      const ch = d.channels.find((c) => c.id === channelId);
-      const catId = ch ? ch.categoryId : null;
-      const bucket = laidOut.categories.find((c) => c.id === catId)?.channelIds
-        ?? (catId === null ? laidOut.uncategorized : []);
-      const i = bucket.indexOf(channelId);
-      const j = i + delta;
-      if (i < 0 || j < 0 || j >= bucket.length) return d;
-      const newOrder = [...bucket];
-      [newOrder[i], newOrder[j]] = [newOrder[j], newOrder[i]];
-      const others = d.channels.filter((c) => c.categoryId !== catId);
-      return {
-        ...d,
-        channels: [...others, ...newOrder.map((id, k) => ({ id, categoryId: catId, position: k }))],
-      };
-    });
-  };
-
-  const save = async () => {
-    setSaving(true);
-    setErr(null);
-    try {
-      const normalized: ChannelLayout = {
-        categories: draft.categories.map((c, i) => ({ ...c, position: i })),
-        channels: draft.channels.map((c, i) => ({ ...c, position: i })),
-        updatedAt: Math.floor(Date.now() / 1000),
-      };
-      await publishLayout(relayUrl, normalized);
-      close();
-    } catch (ex) {
-      setErr((ex as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const arrowBtnStyle: React.CSSProperties = {
     width: 28,
@@ -3088,40 +2990,10 @@ export function ChannelMessage({
   const name = meta?.displayName || meta?.name || shortNpub(msg.pubkey);
   const serverEmojis = useChatStore((s) => s.serverEmojis);
 
-  // Aggregate reaction emojis with counts
-  const grouped = useMemo(() => {
-    const m = new Map<string, {
-      emoji: string;
-      customEmojis: CustomEmojiMap;
-      count: number;
-      mine: boolean;
-      reactionIds: string[];
-      myReactionId: string | null;
-    }>();
-    for (const r of reactions) {
-      const customEmojis = mergeCustomEmojiMaps(serverEmojis, r.customEmojis as CustomEmojiMap | undefined);
-      const resolved = resolveReactionEmoji(r.emoji, customEmojis);
-      const key = resolved.kind === 'custom'
-        ? `custom:${resolved.name}:${resolved.url}`
-        : `unicode:${resolved.char}`;
-      const ex = m.get(key) ?? {
-        emoji: resolved.kind === 'custom' ? `:${resolved.name}:` : resolved.char,
-        customEmojis: resolved.kind === 'custom' ? { [resolved.name]: resolved.url } : {},
-        count: 0,
-        mine: false,
-        reactionIds: [],
-        myReactionId: null,
-      };
-      ex.count++;
-      ex.reactionIds.push(r.id);
-      if (r.pubkey === myPubkey) {
-        ex.mine = true;
-        ex.myReactionId = r.id;
-      }
-      m.set(key, ex);
-    }
-    return Array.from(m.values()).sort((a, b) => b.count - a.count);
-  }, [reactions, myPubkey, serverEmojis]);
+  const grouped = useMemo(
+    () => groupReactions(reactions, myPubkey, serverEmojis),
+    [reactions, myPubkey, serverEmojis],
+  );
 
   const handleReaction = async (
     emoji: string,
@@ -5063,7 +4935,7 @@ export function EditProfileScreen({ go }: { go: (s: ScreenName, dir?: 'forward' 
   const { t } = useTranslation();
   const myPubkey = useMyPubkey();
   const meta = useUserMetadata(myPubkey);
-  const publishProfile = usePublishProfile();
+  const signerReady = useSignerReady();
 
   const [name, setName] = useState('');
   const [about, setAbout] = useState('');
@@ -5147,10 +5019,10 @@ export function EditProfileScreen({ go }: { go: (s: ScreenName, dir?: 'forward' 
         try { finalBanner = await uploadToBlossom(bannerFile); }
         finally { setUploadingBanner(false); }
       }
-      if (!publishProfile) throw new Error(t('user.notSignedIn'));
-      await publishProfile({
+      if (!signerReady) throw new Error(t('user.notSignedIn'));
+      await nostrActions.editUserMetadata({
         name: nameTrimmed,
-        display_name: nameTrimmed,
+        displayName: nameTrimmed,
         about: about.trim(),
         picture: finalPicture.trim(),
         banner: finalBanner.trim(),

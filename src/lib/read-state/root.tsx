@@ -40,18 +40,16 @@ import {
   useGroupMetadataEose,
   useGroups,
 } from '@/lib/nostr-bridge';
-import { usePubkey } from '@nostr-wot/data/react';
+import { useMyPubkey } from '@/lib/nostr-bridge';
 import { useAutoMarkRead } from '@/hooks/useAutoMarkRead';
 import { useFaviconBadge } from '@/hooks/useFaviconBadge';
 import { ensureReadStateStoreForAccount } from '@/store/read-state';
 import { ensureDMStoreForAccount } from '@/store/dm';
 import { ensureModerationStoreForAccount } from '@/store/moderation';
-import { ensureForumFollowForAccount } from '@/store/chat/forum-follow-slice';
 import { startGroupsRelaySync, startDMRelaySync } from './relay-sync';
 import { fetchRelayList } from '@nostr-wot/data';
 import { DEFAULT_PROFILE_LOOKUP_RELAYS } from '@/lib/nostr-bridge/client';
 
-const useMyPubkey = usePubkey;
 
 /**
  * Per-account persistence wiring. Add new per-account stores here — the
@@ -62,7 +60,6 @@ const PER_ACCOUNT_STORES = [
   ensureReadStateStoreForAccount,
   ensureDMStoreForAccount,
   ensureModerationStoreForAccount,
-  ensureForumFollowForAccount,
 ] as const;
 
 /**

@@ -2,18 +2,14 @@
 
 import { Fragment, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useChatStore } from '@/store/chat';
+import { useGroupMemberInfo, useMyPubkey, useUserMetadata } from '@/lib/nostr-bridge';
 import { useToastStore } from '@/store/toast';
 import { useModerationStore } from '@/store/moderation';
 import { formatPubkey, hexToNpub, hexToNpub as pubkeyToNpub } from '@nostr-wot/data';
-import { useProfile, usePubkey } from '@nostr-wot/data/react';
-const useUserMetadata = useProfile;
-const useMyPubkey = usePubkey;
-import type { MemberInfo } from '@/lib/mentions';
 import {
   replaceShortcodes,
   CUSTOM_EMOJI_PLACEHOLDER_REGEX,
 } from '@/lib/emoji-shortcodes';
-import ChannelEmoji from './ChannelEmoji';
 import WotBadge from './WotBadge';
 import UserAvatar from '@/components/UserAvatar';
 
@@ -60,16 +56,6 @@ function shortNpub(pubkey: string): string {
   }
 }
 
-function formatJoinedDate(iso?: string): string {
-  if (!iso) return '—';
-  try {
-    const d = new Date(iso);
-    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-  } catch {
-    return '—';
-  }
-}
-
 const BASE_ROLE_LABEL: Record<string, { label: string; color: string }> = {
   owner: { label: 'Owner', color: '#f59e0b' },
   admin: { label: 'Admin', color: '#ef4444' },
@@ -81,24 +67,25 @@ export default function ProfilePopover({ pubkey, onClose }: {
   pubkey: string;
   onClose: () => void;
 }) {
-  const { memberList, serverEmojis } = useChatStore();
-  const memberFromList = memberList.find((m) => m.pubkey === pubkey);
+  const activeGroupId = useChatStore((s) => s.activeChannelId);
+  const serverEmojis = useChatStore((s) => s.serverEmojis);
+  const memberFromList = useGroupMemberInfo(activeGroupId).find((m) => m.pubkey === pubkey);
   // For arbitrary pubkeys (e.g. the search-bar dropdown), the active server's
   // memberList won't have an entry. Fall back to live Nostr kind:0 metadata so
   // the popover still renders avatar/name/nip05/about/website/lud16/banner.
   const meta = useUserMetadata(pubkey);
-  const member = useMemo<MemberInfo | undefined>(() => {
-    if (memberFromList) return memberFromList;
-    if (!meta) return undefined;
+  const member = useMemo(() => {
+    if (!memberFromList && !meta) return undefined;
     return {
       pubkey,
-      displayName: meta.displayName ?? meta.name ?? formatPubkey(pubkey),
-      picture: meta.picture ?? undefined,
-      banner: meta.banner ?? undefined,
-      nip05: meta.nip05 ?? undefined,
-      about: meta.about ?? undefined,
-      website: meta.website ?? undefined,
-      lud16: meta.lud16 ?? undefined,
+      displayName: meta?.displayName ?? meta?.name ?? memberFromList?.displayName ?? formatPubkey(pubkey),
+      picture: meta?.picture ?? memberFromList?.picture,
+      banner: meta?.banner ?? undefined,
+      nip05: meta?.nip05 ?? memberFromList?.nip05,
+      about: meta?.about ?? undefined,
+      website: meta?.website ?? undefined,
+      lud16: meta?.lud16 ?? undefined,
+      role: memberFromList?.role,
     };
   }, [memberFromList, meta, pubkey]);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -119,12 +106,10 @@ export default function ProfilePopover({ pubkey, onClose }: {
 
   let npub = '';
   try { npub = hexToNpub(pubkey); } catch {}
-  const isBot = !!member?.isBot || !npub;
   const safeFallback = npub ? formatPubkey(pubkey) : pubkey;
   const displayName = member?.displayName || safeFallback;
   const npubShort = npub ? shortNpub(pubkey) : pubkey;
   const baseRole = member?.role ? BASE_ROLE_LABEL[member.role] : undefined;
-  const customRoles = (member?.customRoles ?? []).slice().sort((a, b) => b.priority - a.priority);
 
   return (
     <div
@@ -185,39 +170,17 @@ export default function ProfilePopover({ pubkey, onClose }: {
           )}
 
           {/* Roles */}
-          {(baseRole || customRoles.length > 0) && (
+          {baseRole && (
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-lc-muted font-semibold mb-1.5">
-                Roles
-              </div>
+              <div className="text-[10px] uppercase tracking-wider text-lc-muted font-semibold mb-1.5">Roles</div>
               <div className="flex flex-wrap gap-1.5" data-testid="profile-roles">
-                {baseRole && (
-                  <span
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border"
-                    style={{ borderColor: baseRole.color, color: baseRole.color }}
-                  >
-                    <span
-                      className="w-1.5 h-1.5 rounded-full"
-                      style={{ backgroundColor: baseRole.color }}
-                    />
-                    {baseRole.label}
-                  </span>
-                )}
-                {customRoles.map((r) => (
-                  <span
-                    key={r.id}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border bg-lc-black/40"
-                    style={{ borderColor: r.color, color: r.color }}
-                    data-testid="profile-custom-role"
-                  >
-                    {r.icon ? (
-                      <ChannelEmoji value={r.icon} imgClassName="inline-block w-3.5 h-3.5 object-contain" className="text-sm" />
-                    ) : (
-                      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: r.color }} />
-                    )}
-                    {renderWithEmojis(r.name, serverEmojis)}
-                  </span>
-                ))}
+                <span
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border"
+                  style={{ borderColor: baseRole.color, color: baseRole.color }}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: baseRole.color }} />
+                  {baseRole.label}
+                </span>
               </div>
             </div>
           )}
@@ -251,28 +214,7 @@ export default function ProfilePopover({ pubkey, onClose }: {
             </div>
           )}
 
-          {/* Joined date */}
-          <div>
-            <div className="text-[10px] uppercase tracking-wider text-lc-muted font-semibold mb-1">
-              Miembro desde
-            </div>
-            <div className="text-sm text-lc-white/90" data-testid="profile-joined">
-              {formatJoinedDate(member?.joinedAt)}
-            </div>
-          </div>
-
-          {/* Bot status text */}
-          {isBot && member?.statusText && (
-            <div
-              className="text-xs text-lc-green font-mono break-words"
-              data-testid="profile-bot-status"
-            >
-              {member.statusText}
-            </div>
-          )}
-
           {/* Actions */}
-          {!isBot && (
           <div className="pt-3 border-t border-lc-border space-y-2">
             <div className="flex gap-2">
               <button
@@ -374,7 +316,6 @@ export default function ProfilePopover({ pubkey, onClose }: {
               </p>
             )}
           </div>
-          )}
         </div>
       </div>
     </div>

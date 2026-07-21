@@ -12,7 +12,8 @@ import {
   useDirectMessages,
   type JsDirectMessage,
 } from '@/lib/nostr-bridge';
-import { useFollows, useProfile, usePubkey } from '@nostr-wot/data/react';
+import { useFollows } from '@nostr-wot/data/react';
+import { useMyPubkey as usePubkey, useUserMetadata as useProfile } from '@/lib/nostr-bridge';
 import { useDMUnreadCount } from '@/lib/read-state/selectors';
 import DMComposer from './DMComposer';
 import UserAvatar from '@/components/UserAvatar';

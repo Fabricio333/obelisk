@@ -32,10 +32,9 @@ import {
   useMessagesByGroup,
   useMessagesStatus,
   nostrActions,
+  useMyPubkey,
+  useUserMetadata,
 } from '@/lib/nostr-bridge';
-import { useProfile, usePubkey } from '@nostr-wot/data/react';
-const useUserMetadata = useProfile;
-const useMyPubkey = usePubkey;
 import type { JsGroup, JsForumTag, JsMessage } from '@/lib/nostr-bridge';
 
 interface Props {

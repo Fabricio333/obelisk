@@ -2,6 +2,8 @@ export { getBridge, getBridgeSync, getBridgeImpl, isImportableRelayUrl, type Bri
 export { nostrActions } from './actions';
 export {
   useIsLoggedIn,
+  useMyPubkey,
+  useNipSigner,
   useIsRehydrating,
   useConnectionState,
   useCurrentRelayUrl,
@@ -21,6 +23,7 @@ export {
   useAdminsByGroup,
   useMembers,
   useMembersByGroup,
+  useGroupMemberInfo,
   useMembershipReady,
   useGroupCreator,
   useGroupCreators,
@@ -32,7 +35,7 @@ export {
   useActiveCall,
   useActiveCallByChannel,
 } from './stores';
-export type { ActiveCallInfo } from './stores';
+export type { ActiveCallInfo, JsMemberInfo } from './stores';
 export type {
   JsGroup,
   JsForumTag,

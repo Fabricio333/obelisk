@@ -1,86 +1,88 @@
-import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProfilePopover from './ProfilePopover';
 import { useChatStore } from '@/store/chat';
 
-vi.mock('@nostr-wot/data/react', () => ({
-  useProfile: () => null,
-  usePubkey: () => null,
+const bridge = vi.hoisted(() => ({
+  members: [] as Array<{ pubkey: string; displayName: string; picture?: string; nip05?: string; role: 'admin' | 'member' }>,
+  metadata: null as null | {
+    pubkey: string;
+    name: string | null;
+    displayName: string | null;
+    picture: string | null;
+    about: string | null;
+    nip05: string | null;
+    banner: string | null;
+    lud16: string | null;
+    website: string | null;
+  },
+}));
+
+vi.mock('@/lib/nostr-bridge', () => ({
+  useGroupMemberInfo: () => bridge.members,
+  useMyPubkey: () => null,
+  useUserMetadata: () => bridge.metadata,
 }));
 
 vi.mock('@nostr-wot/data', () => ({
-  formatPubkey: vi.fn((pk: string) => `${pk.slice(0, 8)}…`),
-  // Faithful enough for the npub1-prefix assertion below; real encoding isn't
-  // needed since the test only checks the `npub1` prefix survives the format.
-  hexToNpub: vi.fn((pk: string) => `npub1${pk}`),
+  formatPubkey: vi.fn((pubkey: string) => `${pubkey.slice(0, 8)}…`),
+  hexToNpub: vi.fn((pubkey: string) => `npub1${pubkey}`),
 }));
+
+const PUBKEY = 'a'.repeat(64);
 
 describe('ProfilePopover', () => {
   beforeEach(() => {
-    useChatStore.setState(useChatStore.getInitialState());
+    useChatStore.setState({ ...useChatStore.getInitialState(), activeChannelId: 'group' });
+    bridge.members = [{
+      pubkey: PUBKEY,
+      displayName: 'AndyCreed',
+      picture: 'https://example.com/pic.jpg',
+      role: 'admin',
+    }];
+    bridge.metadata = {
+      pubkey: PUBKEY,
+      name: 'andy',
+      displayName: 'AndyCreed',
+      picture: 'https://example.com/pic.jpg',
+      banner: 'https://example.com/banner.jpg',
+      nip05: 'andycreed@example.com',
+      about: 'Building stuff',
+      lud16: null,
+      website: null,
+    };
   });
 
-  const setMember = (overrides: Partial<Parameters<typeof useChatStore.setState>[0]> = {}) => {
-    useChatStore.setState({
-      memberList: [
-        {
-          pubkey: 'pk1',
-          displayName: 'AndyCreed',
-          picture: 'https://example.com/pic.jpg',
-          banner: 'https://example.com/banner.jpg',
-          nip05: 'andycreed@example.com',
-          about: 'Building stuff',
-          role: 'admin',
-          joinedAt: '2025-06-15T00:00:00.000Z',
-          customRoles: [
-            { id: 'r1', name: 'Descentralizador', color: '#f59e0b', icon: null, priority: 10 },
-            { id: 'r2', name: 'Minero', color: '#ef4444', icon: null, priority: 5 },
-          ],
-        },
-      ],
-      ...overrides,
-    } as any);
-  };
-
-  it('renders display name, handle, about, roles and joined date', () => {
-    setMember();
-    render(<ProfilePopover pubkey="pk1" onClose={() => {}} />);
-
-    expect(screen.getByTestId('profile-name').textContent).toBe('AndyCreed');
-    expect(screen.getByTestId('profile-handle').textContent).toContain('andycreed@example.com');
-    expect(screen.getByTestId('profile-about').textContent).toBe('Building stuff');
+  it('combines relay membership with kind:0 profile metadata', () => {
+    render(<ProfilePopover pubkey={PUBKEY} onClose={() => {}} />);
+    expect(screen.getByTestId('profile-name')).toHaveTextContent('AndyCreed');
+    expect(screen.getByTestId('profile-handle')).toHaveTextContent('andycreed@example.com');
+    expect(screen.getByTestId('profile-about')).toHaveTextContent('Building stuff');
     expect(screen.getByText('Admin')).toBeInTheDocument();
-    expect(screen.getByText('Descentralizador')).toBeInTheDocument();
-    expect(screen.getByText('Minero')).toBeInTheDocument();
-    expect(screen.getByTestId('profile-joined').textContent).not.toBe('—');
   });
 
-  it('renders banner background when banner is set', () => {
-    setMember();
-    render(<ProfilePopover pubkey="pk1" onClose={() => {}} />);
-    const banner = screen.getByTestId('profile-banner') as HTMLElement;
-    expect(banner.style.backgroundImage).toContain('banner.jpg');
+  it('renders the kind:0 banner', () => {
+    render(<ProfilePopover pubkey={PUBKEY} onClose={() => {}} />);
+    expect(screen.getByTestId('profile-banner').style.backgroundImage).toContain('banner.jpg');
   });
 
-  it('falls back to short npub when member is not in memberList', () => {
-    const pk = 'deadbeef'.repeat(8);
-    render(<ProfilePopover pubkey={pk} onClose={() => {}} />);
-    expect(screen.getByTestId('profile-handle').textContent).toMatch(/npub1/);
-    expect(screen.getByTestId('profile-joined').textContent).toBe('—');
+  it('falls back to a short npub without relay or profile data', () => {
+    bridge.members = [];
+    bridge.metadata = null;
+    render(<ProfilePopover pubkey={PUBKEY} onClose={() => {}} />);
+    expect(screen.getByTestId('profile-handle')).toHaveTextContent('npub1');
   });
 
-it('calls onClose when backdrop is clicked', () => {
-    setMember();
+  it('closes from the backdrop', () => {
     const onClose = vi.fn();
-    render(<ProfilePopover pubkey="pk1" onClose={onClose} />);
+    render(<ProfilePopover pubkey={PUBKEY} onClose={onClose} />);
     fireEvent.click(screen.getByTestId('profile-popover-backdrop'));
-    expect(onClose).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('does not call onClose when panel content is clicked', () => {
-    setMember();
+  it('does not close from panel content', () => {
     const onClose = vi.fn();
-    render(<ProfilePopover pubkey="pk1" onClose={onClose} />);
+    render(<ProfilePopover pubkey={PUBKEY} onClose={onClose} />);
     fireEvent.click(screen.getByTestId('profile-popover'));
     expect(onClose).not.toHaveBeenCalled();
   });

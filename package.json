@@ -23,8 +23,6 @@
   "dependencies": {
     "@noble/hashes": "^2.0.1",
     "@nostr-wot/data": "^0.5.1",
-    "@nostr-wot/dm": "^0.5.0",
-    "@nostr-wot/signers": "^0.4.0",
     "@nostr-wot/ui": "^0.6.0",
     "@nostr-wot/wallet": "^0.3.1",
     "gray-matter": "^4.0.3",
@@ -38,7 +36,6 @@
     "react-dom": "19.2.4",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "shiki": "^4.0.2",
     "zustand": "^5.0.12"
   },
   "devDependencies": {

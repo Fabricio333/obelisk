@@ -7,7 +7,7 @@ import {
   useAdminsByGroup,
   useGroups,
 } from '@/lib/nostr-bridge';
-import { useProfile } from '@nostr-wot/data/react';
+import { useUserMetadata as useProfile } from '@/lib/nostr-bridge';
 import { getBridgeImpl } from '@/lib/nostr-bridge';
 
 interface Row {

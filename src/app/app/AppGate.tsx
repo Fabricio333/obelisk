@@ -19,9 +19,7 @@ import dynamic from 'next/dynamic';
 // in practice means the first paint of the mobile UI is unstyled (SVG
 // icons render at default browser size, etc.).
 import './mobile/mobile-shell.css';
-import { useIsLoggedIn } from '@/lib/nostr-bridge';
-import { usePubkey } from '@nostr-wot/data/react';
-const useMyPubkey = usePubkey;
+import { useIsLoggedIn, useMyPubkey } from '@/lib/nostr-bridge';
 import ProfileEditor from '@/components/ProfileEditor';
 import ReadStateRoot from '@/lib/read-state/root';
 

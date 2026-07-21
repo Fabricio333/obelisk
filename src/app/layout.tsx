@@ -5,7 +5,6 @@ import { cookies, headers } from 'next/headers';
 import { LocaleProvider } from '@/i18n/context';
 import { DEFAULT_LOCALE, LOCALE_COOKIE, LOCALE_HEADER, isLocale, type Locale } from '@/i18n/index';
 import ToastStack from '@/components/ToastStack';
-import SdkSessionBridge from '@/components/SdkSessionBridge';
 import AppearancePreferencesRoot from '@/components/AppearancePreferencesRoot';
 // SDK styles first so our globals.css overrides win at equal specificity
 // (e.g. the la-crypta `--nui-overlay-bg` override that lets the login
@@ -244,7 +243,7 @@ export default async function RootLayout({
       >
         <LocaleProvider initialLocale={locale}>
           <AppearancePreferencesRoot />
-          <SdkSessionBridge>{children}</SdkSessionBridge>
+          {children}
           <ToastStack />
         </LocaleProvider>
       </body>

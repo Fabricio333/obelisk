@@ -1,9 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { parseBolt11, type ParsedInvoice } from '@/lib/bolt11';
-import { useChatStore } from '@/store/chat';
-import { usePubkey, useKEKSigner } from '@nostr-wot/data/react';
+import { useMyPubkey, useNipSigner, useUserMetadata } from '@/lib/nostr-bridge';
 import { formatPubkey } from '@nostr-wot/data';
 import { useLocalWallet } from '@/lib/wallet/local-client';
 
@@ -32,14 +31,10 @@ interface PaidState {
  * device-local only — refreshing or opening the channel from a different
  * device will not show "Paid" for invoices another user paid.
  */
-export default function InvoiceCard({ invoice, messageId: _messageId, channelId }: Props) {
-  const myPubkey = usePubkey();
-  const memberList = useChatStore((s) => s.memberList);
-  const pushEphemeral = useChatStore((s) => s.pushEphemeral);
-  const invoicePayments = useChatStore((s) => s.invoicePayments);
-
-  const _kekSigner = useKEKSigner();
-  const { client: _walletClient } = useLocalWallet(myPubkey ?? null, _kekSigner);
+export default function InvoiceCard({ invoice, messageId: _messageId, channelId: _channelId }: Props) {
+  const myPubkey = useMyPubkey();
+  const signer = useNipSigner();
+  const { client: _walletClient } = useLocalWallet(myPubkey, signer);
 
   const parsed = useMemo<ParsedInvoice | null>(() => {
     try { return parseBolt11(invoice); } catch { return null; }
@@ -47,12 +42,7 @@ export default function InvoiceCard({ invoice, messageId: _messageId, channelId 
 
   const [paid, setPaid] = useState<PaidState | null>(null);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!parsed) return;
-    const hit = invoicePayments[parsed.paymentHash];
-    if (hit) setPaid({ payerPubkey: hit.payerPubkey, paidAt: hit.paidAt });
-  }, [parsed, invoicePayments]);
+  const payerMeta = useUserMetadata(paid?.payerPubkey ?? null);
 
   if (!parsed) {
     return (
@@ -67,40 +57,20 @@ export default function InvoiceCard({ invoice, messageId: _messageId, channelId 
 
   const pay = async () => {
     if (busy || paid || expired) return;
-    if (!_walletClient) {
-      if (channelId) pushEphemeral(channelId, '⚠️ Configurá tu wallet primero.');
-      return;
-    }
+    if (!_walletClient) return;
     setBusy(true);
     try {
-      let paySucceeded = false;
-      try {
-        await (_walletClient as unknown as { payInvoice: (a: { invoice: string }) => Promise<{ preimage?: string }> })
-          .payInvoice({ invoice });
-        paySucceeded = true;
-      } catch (e) {
-        if (channelId) pushEphemeral(channelId, `⚠️ El pago falló (${(e as Error).message}).`);
-      }
-
-      if (paySucceeded) {
-        // Local-only paid state. See TODO at the top of the file for the
-        // relay-published-event replacement that will broadcast paid status
-        // to other clients.
-        setPaid({
-          payerPubkey: myPubkey || '?',
-          paidAt: new Date().toISOString(),
-        });
-      }
+      await _walletClient.payInvoice({ invoice });
+      setPaid({ payerPubkey: myPubkey || '?', paidAt: new Date().toISOString() });
     } catch {
-      if (channelId) pushEphemeral(channelId, '⚠️ Error de red al intentar pagar.');
+      // The wallet surface has no inline error UI yet.
     } finally {
       setBusy(false);
     }
   };
 
   const payerName = paid
-    ? (memberList.find((m) => m.pubkey === paid.payerPubkey)?.displayName
-       ?? (paid.payerPubkey.length === 64 ? formatPubkey(paid.payerPubkey) : null))
+    ? payerMeta?.displayName ?? payerMeta?.name ?? (paid.payerPubkey.length === 64 ? formatPubkey(paid.payerPubkey) : null)
     : null;
 
   return (

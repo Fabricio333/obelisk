@@ -3,7 +3,7 @@
 // NWC client (decrypts URI via local-store, opens NIP-47 connection,
 // exposes payInvoice/makeInvoice/getBalance).
 
-import type { KEKSigner } from '@/lib/dm/cache-key';
+import type { NipSigner } from '@/lib/nip-59';
 
 export interface LocalWalletClient {
   payInvoice: (args: { invoice: string }) => Promise<{ preimage?: string }>;
@@ -13,7 +13,7 @@ export interface LocalWalletClient {
 
 export function useLocalWallet(
   _pubkey: string | null,
-  _signer: KEKSigner | null,
+  _signer: Pick<NipSigner, 'pubkey' | 'nip44Encrypt' | 'nip44Decrypt'> | null,
 ): { client: LocalWalletClient | null } {
   return { client: null };
 }

@@ -5,7 +5,8 @@
  * unsubscribes on unmount.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getBridge } from './client';
+import { getBridge, getBridgeImpl } from './client';
+import type { NipSigner } from '@/lib/nip-59';
 import { normalizeRelayUrl } from './relay-url';
 import { usePreferences } from '@/lib/preferences';
 import { wotEngine } from '@/lib/wot/engine';
@@ -112,14 +113,8 @@ export function useRelayAccess(url?: string | null): RelayAccessState {
   return map[normalizeRelayUrl(target)] ?? 'unknown';
 }
 
-/**
- * Internal helper — kept private (no longer exported). External consumers
- * should read pubkey from the SDK's `usePubkey()` (synced from this bridge
- * via `<SdkSessionBridge>`). Bridge-internal hooks (e.g. `useGroups` for
- * the WoT-aware rail) still need a synchronous bridge subscription, so the
- * function stays here as a private utility.
- */
-function useMyPubkey(): string | null {
+/** Current bridge identity; null before login completes. */
+export function useMyPubkey(): string | null {
   return useSubscription<string | null>((b, cb) => b.subscribeMyPubkey(cb), null);
 }
 
@@ -155,6 +150,12 @@ export function useSignerReady(): boolean {
   if (!loggedIn) return false;
   if (method === 'bunker') return bunkerReady;
   return method !== null;
+}
+
+export function useNipSigner(): NipSigner | null {
+  const pubkey = useMyPubkey();
+  const ready = useSignerReady();
+  return pubkey && ready ? getBridgeImpl()?.getNipSigner() ?? null : null;
 }
 
 export function useConfiguredRelays(): ReadonlyArray<string> {
@@ -405,6 +406,40 @@ export function useMembers(groupId: string | null): ReadonlyArray<string> {
 
 export function useMembersByGroup(): Readonly<Record<string, ReadonlyArray<string>>> {
   return useSubscription((b, cb) => b.subscribeMembersByGroup(cb), {});
+}
+
+export interface JsMemberInfo {
+  pubkey: string;
+  displayName: string;
+  picture?: string;
+  nip05?: string;
+  role: 'admin' | 'member';
+}
+
+export function useGroupMemberInfo(groupId: string | null): ReadonlyArray<JsMemberInfo> {
+  const admins = useAdmins(groupId);
+  const members = useMembers(groupId);
+  const pubkeys = useMemo(() => Array.from(new Set([...admins, ...members])), [admins, members]);
+  const key = pubkeys.join(',');
+  const metadata = useSubscription<Readonly<Record<string, JsUserMetadata>>>(
+    (bridge, cb) => {
+      pubkeys.forEach((pubkey) => void bridge.ensureUserMetadata(pubkey));
+      return bridge.subscribeUserMetadataMap(cb);
+    },
+    {},
+    [key],
+  );
+  const adminSet = useMemo(() => new Set(admins), [admins]);
+  return useMemo(() => pubkeys.map((pubkey) => {
+    const meta = metadata[pubkey];
+    return {
+      pubkey,
+      displayName: meta?.displayName ?? meta?.name ?? pubkey.slice(0, 10),
+      ...(meta?.picture ? { picture: meta.picture } : {}),
+      ...(meta?.nip05 ? { nip05: meta.nip05 } : {}),
+      role: adminSet.has(pubkey) ? 'admin' : 'member',
+    };
+  }), [pubkeys, metadata, adminSet]);
 }
 
 export function useGroupCreators(): Readonly<Record<string, string>> {

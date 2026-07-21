@@ -7,6 +7,7 @@ import remarkSpoiler from '@/lib/remark-spoiler';
 import { preprocessForMarkdown, MENTION_PLACEHOLDER_REGEX, EVERYONE_PLACEHOLDER, isImageUrl, extractYouTubeId, extractUrls } from '@/lib/markdown';
 import { isUploadUrl, filenameFromUrl, isVideoUrl, isAudioUrl } from '@/lib/attachments';
 import { useChatStore } from '@/store/chat';
+import { useGroupMemberInfo } from '@/lib/nostr-bridge';
 import {
   replaceShortcodes,
   CUSTOM_EMOJI_PLACEHOLDER_REGEX,
@@ -184,7 +185,8 @@ export default function MessageContent({
   channelId?: string;
   customEmojis?: CustomEmojiMap;
 }) {
-  const { memberList, serverEmojis } = useChatStore();
+  const serverEmojis = useChatStore((s) => s.serverEmojis);
+  const memberList = useGroupMemberInfo(channelId ?? null);
   const mergedEmojis = useMemo(
     () => mergeCustomEmojiMaps(serverEmojis, customEmojis),
     [serverEmojis, customEmojis],

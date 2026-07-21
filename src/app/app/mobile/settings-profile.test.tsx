@@ -29,8 +29,12 @@ vi.mock('@/lib/nostr-bridge', () => ({
     createGroup: vi.fn(),
     signEventTemplate: vi.fn(),
     ensureUserMetadata: vi.fn(),
+    editUserMetadata: (...a: unknown[]) => mockPublishProfile(...a),
   },
   useIsLoggedIn: () => true,
+  useMyPubkey: () => mockPubkey,
+  useSignerReady: () => true,
+  useUserMetadata: () => mockMeta,
   useIsRehydrating: () => false,
   useGroups: () => [],
   useChildrenByParent: () => ({}),
@@ -50,10 +54,7 @@ vi.mock('@/lib/nostr-bridge', () => ({
 }));
 
 vi.mock('@nostr-wot/data/react', () => ({
-  usePubkey: () => mockPubkey,
-  useProfile: () => mockMeta,
   useFollows: () => null,
-  usePublishProfile: () => mockPublishProfile,
 }));
 
 vi.mock('@/lib/relay-info', () => ({
@@ -268,7 +269,7 @@ describe('EditProfileScreen', () => {
     expect(mockPublishProfile).toHaveBeenCalledTimes(1);
     const opts = mockPublishProfile.mock.calls[0][0];
     expect(opts.name).toBe('Fabricio v2');
-    expect(opts.display_name).toBe('Fabricio v2');
+    expect(opts.displayName).toBe('Fabricio v2');
     expect(opts.about).toBe('New bio');
     expect(go).toHaveBeenCalledWith('settings-profile', 'back');
   });

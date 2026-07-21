@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from '@/i18n/context';
 import { uploadToBlossom } from '@/lib/blossom';
-import { useProfile, usePubkey, usePublishProfile } from '@nostr-wot/data/react';
+import { nostrActions, useMyPubkey, useSignerReady, useUserMetadata } from '@/lib/nostr-bridge';
 
 interface ProfileEditorProps {
   mode: 'setup' | 'edit';
@@ -35,13 +35,10 @@ function randomName(): string {
 
 export default function ProfileEditor({ mode, onComplete, onSkip, embedded = false }: ProfileEditorProps) {
   const { t } = useTranslation();
-  const myPubkey = usePubkey();
-  // The SDK's useProfile auto-resolves kind:0 for the active user on login,
-  // so this populates the form prefill in edit mode without an extra fetch
-  // round-trip. usePublishProfile re-merges unknown kind:0 fields
-  // internally, so we don't need a separate fetchCurrentKind0 here.
-  const profile = useProfile(myPubkey);
-  const publishProfile = usePublishProfile();
+  const myPubkey = useMyPubkey();
+  // The bridge keeps the active user's newest kind:0 metadata available for instant prefill.
+  const profile = useUserMetadata(myPubkey);
+  const signerReady = useSignerReady();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const initialName = profile?.displayName || profile?.name || '';
@@ -133,10 +130,10 @@ export default function ProfileEditor({ mode, onComplete, onSkip, embedded = fal
         }
       }
 
-      if (!publishProfile) throw new Error('Not signed in');
-      await publishProfile({
+      if (!signerReady) throw new Error('Not signed in');
+      await nostrActions.editUserMetadata({
         name: name.trim(),
-        display_name: name.trim(),
+        displayName: name.trim(),
         ...(finalPictureUrl ? { picture: finalPictureUrl } : {}),
         ...(about.trim() ? { about: about.trim() } : {}),
       });

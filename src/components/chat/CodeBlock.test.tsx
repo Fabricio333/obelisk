@@ -1,11 +1,6 @@
 import { render, screen } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import CodeBlock from './CodeBlock';
-
-// Mock shiki to avoid WASM loading in tests
-vi.mock('shiki', () => ({
-  createHighlighter: vi.fn(() => Promise.reject(new Error('mock'))),
-}));
 
 describe('CodeBlock', () => {
   it('renders fallback code block', () => {

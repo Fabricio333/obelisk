@@ -3,8 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { hexToNpub } from '@nostr-wot/data';
-import { nostrActions } from '@/lib/nostr-bridge';
-import { useProfile, usePublishProfile } from '@nostr-wot/data/react';
+import { nostrActions, useSignerReady, useUserMetadata as useProfile } from '@/lib/nostr-bridge';
 import BlossomImageInput from '@/components/BlossomImageInput';
 import { usePreferences, setPreference } from '@/lib/preferences';
 import { setDmOptInEnabled } from '@/lib/dm/opt-in';
@@ -283,7 +282,7 @@ function EditProfileForm({
   onSaved: () => void;
 }) {
   const { t } = useTranslation();
-  const publishProfile = usePublishProfile();
+  const signerReady = useSignerReady();
   const [name, setName] = useState(initial?.displayName || initial?.name || '');
   const [about, setAbout] = useState(initial?.about || '');
   const [picture, setPicture] = useState(initial?.picture || '');
@@ -320,10 +319,10 @@ function EditProfileForm({
     setSaving(true);
     setError(null);
     try {
-      if (!publishProfile) throw new Error(t('user.notSignedIn'));
-      await publishProfile({
+      if (!signerReady) throw new Error(t('user.notSignedIn'));
+      await nostrActions.editUserMetadata({
         name: name.trim(),
-        display_name: name.trim(),
+        displayName: name.trim(),
         about: about.trim(),
         picture: picture.trim(),
         banner: banner.trim(),

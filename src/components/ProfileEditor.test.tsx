@@ -2,29 +2,31 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mockPublishProfile = vi.fn().mockResolvedValue(undefined);
-const mockUploadToBlossom = vi.fn().mockResolvedValue('https://blossom.primal.net/abc123.jpg');
+const mocks = vi.hoisted(() => ({
+  publishProfile: vi.fn().mockResolvedValue(undefined),
+  upload: vi.fn().mockResolvedValue('https://blossom.primal.net/abc123.jpg'),
+  profile: null as null | {
+    pubkey: string;
+    name: string | null;
+    displayName: string | null;
+    picture: string | null;
+    about: string | null;
+    nip05: string | null;
+    banner: string | null;
+    lud16: string | null;
+    website: string | null;
+  },
+}));
 
-let mockProfile: {
-  pubkey: string;
-  name: string | null;
-  displayName: string | null;
-  picture: string | null;
-  about: string | null;
-  nip05: string | null;
-  banner: string | null;
-  lud16: string | null;
-  website: string | null;
-} | null = null;
-
-vi.mock('@nostr-wot/data/react', () => ({
-  usePubkey: () => 'abc123',
-  useProfile: () => mockProfile,
-  usePublishProfile: () => mockPublishProfile,
+vi.mock('@/lib/nostr-bridge', () => ({
+  useMyPubkey: () => 'abc123',
+  useSignerReady: () => true,
+  useUserMetadata: () => mocks.profile,
+  nostrActions: { editUserMetadata: mocks.publishProfile },
 }));
 
 vi.mock('@/lib/blossom', () => ({
-  uploadToBlossom: (...args: unknown[]) => mockUploadToBlossom(...args),
+  uploadToBlossom: (...args: unknown[]) => mocks.upload(...args),
 }));
 
 vi.mock('@/i18n/context', () => ({
@@ -39,7 +41,7 @@ describe('ProfileEditor', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockProfile = null;
+    mocks.profile = null;
   });
 
   describe('setup mode', () => {
@@ -74,9 +76,9 @@ describe('ProfileEditor', () => {
       await userEvent.click(screen.getByText('profileEditor.publish'));
 
       await waitFor(() => {
-        expect(mockPublishProfile).toHaveBeenCalledWith({
+        expect(mocks.publishProfile).toHaveBeenCalledWith({
           name: 'Alice',
-          display_name: 'Alice',
+          displayName: 'Alice',
         });
       });
 
@@ -99,13 +101,13 @@ describe('ProfileEditor', () => {
       await userEvent.click(screen.getByText('profileEditor.publish'));
 
       await waitFor(() => {
-        expect(mockUploadToBlossom).toHaveBeenCalledWith(file);
+        expect(mocks.upload).toHaveBeenCalledWith(file);
       });
 
       await waitFor(() => {
-        expect(mockPublishProfile).toHaveBeenCalledWith({
+        expect(mocks.publishProfile).toHaveBeenCalledWith({
           name: 'Alice',
-          display_name: 'Alice',
+          displayName: 'Alice',
           picture: 'https://blossom.primal.net/abc123.jpg',
         });
       });
@@ -114,7 +116,7 @@ describe('ProfileEditor', () => {
 
   describe('edit mode', () => {
     it('pre-fills from cached kind:0 data', async () => {
-      mockProfile = {
+      mocks.profile = {
         pubkey: 'abc123',
         name: 'OldName',
         displayName: 'OldName',
@@ -135,7 +137,7 @@ describe('ProfileEditor', () => {
     });
 
     it('renders edit title and cancel button', async () => {
-      mockProfile = {
+      mocks.profile = {
         pubkey: 'abc123',
         name: 'X',
         displayName: 'X',
@@ -155,7 +157,7 @@ describe('ProfileEditor', () => {
     });
 
     it('shows confirmation before publishing in edit mode', async () => {
-      mockProfile = {
+      mocks.profile = {
         pubkey: 'abc123',
         name: 'OldName',
         displayName: 'OldName',
@@ -183,7 +185,7 @@ describe('ProfileEditor', () => {
     });
 
     it('calls onComplete when cancel is clicked', async () => {
-      mockProfile = {
+      mocks.profile = {
         pubkey: 'abc123',
         name: 'X',
         displayName: 'X',
@@ -207,7 +209,7 @@ describe('ProfileEditor', () => {
 
   describe('error handling', () => {
     it('shows error when publish fails', async () => {
-      mockPublishProfile.mockRejectedValueOnce(new Error('Network error'));
+      mocks.publishProfile.mockRejectedValueOnce(new Error('Network error'));
 
       render(<ProfileEditor mode="setup" onComplete={mockOnComplete} onSkip={mockOnSkip} />);
 
@@ -221,7 +223,7 @@ describe('ProfileEditor', () => {
     });
 
     it('shows error when blossom upload fails', async () => {
-      mockUploadToBlossom.mockRejectedValueOnce(new Error('Server error'));
+      mocks.upload.mockRejectedValueOnce(new Error('Server error'));
 
       render(<ProfileEditor mode="setup" onComplete={mockOnComplete} onSkip={mockOnSkip} />);
 

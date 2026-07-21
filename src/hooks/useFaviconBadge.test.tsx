@@ -9,14 +9,11 @@ const mockState = {
 };
 
 vi.mock('@/lib/nostr-bridge', () => ({
+  useMyPubkey: () => mockState.myPubkey,
   useDirectMessages: () => mockState.dmsByPeer,
   useMessages: (groupId: string | null) =>
     (groupId ? mockState.channelMessages[groupId] ?? [] : []),
   useMessagesByGroup: () => mockState.channelMessages,
-}));
-
-vi.mock('@nostr-wot/data/react', () => ({
-  usePubkey: () => mockState.myPubkey,
 }));
 
 // Spy on favicon-badge so we don't exercise the canvas path here.

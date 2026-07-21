@@ -21,7 +21,7 @@ import { getBridge } from '@/lib/nostr-bridge/client';
 import type { BridgeImpl } from '@/lib/nostr-bridge/client';
 import { useVoiceStore } from '@/store/voice';
 import { useActiveCall, useGroups, useCurrentRelayUrl } from '@/lib/nostr-bridge';
-import { useProfile } from '@nostr-wot/data/react';
+import { useUserMetadata as useProfile } from '@/lib/nostr-bridge';
 import { ensureSfuRoomStarted } from '@/lib/voice/sfu-control';
 import { shouldUseSfuTopology } from '@/lib/voice/topology';
 import VoiceControls from './VoiceControls';

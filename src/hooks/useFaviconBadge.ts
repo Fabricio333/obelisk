@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useReducer, useRef } from 'react';
-import { usePubkey as useMyPubkey } from '@nostr-wot/data/react';
+import { useMyPubkey } from '@/lib/nostr-bridge';
 import { useChatStore } from '@/store/chat';
 import {
   useTotalDMUnread,

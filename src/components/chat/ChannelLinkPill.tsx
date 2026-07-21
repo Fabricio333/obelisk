@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
-import { useChatStore, slugCacheKey } from '@/store/chat';
+
 
 interface Props {
   slug: string;
@@ -23,17 +22,9 @@ interface Props {
  * — `src/app/chat/page.tsx` listens for `popstate` and re-applies URL state.
  */
 export default function ChannelLinkPill({ slug, messageId, postId, href }: Props) {
-  const key = slugCacheKey(slug, { p: postId, m: messageId });
-  const entry = useChatStore((s) => s.slugCache[key]);
-  const resolveSlug = useChatStore((s) => s.resolveSlug);
-
-  useEffect(() => {
-    resolveSlug(slug, { p: postId, m: messageId });
-  }, [resolveSlug, slug, postId, messageId]);
-
-  const channelName = entry?.channelName ?? slug;
-  const postTitle = entry?.postTitle ?? null;
-  const noAccess = !!entry?.noAccess;
+  const channelName = slug;
+  const postTitle = null;
+  const noAccess = false;
 
   let prefix: string;
   let label: string;

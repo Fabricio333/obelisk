@@ -30,15 +30,12 @@ vi.mock('@/lib/nostr-bridge', () => ({
   useMessagesStatus: (groupId: string) =>
     mockMessagesStatusByGroup.get(groupId) ?? 'empty-confirmed',
   useSignerReady: () => true,
+  useMyPubkey: () => 'a'.repeat(64),
+  useUserMetadata: () => null,
   nostrActions: {
     createGroup: (...a: unknown[]) => mockCreateGroup(...a),
     sendMessage: (...a: unknown[]) => mockSendMessage(...a),
   },
-}));
-
-vi.mock('@nostr-wot/data/react', () => ({
-  useProfile: () => null,
-  usePubkey: () => 'a'.repeat(64),
 }));
 
 function makeForum(opts: {

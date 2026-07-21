@@ -12,6 +12,7 @@
 
 import { UNICODE_EMOJI_ENTRIES, type EmojiEntry } from '@/components/chat/emoji-data';
 import {
+  mergeCustomEmojiMaps,
   normalizeCustomEmojiName,
   type CustomEmojiMap,
 } from '@/lib/custom-emoji-tags';
@@ -194,4 +195,50 @@ export function resolveReactionEmoji(
     if (unicode) return { kind: 'unicode', char: unicode };
   }
   return { kind: 'unicode', char: emoji };
+}
+
+export interface GroupedReaction {
+  emoji: string;
+  customEmojis: CustomEmojiMap;
+  pubkeys: Set<string>;
+  reactionIds: string[];
+  myReactionId: string | null;
+  count: number;
+  mine: boolean;
+}
+
+export function groupReactions(
+  reactions: ReadonlyArray<{ id: string; pubkey: string; emoji: string; customEmojis?: Readonly<Record<string, string>> }>,
+  myPubkey: string | null,
+  serverEmojis: CustomEmojiMap,
+): GroupedReaction[] {
+  const groups = new Map<string, GroupedReaction>();
+  for (const reaction of reactions) {
+    const customEmojis = mergeCustomEmojiMaps(serverEmojis, reaction.customEmojis);
+    const resolved = resolveReactionEmoji(reaction.emoji, customEmojis);
+    const key = resolved.kind === 'custom'
+      ? "custom:" + resolved.name + ":" + resolved.url
+      : "unicode:" + resolved.char;
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        emoji: resolved.kind === 'custom' ? ":" + resolved.name + ":" : resolved.char,
+        customEmojis: resolved.kind === 'custom' ? { [resolved.name]: resolved.url } : {},
+        pubkeys: new Set(),
+        reactionIds: [],
+        myReactionId: null,
+        count: 0,
+        mine: false,
+      };
+      groups.set(key, group);
+    }
+    group.reactionIds.push(reaction.id);
+    group.pubkeys.add(reaction.pubkey);
+    group.count = group.pubkeys.size;
+    if (reaction.pubkey === myPubkey) {
+      group.mine = true;
+      group.myReactionId = reaction.id;
+    }
+  }
+  return Array.from(groups.values()).sort((a, b) => b.count - a.count);
 }

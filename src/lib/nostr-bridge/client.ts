@@ -5,15 +5,9 @@ import { BunkerSigner, parseBunkerInput, createNostrConnectURI } from 'nostr-too
 import { generateSecretKey } from 'nostr-tools/pure';
 import { v2 as nip44 } from 'nostr-tools/nip44';
 import type { NipSigner } from '@/lib/nip-59';
-import { parseRelayListMeta, parseInboxRelays } from '@/lib/nostr-read';
-import { TextCoercingWebSocket } from '@/lib/nostr-pool';
+import { parseRelayList, parseInboxRelayList } from '@nostr-wot/data';
+import { TextCoercingWebSocket } from '@nostr-wot/data';
 import { cacheGet, cacheSet, cacheDelete, cacheClearAll, cacheListIdsByKind } from './cache';
-import {
-  fetchIndexedBootstrap,
-  fetchIndexedGroupMessages,
-  type IndexedBootstrapCapability,
-  type IndexedBootstrapPayload,
-} from './indexed-bootstrap';
 import { normalizeRelayUrl } from './relay-url';
 import { wotEngine } from '@/lib/wot/engine';
 import { useModerationStore } from '@/store/moderation';
@@ -291,19 +285,6 @@ const KIND_GROUP_DELETE_EVENT = 9005;
 const KIND_GROUP_ADMINS = 39001;
 const KIND_GROUP_MEMBERS = 39002;
 const KIND_MUTE_LIST = 10000;
-const INDEXED_BOOTSTRAP_LIVE_KINDS = [
-  KIND_REACTION,
-  KIND_EVENT_DELETION,
-  KIND_GROUP_MESSAGE,
-  11,
-  KIND_GROUP_METADATA,
-  KIND_GROUP_ADMINS,
-  KIND_GROUP_MEMBERS,
-  39003,
-  KIND_GROUP_DELETE_EVENT,
-  KIND_GROUP_CREATE,
-  9009,
-] as const;
 /**
  * Obelisk SFU active-call announcement (kind 31314, parameterized
  * replaceable). Emitted by an SFU when a room is live, with `d=<channelId>`,
@@ -896,7 +877,7 @@ export class BridgeImpl {
       // binary. nostr-tools' default parser does `json.slice(...).indexOf(...)`
       // unconditionally and crashes on any non-string payload, silently
       // dropping events. TextCoercingWebSocket UTF-8-decodes binary frames
-      // before the parser sees them. Same fix as `getNostrPool()`.
+      // before the parser sees them. Normalize relay URLs before opening sockets.
       websocketImplementation: TextCoercingWebSocket as unknown as typeof WebSocket,
       enablePing: true,
       automaticallyAuth: (relayUrl: string) => {
@@ -1259,10 +1240,6 @@ export class BridgeImpl {
   // Own NIP-17 inbox + NIP-65 relays — wider than `this.relays`. Used to
   // subscribe for incoming DMs published to relays the user actually reads.
   private myDmRelays: string[] = [];
-  private indexedBootstrapCapability: IndexedBootstrapCapability | null = null;
-  private indexedBootstrapLiveActive = false;
-  private suppressGroupMessageFanout = false;
-  private indexedMessageCursorsByGroup = new Map<string, number>();
 
   async initialize(): Promise<void> {
     if (typeof window !== 'undefined') {
@@ -1388,13 +1365,6 @@ export class BridgeImpl {
     try { pool.close(relays); } catch { /* ignore */ }
   }
 
-  private resetIndexedBootstrapState(): void {
-    this.indexedBootstrapCapability = null;
-    this.indexedBootstrapLiveActive = false;
-    this.suppressGroupMessageFanout = false;
-    this.indexedMessageCursorsByGroup.clear();
-  }
-
   dispose(): void {
     this.unwireBrowserConnectionEvents();
     this.cancelReconnectTimer();
@@ -1422,7 +1392,6 @@ export class BridgeImpl {
     // fire after the pool is gone.
     this.clearAllCacheFlushers();
     this.querySyncFallbackFired.clear();
-    this.resetIndexedBootstrapState();
     this.clearActiveCallState();
     this.deletedEventIdsByGroup.clear();
     this.moderatedEventIdsByGroup.clear();
@@ -1755,7 +1724,6 @@ export class BridgeImpl {
     // re-arms flushers cleanly.
     this.clearAllCacheFlushers();
     this.querySyncFallbackFired.clear();
-    this.resetIndexedBootstrapState();
     // Re-login on the same browser keeps the in-memory bridge instance, so
     // the kind 39000 newest-wins guard retains every `groupId → created_at`
     // pair from the previous session. Kind 39000 is replaceable: the new
@@ -2017,7 +1985,6 @@ export class BridgeImpl {
     // differ; let fresh ingests re-arm flushers from scratch.
     this.clearAllCacheFlushers();
     this.querySyncFallbackFired.clear();
-    this.resetIndexedBootstrapState();
     // Forget any in-flight relay-access state and tear down dangling
     // "Authenticating with {host}" entries — the next session must
     // re-prove access from scratch.
@@ -2120,9 +2087,7 @@ export class BridgeImpl {
       // The standard relay path is authoritative and must not wait behind
       // optional HTTP bootstrap discovery/signing.
       this.preflightRelayAccess();
-      const metadataFallback = this.subscribeGroupMetadata();
-      const indexedBootstrapUsed = await this.tryIndexedBootstrap(relaySnapshot);
-      if (indexedBootstrapUsed) this.closeTrackedSub(metadataFallback);
+      this.subscribeGroupMetadata();
       // Reopen any per-group REQs that were live on the previous pool.
       // Components that mounted pre-login (or pre-relay-switch) still have
       // their store listeners wired up; without this re-issue the new pool
@@ -2132,7 +2097,7 @@ export class BridgeImpl {
       this.pendingResubscribe = null;
       if (this.session) this.ensureUserMetadata(this.session.pubKeyHex);
       queueMicrotask(() => {
-        if (!indexedBootstrapUsed) this.subscribeAllAdminMember();
+        this.subscribeAllAdminMember();
         this.subscribeMyMuteList();
         this.subscribeMyAuthoredGroups();
         this.subscribeActiveCalls();
@@ -2151,91 +2116,6 @@ export class BridgeImpl {
       failActivity(activityId, (e as Error).message);
       throw e;
     }
-  }
-
-  private async tryIndexedBootstrap(relaySnapshot: readonly string[]): Promise<boolean> {
-    if (!this.session || relaySnapshot.length !== 1) return false;
-    const relay = normalizeRelayUrl(relaySnapshot[0]);
-    const sessionPubkey = this.session.pubKeyHex;
-    const pool = this.pool;
-    const result = await fetchIndexedBootstrap({
-      relay,
-      limitPerGroup: BACKGROUND_MESSAGE_LIMIT,
-      signEvent: (template) => this.signEventTemplate(template),
-    });
-    if (!result) return false;
-    if (!this.session || this.session.pubKeyHex !== sessionPubkey) return false;
-    if (this.pool !== pool || normalizeRelayUrl(this.currentRelayUrl.get()) !== relay) return false;
-    this.indexedBootstrapCapability = result.capability;
-    this.ingestIndexedBootstrap(result.payload);
-    this.setRelayAccess(relay, 'ok');
-    this.subscribeIndexedLiveCatchUp(result.payload.cursorSince ?? result.payload.generatedAt);
-    return true;
-  }
-
-  private ingestIndexedBootstrap(payload: IndexedBootstrapPayload): void {
-    this.suppressGroupMessageFanout = true;
-    try {
-      for (const scope of payload.scopes) {
-        for (const group of scope.groups) {
-          if (group.nextBefore !== null) {
-            this.indexedMessageCursorsByGroup.set(group.id, group.nextBefore);
-          }
-          for (const ev of group.events) {
-            this.ingestIndexedEvent(ev, group.id);
-          }
-        }
-      }
-    } finally {
-      this.suppressGroupMessageFanout = false;
-    }
-    this.clearGroupMetadataEmptyRetry();
-    this.groupMetadataEose.set(true);
-  }
-
-  private ingestIndexedEvent(ev: NostrEvent, fallbackGroupId?: string): void {
-    if (!wotEngine.isAllowed(ev.pubkey, ev.kind)) return;
-    if (ev.kind === KIND_GROUP_METADATA) {
-      this.ingestGroupMetadata(ev);
-      return;
-    }
-    if (ev.kind === KIND_GROUP_ADMINS || ev.kind === KIND_GROUP_MEMBERS) {
-      this.ingestAdminMember(ev);
-      return;
-    }
-    if (ev.kind === KIND_GROUP_CREATE) {
-      this.ingestGroupCreator(ev);
-      return;
-    }
-
-    const groupId = getTag(ev, 'h') ?? fallbackGroupId;
-    if (!groupId) return;
-    if (ev.kind === KIND_GROUP_MESSAGE) {
-      this.ingestMessage(groupId, ev);
-    } else if (ev.kind === KIND_REACTION) {
-      this.ingestReaction(groupId, ev);
-    } else if (ev.kind === KIND_EVENT_DELETION) {
-      this.ingestEventDeletion(groupId, ev);
-    } else if (ev.kind === KIND_GROUP_DELETE_EVENT) {
-      this.ingestGroupEventDeletion(groupId, ev);
-    }
-  }
-
-  private subscribeIndexedLiveCatchUp(since: number): void {
-    if (!this.session || this.indexedBootstrapLiveActive) return;
-    this.indexedBootstrapLiveActive = true;
-    const filter: Filter = {
-      kinds: [...INDEXED_BOOTSTRAP_LIVE_KINDS],
-      since,
-    };
-    const sub = this.subscribeWatched(
-      this.relays,
-      filter,
-      (ev) => this.ingestIndexedEvent(ev),
-      undefined,
-      { affectsRelayAccess: true },
-    );
-    this.subs.push(sub);
   }
 
   /**
@@ -2387,7 +2267,6 @@ export class BridgeImpl {
     // for the new relay scope.
     this.clearAllCacheFlushers();
     this.querySyncFallbackFired.clear();
-    this.resetIndexedBootstrapState();
     // Per-relay state that previously bled across switches: parent→children
     // index, group-creator map, reactions, the newest-wins guard cursor for
     // group metadata, and the per-group creator-sub set. Without clearing
@@ -2570,6 +2449,9 @@ export class BridgeImpl {
     this.ensureUserMetadata(pubkey);
     const adapter: Listener<Record<string, JsUserMetadata>> = (m) => cb(m[pubkey] ?? null);
     return this.userMetadata.subscribe(adapter);
+  }
+  subscribeUserMetadataMap(cb: (meta: Readonly<Record<string, JsUserMetadata>>) => void): Unsubscribe {
+    return this.userMetadata.subscribe(cb);
   }
 
   subscribeReactions(
@@ -3323,8 +3205,6 @@ export class BridgeImpl {
     const existing = this.messagesByGroup.get()[groupId] ?? [];
     if (existing.length === 0) return 'unavailable';
     const oldest = existing.reduce((a, m) => (m.createdAt < a ? m.createdAt : a), existing[0].createdAt);
-    const indexed = await this.loadMoreMessagesIndexed(groupId, oldest);
-    if (indexed !== null) return indexed;
     const relayKey = normalizeRelayUrl(this.currentRelayUrl.get());
     const accessBefore = this.relayAccess.get()[relayKey] ?? 'unknown';
     if (accessBefore === 'authenticating') {
@@ -3355,39 +3235,6 @@ export class BridgeImpl {
     return added > 0 ? 'added' : 'unavailable';
   }
 
-  private async loadMoreMessagesIndexed(groupId: string, oldest: number): Promise<LoadMoreMessagesResult | null> {
-    if (!this.session || !this.indexedBootstrapCapability) return null;
-    const before = this.indexedMessageCursorsByGroup.get(groupId) ?? (oldest - 1);
-    const page = await fetchIndexedGroupMessages({
-      capability: this.indexedBootstrapCapability,
-      groupId,
-      before,
-      limit: LOAD_MORE_PAGE_SIZE,
-      signEvent: (template) => this.signEventTemplate(template),
-    });
-    if (!page) return null;
-    if (page.events.length === 0) {
-      if (page.nextBefore !== null) {
-        this.indexedMessageCursorsByGroup.set(groupId, page.nextBefore);
-        return 'unavailable';
-      }
-      this.indexedMessageCursorsByGroup.delete(groupId);
-      return 'end';
-    }
-    if (page.nextBefore !== null) {
-      this.indexedMessageCursorsByGroup.set(groupId, page.nextBefore);
-    } else {
-      this.indexedMessageCursorsByGroup.delete(groupId);
-    }
-    let added = 0;
-    for (const ev of page.events) {
-      const beforeCount = this.messagesByGroup.get()[groupId]?.length ?? 0;
-      this.ingestIndexedEvent(ev, groupId);
-      const afterCount = this.messagesByGroup.get()[groupId]?.length ?? 0;
-      if (afterCount > beforeCount) added++;
-    }
-    return added > 0 ? 'added' : 'unavailable';
-  }
 
   /**
    * Fetch a single group's kind 39000 metadata on demand. Used by the chat
@@ -5451,11 +5298,7 @@ export class BridgeImpl {
     // paged via loadMoreMessages. Queued (rather than fired inline) so
     // the channel the user is actively viewing wins the relay's first
     // response — see {@link queueGroupMessages}.
-    if (
-      !this.suppressGroupMessageFanout
-      && !this.indexedBootstrapLiveActive
-      && this.voiceRelayCapacityReservations === 0
-    ) {
+    if (this.voiceRelayCapacityReservations === 0) {
       this.queueGroupMessages(groupId);
     }
     // Admin/member (39001/39002) is intentionally NOT fanned out here.
@@ -5968,7 +5811,7 @@ export class BridgeImpl {
     } catch {
       event = null;
     }
-    const read = event ? parseRelayListMeta(event).read.filter(isImportableRelayUrl) : [];
+    const read = event ? parseRelayList(event, 'public').read.filter(isImportableRelayUrl) : [];
     this.recipientReadRelaysCache.set(pubkey, { relays: read, fetchedAt: Date.now() });
     return read;
   }
@@ -5998,12 +5841,12 @@ export class BridgeImpl {
       }
       const meta = newest.get(10002);
       if (meta) {
-        const { read, write } = parseRelayListMeta(meta);
+        const { read, write } = parseRelayList(meta, 'public');
         read.forEach((u) => { if (isImportableRelayUrl(u)) out.add(u); });
         write.forEach((u) => { if (isImportableRelayUrl(u)) out.add(u); });
       }
       const inbox = newest.get(10050);
-      if (inbox) parseInboxRelays(inbox).forEach((u) => { if (isImportableRelayUrl(u)) out.add(u); });
+      if (inbox) parseInboxRelayList(inbox, 'public').forEach((u) => { if (isImportableRelayUrl(u)) out.add(u); });
     } catch {
       // best-effort — fall through to whatever we have
     }

@@ -68,11 +68,8 @@ vi.mock('@/lib/nostr-bridge/client', () => ({
 vi.mock('@/lib/nostr-bridge', () => ({
   useGroups: () => bridgeHarness.groups,
   useCurrentRelayUrl: () => 'wss://relay.test',
+  useUserMetadata: (pubkey: string) => bridgeHarness.profiles[pubkey] ?? null,
   useActiveCall: (channelId: string | null) => (channelId ? bridgeHarness.activeCalls[channelId] ?? null : null),
-}));
-
-vi.mock('@nostr-wot/data/react', () => ({
-  useProfile: (pubkey: string) => bridgeHarness.profiles[pubkey] ?? null,
 }));
 
 function makeActiveClient(channelId: string) {

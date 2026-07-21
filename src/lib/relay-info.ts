@@ -17,6 +17,16 @@ export type RelayInfo = {
   fetchedAt: number;
 };
 
+export const SUGGESTED_RELAYS: ReadonlyArray<{ url: string; fallbackName: string; fallbackDescription: string }> = [
+  { url: 'wss://relay.obelisk.ar', fallbackName: 'Obelisk relay', fallbackDescription: 'Default NIP-29 relay for Obelisk groups.' },
+  { url: 'wss://lacrypta-relay.obelisk.ar', fallbackName: 'La Crypta relay', fallbackDescription: 'NIP-29 relay for La Crypta.' },
+  { url: 'wss://public.obelisk.ar', fallbackName: 'Obelisk public', fallbackDescription: 'Open NIP-29 relay run by Obelisk.' },
+  { url: 'wss://groups.0xchat.com', fallbackName: '0xchat Groups relay', fallbackDescription: 'NIP-29 relay powering 0xchat group messaging.' },
+  { url: 'wss://relay.groups.nip29.com', fallbackName: 'relay.groups.nip29.com', fallbackDescription: 'Public NIP-29 groups relay.' },
+  { url: 'wss://groups.hzrd149.com', fallbackName: "hzrd149's groups", fallbackDescription: 'A NIP-29 groups relay for hzrd149.' },
+  { url: 'wss://pyramid.fiatjaf.com', fallbackName: 'the fiatjaf pyramid', fallbackDescription: 'Invite-only NIP-29 relay run by fiatjaf.' },
+];
+
 import { createLocalStore } from './local-store';
 
 const TTL_MS = 24 * 60 * 60 * 1000; // 24h

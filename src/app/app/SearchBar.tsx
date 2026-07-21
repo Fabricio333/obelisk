@@ -19,7 +19,7 @@ import {
   type JsGroup,
   type JsMessage,
 } from '@/lib/nostr-bridge';
-import { useProfile } from '@nostr-wot/data/react';
+import { useUserMetadata as useProfile } from '@/lib/nostr-bridge';
 import { useNostrUserSearch, type UserHit } from '@/lib/hooks/useNostrUserSearch';
 import { searchGroups } from '@/lib/group-search';
 import { formatPubkey } from '@nostr-wot/data';

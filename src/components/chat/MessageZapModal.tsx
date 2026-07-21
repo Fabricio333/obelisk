@@ -4,9 +4,8 @@ import { useState } from 'react';
 import { useMessageZapStore, type ZapTarget } from '@/store/messageZap';
 import { useToastStore } from '@/store/toast';
 import { isWebLNAvailable, requestZapInvoice } from '@nostr-wot/wallet';
-import type { NostrSigner } from '@nostr-wot/signers';
 import { getDefaultRelays } from '@nostr-wot/data';
-import { useProfile, useSigner } from '@nostr-wot/data/react';
+import { useNipSigner, useUserMetadata } from '@/lib/nostr-bridge';
 import { getBridgeImpl, isImportableRelayUrl, useCurrentRelayUrl } from '@/lib/nostr-bridge';
 import ModalShell from '@/components/ModalShell';
 
@@ -33,8 +32,8 @@ function MessageZapModalInner({ target, close }: { target: ZapTarget; close: () 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const meta = useProfile(target?.recipientPubkey ?? null);
-  const signer = useSigner();
+  const meta = useUserMetadata(target?.recipientPubkey ?? null);
+  const signer = useNipSigner();
   const currentRelay = useCurrentRelayUrl();
   const lud16 = meta?.lud16 ?? target?.recipientLud16 ?? null;
   const displayName = target ? (meta?.displayName || meta?.name || target.displayName) : '';
@@ -68,7 +67,10 @@ function MessageZapModalInner({ target, close }: { target: ZapTarget; close: () 
         ...getDefaultRelays(),
       ].filter(isImportableRelayUrl)));
       const amountMsats = amount * 1000;
-      const { invoice, zapRequest } = await requestZapInvoice(signer as unknown as NostrSigner, {
+      const { invoice, zapRequest } = await requestZapInvoice({
+        getPublicKey: async () => signer.pubkey,
+        signEvent: (template) => signer.signEvent(template),
+      }, {
         recipientPubkey: target.recipientPubkey,
         lud16,
         eventId: target.messageId ?? undefined,

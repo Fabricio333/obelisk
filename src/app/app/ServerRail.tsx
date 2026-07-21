@@ -14,51 +14,12 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { nostrActions, useConfiguredRelays, useCurrentRelayUrl } from '@/lib/nostr-bridge';
-import { usePubkey } from '@nostr-wot/data/react';
-const useMyPubkey = usePubkey;
-import { faviconFor, fetchRelayInfo, type RelayInfo } from '@/lib/relay-info';
+import { nostrActions, useConfiguredRelays, useCurrentRelayUrl, useMyPubkey } from '@/lib/nostr-bridge';
+import { faviconFor, fetchRelayInfo, SUGGESTED_RELAYS, type RelayInfo } from '@/lib/relay-info';
 import { encodeRelayShareCode } from '@/lib/relay-share-link';
 import { useHasAnyHighlights } from '@/lib/read-state/selectors';
 import ModalShell from '@/components/ModalShell';
 
-const SUGGESTED_RELAYS: { url: string; fallbackName?: string; fallbackDescription?: string }[] = [
-  {
-    url: 'wss://relay.obelisk.ar',
-    fallbackName: 'Obelisk relay',
-    fallbackDescription: 'Default NIP-29 relay for Obelisk groups.',
-  },
-  {
-    url: 'wss://lacrypta-relay.obelisk.ar',
-    fallbackName: 'La Crypta relay',
-    fallbackDescription: 'NIP-29 relay for La Crypta.',
-  },
-  {
-    url: 'wss://public.obelisk.ar',
-    fallbackName: 'Obelisk public',
-    fallbackDescription: 'Open NIP-29 relay run by Obelisk.',
-  },
-  {
-    url: 'wss://groups.0xchat.com',
-    fallbackName: '0xchat Groups relay',
-    fallbackDescription: 'NIP-29 relay powering 0xchat group messaging.',
-  },
-  {
-    url: 'wss://relay.groups.nip29.com',
-    fallbackName: 'relay.groups.nip29.com',
-    fallbackDescription: 'Public NIP-29 groups relay.',
-  },
-  {
-    url: 'wss://groups.hzrd149.com',
-    fallbackName: "hzrd149's groups",
-    fallbackDescription: 'A NIP-29 groups relay for hzrd149.',
-  },
-  {
-    url: 'wss://pyramid.fiatjaf.com',
-    fallbackName: 'the fiatjaf pyramid',
-    fallbackDescription: 'Invite-only NIP-29 relay run by fiatjaf.',
-  },
-];
 
 type RailMode = { kind: 'dm' } | { kind: 'relay'; url: string };
 

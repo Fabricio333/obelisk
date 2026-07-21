@@ -1484,12 +1484,10 @@ export class VoiceClient {
       controlRelays = envControlRelays;
       rpcRelays = envRpcRelays.length > 0 ? envRpcRelays : envControlRelays;
     }
-    const directUrl = picked?.pubkey === sfuPubkey && picked.url ? picked.url : null;
     const makeClient = (): SfuClient => new SfuClient({
       channelId: this.channelId,
       sfuPubkey,
       selfPubkey: this.selfPubkey,
-      ...(directUrl ? { directUrl } : {}),
       ...(rpcRelays.length > 0 ? { trustedRelays: rpcRelays } : {}),
       events: {
         onRemoteTrack: (t: SfuRemoteTrack) => {
@@ -1580,9 +1578,7 @@ export class VoiceClient {
       client = makeClient();
       this.sfuClient = client;
       try {
-        if (!directUrl) {
-          await this.publishSfuStartOrThrow(sfuPubkey, controlRelays);
-        }
+        await this.publishSfuStartOrThrow(sfuPubkey, controlRelays);
         await client.start();
         lastErr = null;
         break;

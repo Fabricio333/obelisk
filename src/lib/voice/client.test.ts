@@ -1150,7 +1150,7 @@ describe('VoiceClient SFU push-roster', () => {
     await client.leave();
   });
 
-  it('uses direct SFU RPC when the advertisement has a public URL', async () => {
+  it('keeps Nostr RPC when the advertisement has a public URL', async () => {
     sfuControlFake.setPick({ pubkey: SFU, url: 'https://sfu.example.test' });
     const client = new VoiceClient('ch1', {
       members: [SELF],
@@ -1158,8 +1158,8 @@ describe('VoiceClient SFU push-roster', () => {
     });
     await client.join();
     await flushMicrotasks(5);
-    expect(sfuClientFake.last()?.directUrl).toBe('https://sfu.example.test');
-    expect(sfuControlFake.publishSfuStart).not.toHaveBeenCalled();
+    expect(sfuClientFake.last()?.directUrl).toBeUndefined();
+    expect(sfuControlFake.publishSfuStart).toHaveBeenCalled();
     await client.leave();
   });
 });
