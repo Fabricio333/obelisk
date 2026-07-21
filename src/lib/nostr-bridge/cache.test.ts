@@ -6,7 +6,7 @@
  * the cache key format tolerates them without encoding.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { cacheGet, cacheSet, cacheDelete, cacheClearAll, cacheListIds } from './cache';
+import { cacheGet, cacheSet, cacheDelete, cacheClearAll, cacheListIds, cacheListIdsByKind } from './cache';
 
 const RELAY = 'wss://relay.example.com';
 const KIND = 39001;
@@ -127,6 +127,19 @@ describe('cache', () => {
 
   it('cacheListIds returns [] for an unseen relay+kind', () => {
     expect(cacheListIds('wss://nope.example', 12345)).toEqual([]);
+  });
+
+  it('indexes several kinds in one relay-scoped pass', () => {
+    cacheSet(RELAY, 39000, 'group-a', { name: 'A' });
+    cacheSet(RELAY, 39001, 'group-a', ['admin']);
+    cacheSet(RELAY, 39002, 'group-b', ['member']);
+    cacheSet('wss://other.example', 39000, 'other', {});
+    localStorage.setItem('unrelated-key', 'keep');
+
+    const index = cacheListIdsByKind(RELAY, [39000, 39001]);
+    expect(index.get(39000)).toEqual(['group-a']);
+    expect(index.get(39001)).toEqual(['group-a']);
+    expect(index.has(39002)).toBe(false);
   });
 
   it('survives groupId values containing colons and dots', () => {

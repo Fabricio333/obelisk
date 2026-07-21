@@ -24,6 +24,8 @@ const fake = vi.hoisted(() => {
     ensureRelayImpl: null as null | ((url: string, opts?: { connectionTimeout?: number }) => Promise<{ connected: boolean; onclose?: () => void }>),
     querySyncCalls: [] as Array<{ relays: string[]; filter: Record<string, unknown>; opts?: { maxWait?: number } }>,
     poolSeq: 0,
+    poolOptions: [] as Array<Record<string, unknown>>,
+    closeCalls: [] as Array<{ poolId: number; relays: string[] }>,
   };
 
   function matchesInternal(f: Record<string, unknown>, ev: { kind: number; pubkey: string; tags: string[][] }): boolean {
@@ -41,8 +43,9 @@ const fake = vi.hoisted(() => {
 
   class FakePool {
     private readonly id: number;
-    constructor() {
+    constructor(opts: Record<string, unknown> = {}) {
       this.id = ++state.poolSeq;
+      state.poolOptions.push(opts);
     }
     subscribe(relays: string[], filter: Record<string, unknown>, opts: { onevent: (ev: any) => void; oneose?: () => void; onclose?: (reasons: string[]) => void; onauth?: unknown }) {
       const sub = { filter, sink: opts.onevent, relays, onclose: opts.onclose, poolId: this.id };
@@ -60,8 +63,12 @@ const fake = vi.hoisted(() => {
       });
       return [Promise.resolve('ok')];
     }
-    close(_relays: string[]): void {
-      state.subscriptions = state.subscriptions.filter((sub) => sub.poolId !== this.id);
+    close(relays: string[]): void {
+      state.closeCalls.push({ poolId: this.id, relays });
+      const closing = new Set(relays);
+      state.subscriptions = state.subscriptions.filter((sub) =>
+        sub.poolId !== this.id || !sub.relays?.some((relay) => closing.has(relay)),
+      );
     }
     /**
      * The bridge's `connect()` awaits `pool.ensureRelay(url, ...)` before
@@ -117,8 +124,16 @@ async function flush(times = 4) {
   for (let i = 0; i < times; i++) await Promise.resolve();
 }
 
+function setOnline(value: boolean): void {
+  Object.defineProperty(window.navigator, 'onLine', { configurable: true, value });
+}
+
+function setVisibility(value: DocumentVisibilityState): void {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value });
+}
+
 beforeEach(() => {
-  (() => { fake.state.published = []; fake.state.subscriptions = []; fake.state.ensureRelayCalls = []; fake.state.ensureRelayImpl = null; fake.state.querySyncCalls = []; fake.state.poolSeq = 0; })();
+  (() => { fake.state.published = []; fake.state.subscriptions = []; fake.state.ensureRelayCalls = []; fake.state.ensureRelayImpl = null; fake.state.querySyncCalls = []; fake.state.poolSeq = 0; fake.state.poolOptions = []; fake.state.closeCalls = []; })();
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
     ok: false,
     json: vi.fn().mockResolvedValue({}),
@@ -126,12 +141,16 @@ beforeEach(() => {
   // Each test starts fresh — clear the bridge module-level singleton by
   // resetting modules so getBridge() returns a new instance.
   vi.resetModules();
+  setOnline(true);
+  setVisibility('visible');
   // Clear localStorage between tests so persisted sessions don't bleed.
   if (typeof window !== 'undefined') window.localStorage.clear();
 });
 
-afterEach(() => {
-  (() => { fake.state.published = []; fake.state.subscriptions = []; fake.state.ensureRelayCalls = []; fake.state.ensureRelayImpl = null; fake.state.querySyncCalls = []; fake.state.poolSeq = 0; })();
+afterEach(async () => {
+  const { getBridgeImpl } = await import('./client');
+  getBridgeImpl()?.dispose();
+  (() => { fake.state.published = []; fake.state.subscriptions = []; fake.state.ensureRelayCalls = []; fake.state.ensureRelayImpl = null; fake.state.querySyncCalls = []; fake.state.poolSeq = 0; fake.state.poolOptions = []; fake.state.closeCalls = []; })();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -1575,6 +1594,69 @@ describe('nostr-bridge', () => {
       const kinds = s.filter.kinds as number[] | undefined;
       return kinds?.includes(39000);
     })).toBe(true);
+  });
+
+  it("enables native ping on every bridge pool", async () => {
+    const { getBridge } = await import("./client");
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+
+    expect(fake.state.poolOptions.length).toBeGreaterThanOrEqual(2);
+    expect(fake.state.poolOptions.every((opts) => opts.enablePing === true)).toBe(true);
+  });
+
+  it("closes the previous active relay socket when switching pools", async () => {
+    const { getBridge } = await import("./client");
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+    fake.state.closeCalls = [];
+
+    await bridge.switchRelay("wss://other.example");
+
+    expect(fake.state.closeCalls).toContainEqual({
+      poolId: 2,
+      relays: ["wss://public.obelisk.ar"],
+    });
+  });
+
+  it("pauses while offline and reconnects immediately when the browser returns online", async () => {
+    const { getBridge, getBridgeImpl } = await import("./client");
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+    const impl = getBridgeImpl()!;
+    const callsBefore = fake.state.ensureRelayCalls.length;
+
+    setOnline(false);
+    window.dispatchEvent(new Event("offline"));
+    expect(impl.connectionState.get()).toBe("Offline");
+    expect(fake.state.ensureRelayCalls).toHaveLength(callsBefore);
+
+    setOnline(true);
+    window.dispatchEvent(new Event("online"));
+    await flush(12);
+
+    expect(fake.state.ensureRelayCalls.length).toBeGreaterThan(callsBefore);
+    expect(impl.connectionState.get()).toBe("Connected");
+  });
+
+  it("wakes a disconnected connection when its tab becomes visible", async () => {
+    const { getBridge, getBridgeImpl } = await import("./client");
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+    const impl = getBridgeImpl()!;
+    const callsBefore = fake.state.ensureRelayCalls.length;
+    impl.connectionState.set("Disconnected");
+
+    setVisibility("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flush(12);
+
+    expect(fake.state.ensureRelayCalls.length).toBeGreaterThan(callsBefore);
+    expect(impl.connectionState.get()).toBe("Connected");
   });
 
   it('rehydrated cache-free sessions stay logged out until background reconnect succeeds', async () => {

@@ -7,7 +7,7 @@ import { v2 as nip44 } from 'nostr-tools/nip44';
 import type { NipSigner } from '@/lib/nip-59';
 import { parseRelayListMeta, parseInboxRelays } from '@/lib/nostr-read';
 import { TextCoercingWebSocket } from '@/lib/nostr-pool';
-import { cacheGet, cacheSet, cacheDelete, cacheClearAll, cacheListIds } from './cache';
+import { cacheGet, cacheSet, cacheDelete, cacheClearAll, cacheListIdsByKind } from './cache';
 import {
   fetchIndexedBootstrap,
   fetchIndexedGroupMessages,
@@ -715,6 +715,44 @@ export class BridgeImpl {
   /** Set by the modal so it can show the auth-challenge URL. */
   private bunkerOnAuth: ((url: string) => void) | null = null;
 
+  private browserConnectionEventsWired = false;
+  private isBrowserOffline(): boolean {
+    return typeof navigator !== "undefined" && navigator.onLine === false;
+  }
+  private onBrowserOffline = (): void => {
+    if (!this.session) return;
+    this.cancelReconnectTimer();
+    this.reconnectAttempt = 0;
+    this.connectionState.set("Offline");
+  };
+  private onBrowserOnline = (): void => {
+    if (this.session) this.retryConnectionNow();
+  };
+  private onVisibilityChange = (): void => {
+    if (
+      this.session
+      && document.visibilityState === "visible"
+      && this.connectionState.get() !== "Connected"
+      && !this.isBrowserOffline()
+    ) {
+      this.retryConnectionNow();
+    }
+  };
+  private wireBrowserConnectionEvents(): void {
+    if (typeof window === "undefined" || this.browserConnectionEventsWired) return;
+    this.browserConnectionEventsWired = true;
+    window.addEventListener("offline", this.onBrowserOffline);
+    window.addEventListener("online", this.onBrowserOnline);
+    document.addEventListener("visibilitychange", this.onVisibilityChange);
+  }
+  private unwireBrowserConnectionEvents(): void {
+    if (typeof window === "undefined" || !this.browserConnectionEventsWired) return;
+    this.browserConnectionEventsWired = false;
+    window.removeEventListener("offline", this.onBrowserOffline);
+    window.removeEventListener("online", this.onBrowserOnline);
+    document.removeEventListener("visibilitychange", this.onVisibilityChange);
+  }
+
   constructor() {
     this.pool = this.createPool();
     this.wireWotEngine();
@@ -860,6 +898,7 @@ export class BridgeImpl {
       // dropping events. TextCoercingWebSocket UTF-8-decodes binary frames
       // before the parser sees them. Same fix as `getNostrPool()`.
       websocketImplementation: TextCoercingWebSocket as unknown as typeof WebSocket,
+      enablePing: true,
       automaticallyAuth: (relayUrl: string) => {
         if (!this.session) return null;
         // Only sign NIP-42 AUTH challenges for the relay the user has
@@ -1258,6 +1297,7 @@ export class BridgeImpl {
       parsed.relayUrl = normalizeRelayUrl(parsed.relayUrl);
       if (!isImportableRelayUrl(parsed.relayUrl)) parsed.relayUrl = DEFAULT_RELAY;
       this.session = parsed;
+      this.wireBrowserConnectionEvents();
       this.currentRelayUrl.set(parsed.relayUrl);
       this.relays = [parsed.relayUrl];
       // Make sure the session relay is in the configured list.
@@ -1356,6 +1396,10 @@ export class BridgeImpl {
   }
 
   dispose(): void {
+    this.unwireBrowserConnectionEvents();
+    this.cancelReconnectTimer();
+    this.reconnectInFlight = false;
+    this.connectGeneration++;
     // pool.close() handles the network teardown atomically; calling each
     // sub's close beforehand is redundant and races with the pool's own
     // closeAllSubscriptions sweep, producing CLOSING/CLOSED warnings.
@@ -1419,99 +1463,139 @@ export class BridgeImpl {
    * (they re-paint instantly if the user switches back).
    */
   private seedCacheForRelay(relay: string): boolean {
+    const ids = cacheListIdsByKind(relay, [
+      KIND_GROUP_METADATA,
+      KIND_GROUP_ADMINS,
+      KIND_GROUP_MEMBERS,
+      KIND_GROUP_CREATE,
+      KIND_USER_METADATA,
+      KIND_GROUP_MESSAGE,
+      KIND_REACTION,
+    ]);
+    const idsFor = (kind: number) => ids.get(kind) ?? [];
     let hasRenderableCache = false;
-    // Group metadata first so the sidebar lights up with channel rows even
-    // before the per-group admin/member seeds populate badges.
-    for (const groupId of cacheListIds(relay, KIND_GROUP_METADATA)) {
-      const entry = cacheGet<{ group: JsGroup; createdAt: number }>(
-        relay,
-        KIND_GROUP_METADATA,
-        groupId,
-      );
+
+    const cachedGroups: JsGroup[] = [];
+    const cachedChildren: Record<string, string[]> = {};
+    for (const groupId of idsFor(KIND_GROUP_METADATA)) {
+      const entry = cacheGet<{ group: JsGroup; createdAt: number }>(relay, KIND_GROUP_METADATA, groupId);
       if (!entry) continue;
       const { group: cached, createdAt } = entry.value;
-      // Backfill fields added after the cache was written so older entries
-      // don't surface as `undefined` to consumers expecting an array.
       const group: JsGroup = {
         ...cached,
         forumTags: cached.forumTags ?? [],
         topics: cached.topics ?? [],
       };
-      this.groupMetadataLatestAt.set(groupId, createdAt);
-      // Track parent for the reverse index even when null — keeps
-      // {@link ingestGroupMetadata}'s fast-path "parent didn't change"
-      // comparison working after a cache-seeded paint.
-      this.groupParentMap.set(groupId, group.parent ?? null);
-      this.groups.update((prev) => {
-        if (prev.some((g) => g.id === groupId)) return prev;
-        return [...prev, group].sort((a, b) => (a.name ?? a.id).localeCompare(b.name ?? b.id));
-      });
-      hasRenderableCache = true;
-      if (group.parent) {
-        this.childrenByParent.update((prev) => {
-          const arr = prev[group.parent!] ?? [];
-          if (arr.includes(groupId)) return prev;
-          return { ...prev, [group.parent!]: [...arr, groupId].sort() };
-        });
-      }
-    }
-    for (const groupId of cacheListIds(relay, KIND_GROUP_ADMINS)) {
-      const entry = cacheGet<string[]>(relay, KIND_GROUP_ADMINS, groupId);
-      if (entry) {
-        this.adminsByGroup.update((prev) => ({ ...prev, [groupId]: entry.value }));
-        this.membershipReadyByGroup.update((prev) =>
-          prev[groupId] ? prev : { ...prev, [groupId]: true },
-        );
-      }
-    }
-    for (const groupId of cacheListIds(relay, KIND_GROUP_MEMBERS)) {
-      const entry = cacheGet<string[]>(relay, KIND_GROUP_MEMBERS, groupId);
-      if (entry) {
-        this.membersByGroup.update((prev) => ({ ...prev, [groupId]: entry.value }));
-        this.membershipReadyByGroup.update((prev) =>
-          prev[groupId] ? prev : { ...prev, [groupId]: true },
-        );
-      }
-    }
-    for (const groupId of cacheListIds(relay, KIND_GROUP_CREATE)) {
-      const entry = cacheGet<string>(relay, KIND_GROUP_CREATE, groupId);
-      if (entry) {
-        this.groupCreators.update((prev) => ({ ...prev, [groupId]: entry.value }));
-      }
-    }
-    // Kind 0 — bounded iteration so a large cache (popular relay, many DM
-    // contacts) doesn't block first paint. 500 pubkeys is well past any
-    // realistic working set; the live REQs overwrite anything we skip.
-    const userMetaIds = cacheListIds(relay, KIND_USER_METADATA);
-    const SEED_CAP = 500;
-    const seedTargets = userMetaIds.length > SEED_CAP ? userMetaIds.slice(0, SEED_CAP) : userMetaIds;
-    for (const pubkey of seedTargets) {
-      const entry = cacheGet<{ meta: JsUserMetadata; createdAt: number }>(
-        relay,
-        KIND_USER_METADATA,
-        pubkey,
+      this.groupMetadataLatestAt.set(
+        groupId,
+        Math.max(this.groupMetadataLatestAt.get(groupId) ?? 0, createdAt),
       );
+      this.groupParentMap.set(groupId, group.parent ?? null);
+      cachedGroups.push(group);
+      hasRenderableCache = true;
+      if (group.parent) (cachedChildren[group.parent] ??= []).push(groupId);
+    }
+    if (cachedGroups.length > 0) {
+      this.groups.update((prev) => {
+        const present = new Set(prev.map((group) => group.id));
+        const added = cachedGroups.filter((group) => !present.has(group.id));
+        return added.length === 0
+          ? prev
+          : [...prev, ...added].sort((a, b) => (a.name ?? a.id).localeCompare(b.name ?? b.id));
+      });
+      this.childrenByParent.update((prev) => {
+        const next = { ...prev };
+        for (const [parent, children] of Object.entries(cachedChildren)) {
+          next[parent] = Array.from(new Set([...(prev[parent] ?? []), ...children])).sort();
+        }
+        return next;
+      });
+    }
+
+    const cachedAdmins: Record<string, string[]> = {};
+    const cachedMembers: Record<string, string[]> = {};
+    for (const groupId of idsFor(KIND_GROUP_ADMINS)) {
+      const entry = cacheGet<string[]>(relay, KIND_GROUP_ADMINS, groupId);
+      if (entry) cachedAdmins[groupId] = entry.value;
+    }
+    for (const groupId of idsFor(KIND_GROUP_MEMBERS)) {
+      const entry = cacheGet<string[]>(relay, KIND_GROUP_MEMBERS, groupId);
+      if (entry) cachedMembers[groupId] = entry.value;
+    }
+    if (Object.keys(cachedAdmins).length > 0) {
+      this.adminsByGroup.update((prev) => ({ ...cachedAdmins, ...prev }));
+    }
+    if (Object.keys(cachedMembers).length > 0) {
+      this.membersByGroup.update((prev) => ({ ...cachedMembers, ...prev }));
+    }
+    const readyIds = [...Object.keys(cachedAdmins), ...Object.keys(cachedMembers)];
+    if (readyIds.length > 0) {
+      this.membershipReadyByGroup.update((prev) => {
+        const next = { ...prev };
+        for (const groupId of readyIds) next[groupId] = true;
+        return next;
+      });
+    }
+
+    const cachedCreators: Record<string, string> = {};
+    for (const groupId of idsFor(KIND_GROUP_CREATE)) {
+      const entry = cacheGet<string>(relay, KIND_GROUP_CREATE, groupId);
+      if (entry) cachedCreators[groupId] = entry.value;
+    }
+    if (Object.keys(cachedCreators).length > 0) {
+      this.groupCreators.update((prev) => ({ ...cachedCreators, ...prev }));
+    }
+
+    const cachedMetadata: Record<string, JsUserMetadata> = {};
+    for (const pubkey of idsFor(KIND_USER_METADATA).slice(0, 500)) {
+      const entry = cacheGet<{ meta: JsUserMetadata; createdAt: number }>(relay, KIND_USER_METADATA, pubkey);
       if (!entry) continue;
       const { meta, createdAt } = entry.value;
       if ((this.userMetadataLatestAt.get(pubkey) ?? 0) >= createdAt) continue;
-      this.userMetadata.update((prev) => ({ ...prev, [pubkey]: meta }));
+      cachedMetadata[pubkey] = meta;
       this.userMetadataLatestAt.set(pubkey, createdAt);
     }
-    // Kind 9 — per-channel message backfill. Paints the last
-    // MESSAGE_CACHE_LIMIT messages instantly so the chat pane has content
-    // before the live REQ round-trips. Subsequent ingests dedupe by event
-    // id, so the relay's authoritative window overwrites without dupes.
-    for (const groupId of cacheListIds(relay, KIND_GROUP_MESSAGE)) {
-      if (this.seedCachedMessagesForGroup(relay, groupId)) hasRenderableCache = true;
+    if (Object.keys(cachedMetadata).length > 0) {
+      this.userMetadata.update((prev) => ({ ...prev, ...cachedMetadata }));
     }
-    // Kind 7 — per-channel reaction backfill. Emoji badges paint with
-    // their message bubbles instead of popping in a frame later.
-    for (const groupId of cacheListIds(relay, KIND_REACTION)) {
+
+    const currentMessages = this.messagesByGroup.get();
+    const cachedMessages: Record<string, JsMessage[]> = {};
+    for (const groupId of idsFor(KIND_GROUP_MESSAGE)) {
+      if ((currentMessages[groupId]?.length ?? 0) > 0) continue;
+      const entry = cacheGet<JsMessage[]>(relay, KIND_GROUP_MESSAGE, groupId);
+      if (!entry || entry.value.length === 0) continue;
+      cachedMessages[groupId] = entry.value.map((message) => ({
+        ...message,
+        mentions: message.mentions ?? [],
+        customEmojis: message.customEmojis ?? {},
+      }));
+      hasRenderableCache = true;
+    }
+    if (Object.keys(cachedMessages).length > 0) {
+      this.messagesByGroup.update((prev) => {
+        const next = { ...prev };
+        for (const [groupId, messages] of Object.entries(cachedMessages)) {
+          if ((prev[groupId]?.length ?? 0) === 0) next[groupId] = messages;
+        }
+        return next;
+      });
+      this.messagesStatusByGroup.update((prev) => {
+        const next = { ...prev };
+        for (const groupId of Object.keys(cachedMessages)) next[groupId] = "has-messages";
+        return next;
+      });
+    }
+
+    const cachedReactions: Record<string, Record<string, JsReaction[]>> = {};
+    const currentReactions = this.reactionsByGroup.get();
+    for (const groupId of idsFor(KIND_REACTION)) {
+      if (currentReactions[groupId]) continue;
       const entry = cacheGet<Record<string, JsReaction[]>>(relay, KIND_REACTION, groupId);
-      if (!entry) continue;
-      this.reactionsByGroup.update((prev) =>
-        prev[groupId] ? prev : { ...prev, [groupId]: entry.value },
-      );
+      if (entry) cachedReactions[groupId] = entry.value;
+    }
+    if (Object.keys(cachedReactions).length > 0) {
+      this.reactionsByGroup.update((prev) => ({ ...cachedReactions, ...prev }));
     }
     return hasRenderableCache;
   }
@@ -1568,6 +1652,7 @@ export class BridgeImpl {
    * `docs/data-system.md`.
    */
   private async finalizeLogin(): Promise<void> {
+    this.wireBrowserConnectionEvents();
     this.persist();
     this.resetPoolForSessionChange();
     // Pin `this.relays` to the session's relay before connect(). Without this,
@@ -1604,6 +1689,10 @@ export class BridgeImpl {
    */
   private resetPoolForSessionChange(): void {
     this.closeVoicePool();
+    const previousPool = this.pool;
+    const previousRelays = [...this.relays];
+    const shouldClosePool = this.poolSocketAlive;
+    this.connectGeneration++;
     // Capture the per-group REQs that were live on the old pool so connect()
     // can reopen them on the new one. Without this, components mounted before
     // login keep their store listeners but have nothing feeding them.
@@ -1618,16 +1707,10 @@ export class BridgeImpl {
     this.subs.forEach((s) => (s.markClosed ?? s.close)());
     this.subs = [];
     this.dmSubHandles = [];
-    // Don't call pool.close() — its internal closeAllSubscriptions sweep
-    // sends a CLOSE frame per subscription, and the relay-side socket
-    // routinely transitions to CLOSING between our last message and this
-    // teardown (idle timeout, quota disconnect, network blip). Each
-    // attempted send on a non-OPEN socket triggers
-    // "WebSocket is already in CLOSING or CLOSED state" — one warning per
-    // sub, which on a 50-sub session floods the console. We let the old
-    // pool's WebSockets drop via server-side idle timeout or browser GC;
-    // the new pool replacement is what actually carries traffic forward.
     this.poolSocketAlive = false;
+    if (shouldClosePool) {
+      try { previousPool.close(previousRelays); } catch { /* ignore */ }
+    }
     this.pool = this.createPool();
     this.messageSubscribedGroups.clear();
     this.messageSubByGroup.clear();
@@ -1951,6 +2034,10 @@ export class BridgeImpl {
   // -- Connection --------------------------------------------------------
 
   async connect(): Promise<void> {
+    if (this.isBrowserOffline()) {
+      this.connectionState.set("Offline");
+      throw new Error("browser offline");
+    }
     const generation = ++this.connectGeneration;
     const relaySnapshot = [...this.relays];
     this.connectionState.set('Connecting');
@@ -1998,7 +2085,7 @@ export class BridgeImpl {
           relay.onclose = () => {
             this.poolSocketAlive = false;
             if (generation === this.connectGeneration && this.relays.includes(url) && this.session) {
-              this.connectionState.set('Disconnected');
+              this.connectionState.set(this.isBrowserOffline() ? "Offline" : "Disconnected");
               // Don't override sticky-OK on transient drops — a brief socket
               // bounce shouldn't flash "Cannot reach". connectionState
               // already surfaces the reconnect attempt.
@@ -2046,6 +2133,7 @@ export class BridgeImpl {
         this.applyPendingResubscribe(pending);
       });
       this.connectionState.set('Connected');
+      this.cancelReconnectTimer();
       this.reconnectAttempt = 0;
       // Activity message reflects the snapshot at the moment the gate
       // flipped, not the final count — slower relays may still be
@@ -2053,7 +2141,7 @@ export class BridgeImpl {
       // the exact count, which would require awaiting all handles.
       resolveActivity(activityId, `connected to ${relaySnapshot.length === 1 ? relaySnapshot[0] : `${relaySnapshot.length} relays`}`);
     } catch (e: unknown) {
-      this.connectionState.set(`Error:${(e as Error).message}`);
+      this.connectionState.set(this.isBrowserOffline() ? "Offline" : "Error:" + (e as Error).message);
       failActivity(activityId, (e as Error).message);
       throw e;
     }
@@ -2154,20 +2242,35 @@ export class BridgeImpl {
    */
   private reconnectAttempt = 0;
   private reconnectInFlight = false;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private connectGeneration = 0;
-  private reconnectInBackground(): void {
-    if (this.reconnectInFlight) return;
+
+  private cancelReconnectTimer(): void {
+    if (!this.reconnectTimer) return;
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+  }
+
+  private retryConnectionNow(): void {
     if (!this.session) return;
+    if (this.isBrowserOffline()) {
+      this.connectionState.set("Offline");
+      return;
+    }
+    this.cancelReconnectTimer();
+    this.reconnectInBackground();
+  }
+
+  private reconnectInBackground(): void {
+    if (!this.session || this.reconnectInFlight || this.reconnectTimer) return;
+    if (this.isBrowserOffline()) {
+      this.connectionState.set("Offline");
+      return;
+    }
     this.reconnectInFlight = true;
-    const tick = async () => {
-      if (!this.session) {
-        this.reconnectInFlight = false;
-        return;
-      }
-      this.reconnectAttempt++;
+    this.reconnectAttempt++;
+    void (async () => {
       try {
-        // Fresh sockets so a half-open / AUTH-stuck socket doesn't keep
-        // the new attempt from making progress.
         this.resetPoolForSessionChange();
         await this.connect();
         if (this.session) {
@@ -2175,27 +2278,42 @@ export class BridgeImpl {
           this.myLoginMethod.set(this.session.loginMethod);
           this.isLoggedIn.set(true);
         }
-        this.reconnectInFlight = false;
         this.reconnectAttempt = 0;
       } catch {
-        const delay = Math.min(1000 * 2 ** (this.reconnectAttempt - 1), 30_000);
-        setTimeout(tick, delay);
+        if (!this.session) return;
+        if (this.isBrowserOffline()) {
+          this.reconnectAttempt = 0;
+          this.connectionState.set("Offline");
+          return;
+        }
+        const base = Math.min(1000 * 2 ** (this.reconnectAttempt - 1), 30_000);
+        const delay = Math.round(base * (0.8 + Math.random() * 0.4));
+        this.reconnectTimer = setTimeout(() => {
+          this.reconnectTimer = null;
+          this.reconnectInBackground();
+        }, delay);
+      } finally {
+        this.reconnectInFlight = false;
       }
-    };
-    void tick();
+    })();
   }
 
   async switchRelay(url: string): Promise<void> {
+    this.cancelReconnectTimer();
     const normalized = normalizeRelayUrl(url);
     validateRelayUrl(normalized);
     if (!isImportableRelayUrl(normalized)) throw new Error("relay URL must be a public wss:// hostname");
-    // Same teardown semantics as resetPoolForSessionChange: skip the
-    // pool.close() sweep to avoid CLOSING/CLOSED spam, just stop each
-    // watched-sub's retry loop and replace the pool reference.
+    const previousPool = this.pool;
+    const previousRelays = [...this.relays];
+    const shouldClosePool = this.poolSocketAlive;
+    this.connectGeneration++;
     this.subs.forEach((s) => (s.markClosed ?? s.close)());
     this.subs = [];
     this.dmSubHandles = [];
     this.poolSocketAlive = false;
+    if (shouldClosePool) {
+      try { previousPool.close(previousRelays); } catch { /* ignore */ }
+    }
     this.pool = this.createPool();
     this.relays = [normalized];
     this.currentRelayUrl.set(normalized);

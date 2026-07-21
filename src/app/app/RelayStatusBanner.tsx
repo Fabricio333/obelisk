@@ -49,6 +49,14 @@ function computeStatus(
   host: string,
 ): Status | null {
   // ── Connection-state takes precedence ────────────────────────────
+  if (conn === 'Offline') {
+    return {
+      state: 'offline',
+      severity: 'warn',
+      label: 'You’re offline',
+      detail: 'Cached channels and messages remain available. Reconnecting when your network returns.',
+    };
+  }
   if (conn === 'Connecting') {
     return {
       state: 'connecting',
@@ -144,7 +152,7 @@ const SPINNER_CLASSES: Record<Severity, string> = {
 };
 
 function bannerTestId(state: string): 'connection-loss-banner' | 'relay-access-banner' {
-  return state === 'disconnected' ? 'connection-loss-banner' : 'relay-access-banner';
+  return state === 'disconnected' || state === 'offline' ? 'connection-loss-banner' : 'relay-access-banner';
 }
 
 /**

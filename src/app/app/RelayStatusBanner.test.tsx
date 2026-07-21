@@ -38,6 +38,17 @@ describe('RelayStatusBanner test ids', () => {
     expect(banner).toHaveTextContent('Not whitelisted');
   });
 
+  it('surfaces offline mode with cached-content guidance', () => {
+    mockBridge.connectionState = 'Offline';
+
+    render(<RelayStatusBanner />);
+
+    const banner = screen.getByTestId('connection-loss-banner');
+    expect(banner).toHaveAttribute('data-state', 'offline');
+    expect(banner).toHaveTextContent('You’re offline');
+    expect(banner).toHaveTextContent('Cached channels and messages remain available');
+  });
+
   it('surfaces socket loss through the e2e connection-loss banner selector', () => {
     mockBridge.connectionState = 'Disconnected';
 

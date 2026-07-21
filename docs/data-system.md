@@ -139,13 +139,14 @@ fires for the new relay automatically.
 
 `BridgeImpl.connectionState: StateStore<string>` with values:
 
-- `'Disconnected'` — initial state and after every socket close.
+- `'Disconnected'` — initial state and after a socket close while the browser is online.
+- `'Offline'` — the browser reports no network; cached state stays mounted and retries pause.
 - `'Connecting'` — set at `connect()` start.
 - `'Connected'` — set after the first relay handshakes.
 - `'Error:<message>'` — set on `connect()` throw.
 
-`relay.onclose` flips it back to `'Disconnected'` and kicks
-`reconnectInBackground()` with capped exponential backoff.
+`relay.onclose` flips the state to `'Disconnected'` (or keeps `'Offline'`) and kicks
+`reconnectInBackground()` with capped, jittered exponential backoff. Native relay pings detect half-open sockets; browser `online` and visible-tab events wake a pending retry immediately, while `offline` pauses retry traffic.
 
 UI surface: `src/app/app/ConnectionBanner.tsx` mounts above the chat pane
 in both shells. Visible when `useIsLoggedIn() === true` AND
@@ -199,7 +200,7 @@ this one" CLOSED doesn't flip the relay-wide banner.
 
 ## 9. bridgeCache (stale-while-revalidate)
 
-`src/lib/nostr-bridge/cache.ts` is a small `localStorage`-backed cache.
+`src/lib/nostr-bridge/cache.ts` is a small `localStorage`-backed cache. Startup indexes all required kinds in one storage scan and batches StateStore hydration by data type.
 Keyed by `obelisk-cache-v3/<relay>/<kind>/<id>` with a `{ v, t }` payload.
 No TTL — relays are the source of truth and `created_at`-newest-wins
 replaces entries through `cacheSet`.

@@ -230,18 +230,30 @@ export function cacheClearAll(): void {
  * payload in memory all at once.
  */
 export function cacheListIds(relay: string, kind: number): string[] {
-  if (!isAvailable()) return [];
-  const prefix = `${KEY_PREFIX}${normalizeRelayUrl(relay)}/${kind}/`;
-  const ids: string[] = [];
+  return cacheListIdsByKind(relay, [kind]).get(kind) ?? [];
+}
+
+/** Index several cached kinds with one localStorage scan. */
+export function cacheListIdsByKind(relay: string, kinds: readonly number[]): Map<number, string[]> {
+  const result = new Map<number, string[]>();
+  if (!isAvailable() || kinds.length === 0) return result;
+  const wanted = new Set(kinds);
+  const prefix = `${KEY_PREFIX}${normalizeRelayUrl(relay)}/`;
   try {
     for (let i = 0; i < window.localStorage.length; i++) {
       const key = window.localStorage.key(i);
-      if (key && key.startsWith(prefix)) {
-        ids.push(key.slice(prefix.length));
-      }
+      if (!key?.startsWith(prefix)) continue;
+      const suffix = key.slice(prefix.length);
+      const slash = suffix.indexOf('/');
+      if (slash < 1) continue;
+      const kind = Number(suffix.slice(0, slash));
+      if (!wanted.has(kind)) continue;
+      const ids = result.get(kind) ?? [];
+      ids.push(suffix.slice(slash + 1));
+      result.set(kind, ids);
     }
   } catch {
     // ignore
   }
-  return ids;
+  return result;
 }

@@ -2180,7 +2180,9 @@ function ChannelListEmptyState({
   }, [connectionState, relayAccess]);
 
   let label = 'Channels loading…';
-  if (relayAccess === 'auth-required' || relayAccess === 'restricted') {
+  if (connectionState === 'Offline') {
+    label = 'You’re offline';
+  } else if (relayAccess === 'auth-required' || relayAccess === 'restricted') {
     label = 'Whitelisting required';
   } else if (
     relayAccess === 'unreachable'
