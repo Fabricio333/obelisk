@@ -397,7 +397,7 @@ export function PreferencesPanel() {
       <AppearancePreferenceControls />
       <ToggleRow
         label="Developer relay logs"
-        description="Log relay calls to the console and window.__obeliskRelayDebug."
+        description="Log relay calls to the console."
         checked={prefs.developerRelayDebug}
         onChange={(v) => setPreference('developerRelayDebug', v)}
       />

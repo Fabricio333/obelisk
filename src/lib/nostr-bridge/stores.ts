@@ -317,58 +317,18 @@ export function useLoadEarlier(groupId: string | null): {
   return { loadEarlier, loading, reachedStart, lastResult };
 }
 
-/**
- * `true` once the relay has emitted EOSE for the global kind 39000 sub.
- * Lets the empty-state UI distinguish "still loading" from "relay
- * confirmed zero groups visible to me" (typical whitelist symptom on
- * relays that don't send a CLOSED reason).
- */
 export function useGroupMetadataEose(): boolean {
-  return useSubscription<boolean>(
-    (b, cb) => b.subscribeGroupMetadataEose(cb),
-    false,
-  );
+  return useSubscription((b, cb) => b.subscribeGroupMetadataEose(cb), false);
 }
 
-/**
- * `true` once the per-group admin/member subscriptions have emitted EOSE,
- * or seeded values were pulled from {@link bridgeCache}. The members pane
- * reads this to decide between "Loading members…" and an empty MemberList.
- */
 export function useMembershipReady(groupId: string | null): boolean {
-  return useSubscription<boolean>(
+  return useSubscription(
     (b, cb) => (groupId ? b.subscribeMembershipReady(groupId, cb) : () => {}),
     false,
     [groupId],
   );
 }
 
-/**
- * `true` once the relay has emitted EOSE for the per-group kind 9 messages
- * REQ. Prefer {@link useMessagesStatus} for new code — EOSE alone is not
- * proof of emptiness on auth-gated / silent-filtering relays, and the
- * status hook carries the bridge's retry-backed confidence.
- */
-export function useMessagesEose(groupId: string | null): boolean {
-  return useSubscription<boolean>(
-    (b, cb) => (groupId ? b.subscribeMessagesEose(groupId, cb) : () => {}),
-    false,
-    [groupId],
-  );
-}
-
-/**
- * Per-group confidence enum for the kind 9 messages stream.
- *  - `loading`           — still waiting for the first EOSE / first event
- *  - `empty-unconfirmed` — relay returned EOSE before any events; bridge is retrying
- *  - `empty-confirmed`   — retries exhausted, treat the channel as empty
- *  - `has-messages`      — at least one event ingested
- *
- * The chat pane should show a loading spinner for `loading` and
- * `empty-unconfirmed`, and only render "No messages yet" once status
- * reaches `empty-confirmed`. Subscribing also fast-tracks the underlying
- * kind 9 REQ.
- */
 export function useMessagesStatus(groupId: string | null): MessagesStatus {
   return useSubscription<MessagesStatus>(
     (b, cb) => (groupId ? b.subscribeMessagesStatus(groupId, cb) : () => {}),

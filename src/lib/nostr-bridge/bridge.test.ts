@@ -3,15 +3,12 @@
  *
  * Mocks `SimplePool` from `nostr-tools` to capture published events and
  * deliver them back to subscribers, simulating a relay round-trip without
- * touching the network. Real crypto (finalizeEvent, getPublicKey, nip04,
- * nip19) runs end-to-end so signatures, encryption, and bech32 encoding
+ * touching the network. Real crypto runs end-to-end so signatures, encryption, and encoding
  * are exercised.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { generateSecretKey, getPublicKey, nip19, finalizeEvent, type Event as NostrEvent, type Filter } from 'nostr-tools';
+import { generateSecretKey, getPublicKey, finalizeEvent, type Event as NostrEvent, type Filter } from 'nostr-tools';
 import { KIND_SFU_ACTIVE_CALL, KIND_VOICE_PRESENCE, KIND_VOICE_SIGNAL } from '@/lib/nip-kinds';
-
-type Sink = (ev: NostrEvent) => void;
 
 const fake = vi.hoisted(() => {
   const state = {
@@ -104,7 +101,7 @@ function matches(f: Filter, ev: NostrEvent): boolean {
 }
 
 // Import bridge AFTER the mock is registered.
-import { getBridge, decodeNsec, isImportableRelayUrl } from './client';
+import { isImportableRelayUrl } from './client';
 
 function bytesToHex(b: Uint8Array): string {
   return Array.from(b).map((x) => x.toString(16).padStart(2, '0')).join('');
@@ -113,8 +110,7 @@ function bytesToHex(b: Uint8Array): string {
 function makeKeypair() {
   const sk = generateSecretKey();
   const pk = getPublicKey(sk);
-  const nsec = nip19.nsecEncode(sk);
-  return { skHex: bytesToHex(sk), pkHex: pk, nsec };
+  return { skHex: bytesToHex(sk), pkHex: pk };
 }
 
 async function flush(times = 4) {
@@ -141,13 +137,6 @@ afterEach(() => {
 });
 
 describe('nostr-bridge', () => {
-  it('decodeNsec round-trips with a freshly generated key', () => {
-    const { nsec, skHex, pkHex } = makeKeypair();
-    const decoded = decodeNsec(nsec);
-    expect(decoded.privKeyHex).toBe(skHex);
-    expect(decoded.pubKeyHex).toBe(pkHex);
-  });
-
   it('rejects local and private relay URLs from imported relay lists', () => {
     expect(isImportableRelayUrl('ws://localhost:4869/')).toBe(false);
     expect(isImportableRelayUrl('wss://localhost:4869/')).toBe(false);
@@ -1446,49 +1435,6 @@ describe('nostr-bridge', () => {
     // And the new relay's cache must NOT have an entry for it (the bug
     // wrote `cacheSet(NEW_RELAY, 39000, 'leaked-from-old-relay', ...)`).
     expect(cacheGet(NEW_RELAY, 39000, 'leaked-from-old-relay')).toBeNull();
-  });
-
-  // -- per-group messages-EOSE flag ----------------------------------------
-  // The chat pane needs to tell "still loading from relay" from "relay
-  // confirmed empty" so the loading spinner doesn't flash to "No messages
-  // yet — be the first" mid-stream. The bridge exposes a per-group flag
-  // (StateStore<Record<groupId, boolean>>) that flips on EOSE for the
-  // kind 9 subscription scoped to that group.
-
-  it('subscribeMessagesEose stays false until EOSE, flips to true after EOSE', async () => {
-    const { getBridge } = await import('./client');
-    const { skHex, pkHex } = makeKeypair();
-    const bridge = await getBridge();
-    await bridge.loginWithNsec(skHex, pkHex);
-    await flush();
-
-    const groupId = 'eose-test-group';
-    const observed: boolean[] = [];
-    bridge.subscribeMessagesEose(groupId, (eose) => observed.push(eose));
-    // Initial replay: false (no EOSE yet for this group).
-    expect(observed[0]).toBe(false);
-
-    // FakePool fires EOSE via queueMicrotask, so flush() lets it land.
-    await flush();
-    expect(observed.at(-1)).toBe(true);
-  });
-
-  it('messagesEoseByGroup resets on relay switch so the new relay starts in loading state', async () => {
-    const { getBridge, getBridgeImpl } = await import('./client');
-    const { skHex, pkHex } = makeKeypair();
-    const bridge = await getBridge();
-    await bridge.loginWithNsec(skHex, pkHex);
-    await flush();
-
-    const groupId = 'eose-reset-test';
-    bridge.subscribeMessagesEose(groupId, () => {});
-    await flush();
-
-    const impl = getBridgeImpl()!;
-    expect(impl.messagesEoseByGroup.get()[groupId]).toBe(true);
-
-    await bridge.switchRelay('wss://other-relay.example');
-    expect(impl.messagesEoseByGroup.get()[groupId]).toBeFalsy();
   });
 
   it('keeps an empty channel-list EOSE provisional until the metadata retry window is exhausted', async () => {

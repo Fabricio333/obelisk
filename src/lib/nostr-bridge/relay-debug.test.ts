@@ -1,34 +1,22 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setPreference } from "@/lib/preferences";
+import { pushRelayDebug } from "./relay-debug";
 
-describe('relay debug log', () => {
+describe("relay debug log", () => {
   beforeEach(() => {
     localStorage.clear();
-    vi.resetModules();
-    vi.spyOn(console, 'debug').mockImplementation(() => {});
-    delete (window as unknown as { __obeliskRelayDebug?: unknown }).__obeliskRelayDebug;
+    vi.spyOn(console, "debug").mockImplementation(() => {});
   });
 
-  it('does nothing until developer relay debug is enabled', async () => {
-    const { pushRelayDebug } = await import('./relay-debug');
+  afterEach(() => vi.restoreAllMocks());
 
-    pushRelayDebug({ kind: 'sub-start', relay: 'wss://relay.example' });
-
+  it("logs only when enabled", () => {
+    const entry = { kind: "sub-start", relay: "wss://relay.example" };
+    pushRelayDebug(entry);
     expect(console.debug).not.toHaveBeenCalled();
-    expect((window as unknown as { __obeliskRelayDebug?: { events: unknown[] } }).__obeliskRelayDebug).toBeUndefined();
-  });
 
-  it('writes console entries and keeps a bounded window ring when enabled', async () => {
-    const { setPreference } = await import('@/lib/preferences');
-    const { pushRelayDebug } = await import('./relay-debug');
-    setPreference('developerRelayDebug', true);
-
-    for (let i = 0; i < 1002; i++) {
-      pushRelayDebug({ kind: 'query-start', relay: 'wss://relay.example', payload: { i } });
-    }
-
-    const bag = (window as unknown as { __obeliskRelayDebug: { events: Array<{ payload: { i: number } }> } }).__obeliskRelayDebug;
-    expect(console.debug).toHaveBeenCalled();
-    expect(bag.events).toHaveLength(1000);
-    expect(bag.events[0].payload.i).toBe(2);
+    setPreference("developerRelayDebug", true);
+    pushRelayDebug(entry);
+    expect(console.debug).toHaveBeenCalledWith("[relay]", entry.kind, entry);
   });
 });

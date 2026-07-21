@@ -18,7 +18,7 @@ import { useRouter } from 'next/navigation';
 import { VoiceClient, type RemoteTrack } from '@/lib/voice/client';
 import { setActiveVoiceClient, getActiveVoiceClient } from '@/lib/voice/active-client';
 import { getBridge } from '@/lib/nostr-bridge/client';
-import type { NostrBridge } from '@/lib/nostr-bridge/types';
+import type { BridgeImpl } from '@/lib/nostr-bridge/client';
 import { useVoiceStore } from '@/store/voice';
 import { useActiveCall, useGroups, useCurrentRelayUrl } from '@/lib/nostr-bridge';
 import { useProfile } from '@nostr-wot/data/react';
@@ -114,7 +114,7 @@ export default function VoiceRoom({ channelId, channelName, chatSlot, isChatOpen
   // Phase 1 — bridge + role subscriptions, gate decision.
   useEffect(() => {
     let cancelled = false;
-    let bridgeRef: NostrBridge | null = null;
+    let bridgeRef: BridgeImpl | null = null;
     let unsubMembers: (() => void) | null = null;
     let unsubAdmins: (() => void) | null = null;
     let unsubReady: (() => void) | null = null;

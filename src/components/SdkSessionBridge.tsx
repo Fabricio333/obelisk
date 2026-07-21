@@ -24,7 +24,7 @@ import { useLogin, useLogout } from '@nostr-wot/data/react';
 import { setPool } from '@nostr-wot/data';
 import type { SessionSigner } from '@nostr-wot/data/react';
 import { getBridge } from '@/lib/nostr-bridge';
-import type { NostrBridge } from '@/lib/nostr-bridge/types';
+import type { BridgeImpl } from '@/lib/nostr-bridge';
 import { getNostrPool } from '@/lib/nostr-pool';
 
 // Share Obelisk's TextCoercing-aware SimplePool with the SDK so SDK
@@ -35,11 +35,11 @@ if (typeof window !== 'undefined') {
   try { setPool(getNostrPool()); } catch { /* ignore */ }
 }
 
-function buildAdapter(bridge: NostrBridge): SessionSigner {
+function buildAdapter(bridge: BridgeImpl): SessionSigner {
   return {
     getPublicKey: async () => bridge.getPublicKey() ?? '',
     signEvent: async (template) =>
-      bridge.signEventTemplate(template as Parameters<NostrBridge['signEventTemplate']>[0]),
+      bridge.signEventTemplate(template as Parameters<BridgeImpl['signEventTemplate']>[0]),
     // The bridge does not expose nip04/nip44 — leave undefined. Consumers
     // that need encryption (DMs, KEK signer) keep using the bridge directly.
   };
@@ -48,7 +48,7 @@ function buildAdapter(bridge: NostrBridge): SessionSigner {
 function BridgeToSdkSync({ children }: { children: ReactNode }): ReactNode {
   const login = useLogin();
   const logout = useLogout();
-  const [bridge, setBridge] = useState<NostrBridge | null>(null);
+  const [bridge, setBridge] = useState<BridgeImpl | null>(null);
 
   // Resolve the bridge instance once.
   useEffect(() => {

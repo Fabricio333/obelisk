@@ -5405,7 +5405,7 @@ export function SettingsPrefsScreen({ go }: { go: (s: ScreenName) => void }) {
             <span style={{ minWidth: 0, flex: 1 }}>
               <span style={{ display: "block" }}>Developer relay logs</span>
               <span className="settings-row-meta muted" style={{ display: "block", maxWidth: "100%", marginTop: 3 }}>
-                Console and window.__obeliskRelayDebug.
+                Browser console.
               </span>
             </span>
             <span

@@ -1,26 +1,5 @@
-/**
- * Bridge implementation backed by `nostr-tools`.
- *
- * Why a TS implementation rather than the planned KMP→WASM bridge:
- *   The Kotlin/Wasm `@JsExport` constraints in Kotlin 2.2.20 don't allow
- *   exporting non-`external` classes as return types of interop functions
- *   (compile error: "Type 'NostrBridge' cannot be used as return type of
- *   JS interop function. Only external, primitive, string, and function
- *   types are supported"). Building the WASM bridge requires a flat-module
- *   redesign with JSON-string returns or `external interface` types — a
- *   nontrivial rewrite that needs hands-on iteration.
- *
- *   nostr-tools uses the same crypto primitives nostrord uses (secp256k1,
- *   NIP-04 ChaCha-poly hybrid, NIP-44 ChaCha20-Poly1305). The protocol
- *   layer is the same; only the host language differs. Components import
- *   from this single seam, so a future swap to the WASM artifact is
- *   mechanical (replace this file's body).
- *
- *   See `nostrord/composeApp/src/wasmJsMain/.../bridge/README.md` (deleted
- *   when the broken first-draft was reverted) and obelisk/HANDOFF.md
- *   for the WASM swap recipe.
- */
-import { SimplePool, type Filter, type Event as NostrEvent, type EventTemplate, type VerifiedEvent, finalizeEvent, getPublicKey, nip19, nip04 } from 'nostr-tools';
+/** Relay-only nostr-tools bridge singleton. */
+import { SimplePool, type Filter, type Event as NostrEvent, type EventTemplate, type VerifiedEvent, finalizeEvent, getPublicKey, nip04 } from 'nostr-tools';
 import { KIND_VOICE_PRESENCE } from '@/lib/nip-kinds';
 import { BunkerSigner, parseBunkerInput, createNostrConnectURI } from 'nostr-tools/nip46';
 import { generateSecretKey } from 'nostr-tools/pure';
@@ -36,7 +15,6 @@ import {
   type IndexedBootstrapPayload,
 } from './indexed-bootstrap';
 import { normalizeRelayUrl } from './relay-url';
-import { runConnectFanOut, type TierAction } from './orchestrator';
 import { wotEngine } from '@/lib/wot/engine';
 import { useModerationStore } from '@/store/moderation';
 import { resetAllClientState } from '@/lib/reset';
@@ -48,7 +26,6 @@ import { isUserWatchingDM, isUserWatchingChannel } from '@/lib/read-gates';
 import { extractMentionPubkeysFromMessage } from '@/lib/mentions';
 import { customEmojiMapFromTags } from '@/lib/custom-emoji-tags';
 import type {
-  NostrBridge,
   JsGroup,
   JsForumTag,
   JsMessage,
@@ -565,7 +542,30 @@ class StateStore<T> {
   }
 }
 
-class BridgeImpl implements NostrBridge {
+function updatePending<T extends { clientTag?: string }>(
+  store: StateStore<Record<string, T[]>>,
+  key: string,
+  clientTag: string,
+  patch: Partial<T> | null,
+): void {
+  store.update((prev) => {
+    const existing = prev[key];
+    if (!existing) return prev;
+    if (patch === null) {
+      const next = existing.filter((msg) => msg.clientTag !== clientTag);
+      return next.length === existing.length ? prev : { ...prev, [key]: next };
+    }
+    let touched = false;
+    const next = existing.map((msg) => {
+      if (msg.clientTag !== clientTag) return msg;
+      touched = true;
+      return { ...msg, ...patch };
+    });
+    return touched ? { ...prev, [key]: next } : prev;
+  });
+}
+
+export class BridgeImpl {
   private pool: SimplePool;
   private relays: string[] = [DEFAULT_RELAY];
 
@@ -978,18 +978,6 @@ class BridgeImpl implements NostrBridge {
    */
   membershipReadyByGroup = new StateStore<Record<string, boolean>>({});
   /**
-   * Per-group flag flipped to `true` once the relay has emitted EOSE for
-   * the kind 9 messages REQ scoped to that group. Lets the message pane
-   * tell "still loading" apart from "relay confirmed empty" — the latter
-   * is what justifies the welcome / empty-state copy. Reset on relay
-   * switch / logout (the new relay hasn't responded yet).
-   *
-   * Prefer {@link messagesStatusByGroup} for new UI code: EOSE alone is
-   * not proof of emptiness on auth-gated / silent-filtering relays. The
-   * status field carries the bridge's retry-backed confidence.
-   */
-  messagesEoseByGroup = new StateStore<Record<string, boolean>>({});
-  /**
    * Per-group confidence enum for the kind 9 messages stream. See
    * {@link MessagesStatus} for transitions. The chat pane reads this to
    * decide between "Loading messages…" (loading | empty-unconfirmed) and
@@ -1016,7 +1004,6 @@ class BridgeImpl implements NostrBridge {
   /** Newest mesh presence event seen per channel/pubkey, including leave tombstones. */
   private meshPresenceSeenAtByChannel = new Map<string, Map<string, number>>();
   private meshPresenceSweepTimer: ReturnType<typeof setInterval> | null = null;
-  myFollows = new StateStore<string[]>([]);
   /**
    * NIP-51 kind 10000 mute list — pubkeys the local user has muted (public
    * `p` tags only; encrypted entries in `content` are not yet decrypted).
@@ -1658,7 +1645,6 @@ class BridgeImpl implements NostrBridge {
     // EOSE bits captured from the old pool so the chat pane shows its
     // loading spinner until the resub completes (see `pendingResubscribe`
     // handling in `connect()`).
-    this.messagesEoseByGroup.set({});
     this.messagesStatusByGroup.set({});
     this.clearAllMessagesRetry();
     // Drop the background queue: it's tied to the dead pool's filters
@@ -1922,7 +1908,6 @@ class BridgeImpl implements NostrBridge {
     this.adminsByGroup.set({});
     this.membersByGroup.set({});
     this.membershipReadyByGroup.set({});
-    this.messagesEoseByGroup.set({});
     this.messagesStatusByGroup.set({});
     this.clearAllMessagesRetry();
     this.clearActiveCallState();
@@ -2045,24 +2030,20 @@ class BridgeImpl implements NostrBridge {
       // Components that mounted pre-login (or pre-relay-switch) still have
       // their store listeners wired up; without this re-issue the new pool
       // has no subscriptions feeding them and the data only appears after
-      // a manual refresh. The orchestrator delegates the actual re-apply
-      // to {@link applyPendingResubscribe} once its P2 microtask runs.
+      // a manual refresh. Reapply them after the global subscriptions open.
       const pending = this.pendingResubscribe;
       this.pendingResubscribe = null;
-      runConnectFanOut({
-        dispatch: (action) => this.dispatchOrchestratorAction(action),
-        applyResubscribe: () => this.applyPendingResubscribe(pending),
-        plan: indexedBootstrapUsed
-          ? {
-              P0: ['ensureMyMetadata'],
-              P2: [
-                'subscribeMyContactList',
-                'subscribeMyMuteList',
-                'subscribeMyAuthoredGroups',
-                'subscribeActiveCalls',
-              ],
-            }
-          : undefined,
+      if (!indexedBootstrapUsed) {
+        this.preflightRelayAccess();
+        this.subscribeGroupMetadata();
+      }
+      if (this.session) this.ensureUserMetadata(this.session.pubKeyHex);
+      queueMicrotask(() => {
+        if (!indexedBootstrapUsed) this.subscribeAllAdminMember();
+        this.subscribeMyMuteList();
+        this.subscribeMyAuthoredGroups();
+        this.subscribeActiveCalls();
+        this.applyPendingResubscribe(pending);
       });
       this.connectionState.set('Connected');
       this.reconnectAttempt = 0;
@@ -2249,7 +2230,6 @@ class BridgeImpl implements NostrBridge {
     // Same reset as logout: the new relay hasn't delivered EOSE for any
     // per-group kind 9 REQ yet, so the message pane should show its
     // loading spinner rather than the cached "ok, empty" state.
-    this.messagesEoseByGroup.set({});
     this.messagesStatusByGroup.set({});
     this.clearAllMessagesRetry();
     this.clearActiveCallState();
@@ -2437,19 +2417,6 @@ class BridgeImpl implements NostrBridge {
     return this.messagesByGroup.subscribe(cb);
   }
   /**
-   * Per-group EOSE flag for the kind 9 messages REQ. Fires `false` until
-   * the relay has emitted EOSE for this group's subscription, then `true`.
-   * Lets the chat pane distinguish "still loading from relay" from "relay
-   * confirmed empty" without hand-rolling timeouts. Calling this also
-   * fast-tracks the subscription so a freshly-mounted pane prioritizes
-   * the channel the user is actively looking at.
-   */
-  subscribeMessagesEose(groupId: string, cb: (eose: boolean) => void): Unsubscribe {
-    this.subscribeGroupMessages(groupId);
-    const adapter: Listener<Record<string, boolean>> = (m) => cb(!!m[groupId]);
-    return this.messagesEoseByGroup.subscribe(adapter);
-  }
-  /**
    * Per-group confidence enum for the kind 9 messages stream. The chat
    * pane reads this to decide between "Loading messages…" and
    * "No messages yet". See {@link MessagesStatus} for transitions.
@@ -2505,10 +2472,6 @@ class BridgeImpl implements NostrBridge {
     this.dmSubscribed = false;
     this.authAllowedRelays.clear();
     this.myDmRelays = [];
-  }
-
-  subscribeMyFollows(cb: (pubkeys: ReadonlyArray<string>) => void): Unsubscribe {
-    return this.myFollows.subscribe(cb);
   }
 
   subscribeMyMutes(cb: (pubkeys: ReadonlyArray<string>) => void): Unsubscribe {
@@ -2682,8 +2645,8 @@ class BridgeImpl implements NostrBridge {
         extraRelays,
       );
       this.replacePendingDM(recipientPubkey, clientTag, event, content);
-    } catch (err) {
-      this.markDMFailed(recipientPubkey, clientTag, err instanceof Error ? err.message : String(err));
+    } catch {
+      this.markDMFailed(recipientPubkey, clientTag);
     }
   }
 
@@ -2708,8 +2671,8 @@ class BridgeImpl implements NostrBridge {
         created_at: createdAt,
       });
       this.replacePendingGroupMessage(groupId, clientTag, event);
-    } catch (err) {
-      this.markGroupMessageFailed(groupId, clientTag, err instanceof Error ? err.message : String(err));
+    } catch {
+      this.markGroupMessageFailed(groupId, clientTag);
     }
   }
 
@@ -2737,24 +2700,12 @@ class BridgeImpl implements NostrBridge {
 
   cancelPendingMessage(groupId: string, clientTag: string): void {
     this.pendingGroupSends.delete(clientTag);
-    this.messagesByGroup.update((prev) => {
-      const existing = prev[groupId];
-      if (!existing) return prev;
-      const next = existing.filter((m) => m.clientTag !== clientTag);
-      if (next.length === existing.length) return prev;
-      return { ...prev, [groupId]: next };
-    });
+    updatePending(this.messagesByGroup, groupId, clientTag, null);
   }
 
   cancelPendingDirectMessage(counterparty: string, clientTag: string): void {
     this.pendingDMSends.delete(clientTag);
-    this.dmsByPeer.update((prev) => {
-      const existing = prev[counterparty];
-      if (!existing) return prev;
-      const next = existing.filter((m) => m.clientTag !== clientTag);
-      if (next.length === existing.length) return prev;
-      return { ...prev, [counterparty]: next };
-    });
+    updatePending(this.dmsByPeer, counterparty, clientTag, null);
   }
 
   private upsertPendingGroupMessage(groupId: string, msg: JsMessage): void {
@@ -2811,34 +2762,12 @@ class BridgeImpl implements NostrBridge {
     this.ensureUserMetadata(ev.pubkey);
   }
 
-  private markGroupMessageFailed(groupId: string, clientTag: string, _err: string): void {
-    this.messagesByGroup.update((prev) => {
-      const existing = prev[groupId];
-      if (!existing) return prev;
-      let touched = false;
-      const next = existing.map((m) => {
-        if (m.clientTag !== clientTag) return m;
-        touched = true;
-        return { ...m, pending: false, failed: true };
-      });
-      if (!touched) return prev;
-      return { ...prev, [groupId]: next };
-    });
+  private markGroupMessageFailed(groupId: string, clientTag: string): void {
+    updatePending(this.messagesByGroup, groupId, clientTag, { pending: false, failed: true });
   }
 
   private flipPendingGroupMessageToPending(groupId: string, clientTag: string): void {
-    this.messagesByGroup.update((prev) => {
-      const existing = prev[groupId];
-      if (!existing) return prev;
-      let touched = false;
-      const next = existing.map((m) => {
-        if (m.clientTag !== clientTag) return m;
-        touched = true;
-        return { ...m, pending: true, failed: false };
-      });
-      if (!touched) return prev;
-      return { ...prev, [groupId]: next };
-    });
+    updatePending(this.messagesByGroup, groupId, clientTag, { pending: true, failed: false });
   }
 
   private upsertPendingDM(counterparty: string, msg: JsDirectMessage): void {
@@ -2888,34 +2817,12 @@ class BridgeImpl implements NostrBridge {
     this.ensureUserMetadata(counterparty);
   }
 
-  private markDMFailed(counterparty: string, clientTag: string, _err: string): void {
-    this.dmsByPeer.update((prev) => {
-      const existing = prev[counterparty];
-      if (!existing) return prev;
-      let touched = false;
-      const next = existing.map((m) => {
-        if (m.clientTag !== clientTag) return m;
-        touched = true;
-        return { ...m, pending: false, failed: true };
-      });
-      if (!touched) return prev;
-      return { ...prev, [counterparty]: next };
-    });
+  private markDMFailed(counterparty: string, clientTag: string): void {
+    updatePending(this.dmsByPeer, counterparty, clientTag, { pending: false, failed: true });
   }
 
   private flipPendingDMToPending(counterparty: string, clientTag: string): void {
-    this.dmsByPeer.update((prev) => {
-      const existing = prev[counterparty];
-      if (!existing) return prev;
-      let touched = false;
-      const next = existing.map((m) => {
-        if (m.clientTag !== clientTag) return m;
-        touched = true;
-        return { ...m, pending: true, failed: false };
-      });
-      if (!touched) return prev;
-      return { ...prev, [counterparty]: next };
-    });
+    updatePending(this.dmsByPeer, counterparty, clientTag, { pending: true, failed: false });
   }
 
   async joinGroup(groupId: string): Promise<void> {
@@ -3448,8 +3355,7 @@ class BridgeImpl implements NostrBridge {
    * Publish a pre-built event template as the active session, returning the
    * signed event. Same machinery as `signAndPublish` but exposed for callers
    * (e.g. voice presence beacons, gift-wrapped voice signaling) that need to
-   * publish events outside the NIP-29 group flow. Not part of the JS-exported
-   * `NostrBridge` surface; reach for it via `getBridgeImpl()`.
+   * publish events outside the NIP-29 group flow.
    */
   async publishEvent(template: {
     kind: number;
@@ -3937,41 +3843,6 @@ class BridgeImpl implements NostrBridge {
   }
 
   /**
-   * Side-effect runner for {@link runConnectFanOut}. The orchestrator owns
-   * tier ordering; this method translates a {@link TierAction} into the
-   * matching `subscribeXxx` call. Keeping this dispatch table in one place
-   * makes the priority tiers grep-able from the orchestrator file.
-   */
-  private dispatchOrchestratorAction(action: TierAction): void {
-    switch (action) {
-      case 'preflightRelayAccess':
-        if (this.session) this.preflightRelayAccess();
-        break;
-      case 'subscribeGroupMetadata':
-        this.subscribeGroupMetadata();
-        break;
-      case 'ensureMyMetadata':
-        if (this.session) this.ensureUserMetadata(this.session.pubKeyHex);
-        break;
-      case 'subscribeAllAdminMember':
-        this.subscribeAllAdminMember();
-        break;
-      case 'subscribeMyContactList':
-        this.subscribeMyContactList();
-        break;
-      case 'subscribeMyMuteList':
-        this.subscribeMyMuteList();
-        break;
-      case 'subscribeMyAuthoredGroups':
-        this.subscribeMyAuthoredGroups();
-        break;
-      case 'subscribeActiveCalls':
-        this.subscribeActiveCalls();
-        break;
-    }
-  }
-
-  /**
    * P0 whitelist preflight — fires a tight kind:0 `authors:[me]` REQ on the
    * active relay so an `auth-required:` or `restricted:` rejection downgrades
    * `relayAccess` within ~1.5s, well before the rest of the fan-out hits
@@ -4304,17 +4175,6 @@ class BridgeImpl implements NostrBridge {
   private subscribeGroupMessages(groupId: string): void {
     if (this.messageSubscribedGroups.has(groupId)) return;
     this.messageSubscribedGroups.add(groupId);
-    // A fresh REQ has not yet seen EOSE — make sure the flag reflects that
-    // for callers that subscribed *before* a relay switch reused the same
-    // bridge instance.
-    if (this.messagesEoseByGroup.get()[groupId]) {
-      this.messagesEoseByGroup.update((prev) => {
-        if (!prev[groupId]) return prev;
-        const { [groupId]: _drop, ...rest } = prev;
-        void _drop;
-        return rest;
-      });
-    }
     // Initial status: if the bridge already has cached messages for this
     // group (e.g. a returning subscriber after a relay switch), keep
     // 'has-messages'; otherwise enter 'loading' so the UI shows a spinner
@@ -4335,13 +4195,6 @@ class BridgeImpl implements NostrBridge {
         else if (ev.kind === KIND_GROUP_DELETE_EVENT) this.ingestGroupEventDeletion(groupId, ev);
       },
       () => {
-        // Flip per-group EOSE once the relay confirms it has finished
-        // serving the stored history for this REQ. The chat pane reads
-        // this for legacy purposes; the authoritative loading→empty
-        // signal is now `messagesStatusByGroup`.
-        this.messagesEoseByGroup.update((prev) =>
-          prev[groupId] ? prev : { ...prev, [groupId]: true },
-        );
         // Decide confidence: events already ingested? Trust the relay
         // and stop retrying. Empty? Drop to 'empty-unconfirmed' and let
         // the retry ladder run before the UI ever sees "No messages".
@@ -4707,14 +4560,6 @@ class BridgeImpl implements NostrBridge {
       this.subs = this.subs.filter((s) => s !== existing);
     }
     this.messageSubscribedGroups.delete(groupId);
-    // Reset EOSE so the chat pane returns to "Loading messages…" while we
-    // wait for the relay to confirm the fresh REQ.
-    this.messagesEoseByGroup.update((prev) => {
-      if (!prev[groupId]) return prev;
-      const { [groupId]: _drop, ...rest } = prev;
-      void _drop;
-      return rest;
-    });
     this.seedCachedMessagesForGroup(this.currentRelayUrl.get(), groupId);
     const seedMsgs = this.messagesByGroup.get()[groupId] ?? [];
     this.setMessagesStatus(groupId, seedMsgs.length > 0 ? 'has-messages' : 'loading');
@@ -5047,27 +4892,6 @@ class BridgeImpl implements NostrBridge {
       prev[groupId] ? prev : { ...prev, [groupId]: true },
     );
     pubkeys.forEach((pk) => this.ensureUserMetadata(pk));
-  }
-
-  private subscribeMyContactList(): void {
-    if (!this.session) return;
-    const filter: Filter = { kinds: [3], authors: [this.session.pubKeyHex], limit: 1 };
-    // Kind 3 (NIP-02 contact list) is often published to profile/outbox
-    // relays, but normal server browsing must not hold persistent external
-    // subscriptions open. Keep the live watch scoped to the active relay; a
-    // separate bounded one-shot can be added for cross-client import if the
-    // Follows UX needs it.
-    let latestCreatedAt = 0;
-    const sub = this.subscribeWatched(this.relays, filter, (ev) => {
-      // Multiple relays may return different revisions of kind 3; keep the
-      // newest by created_at so an older replica doesn't clobber a newer one.
-      if (ev.created_at <= latestCreatedAt) return;
-      latestCreatedAt = ev.created_at;
-      const pubkeys = getAllTags(ev, 'p');
-      this.myFollows.set(pubkeys);
-      pubkeys.forEach((pk) => this.ensureUserMetadata(pk));
-    });
-    this.subs.push(sub);
   }
 
   private subscribeMyMuteList(): void {
@@ -6308,20 +6132,10 @@ function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 
-// Decode an nsec1… bech32 string to (privHex, pubHex). Exported for the LoginModal.
-export function decodeNsec(nsec: string): { privKeyHex: string; pubKeyHex: string } {
-  const decoded = nip19.decode(nsec);
-  if (decoded.type !== 'nsec') throw new Error('Not an nsec key');
-  const sk = decoded.data as Uint8Array;
-  const privKeyHex = Array.from(sk).map((b) => b.toString(16).padStart(2, '0')).join('');
-  const pubKeyHex = getPublicKey(sk);
-  return { privKeyHex, pubKeyHex };
-}
-
-let bridgePromise: Promise<NostrBridge> | null = null;
+let bridgePromise: Promise<BridgeImpl> | null = null;
 let bridgeInstance: BridgeImpl | null = null;
 
-export function getBridge(): Promise<NostrBridge> {
+export function getBridge(): Promise<BridgeImpl> {
   if (!bridgePromise) {
     bridgePromise = (async () => {
       bridgeInstance = new BridgeImpl();
@@ -6332,18 +6146,11 @@ export function getBridge(): Promise<NostrBridge> {
   return bridgePromise;
 }
 
-export function getBridgeSync(): NostrBridge | null {
+export function getBridgeSync(): BridgeImpl | null {
   return bridgeInstance;
 }
 
-/**
- * Same as {@link getBridgeSync}, but returns the concrete `BridgeImpl` so
- * callers can reach methods that aren't part of the WASM-mirrored
- * `NostrBridge` surface — currently `publishEvent` / `subscribeFilter` for
- * voice. Returns `null` if {@link getBridge} has not been awaited yet.
- */
+/** Returns the initialized singleton without creating it. */
 export function getBridgeImpl(): BridgeImpl | null {
   return bridgeInstance;
 }
-
-export type { BridgeImpl };

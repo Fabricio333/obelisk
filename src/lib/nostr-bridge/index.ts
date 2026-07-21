@@ -1,4 +1,4 @@
-export { getBridge, getBridgeSync, getBridgeImpl, decodeNsec, isImportableRelayUrl } from './client';
+export { getBridge, getBridgeSync, getBridgeImpl, isImportableRelayUrl, type BridgeImpl } from './client';
 export { nostrActions } from './actions';
 export {
   useIsLoggedIn,
@@ -11,7 +11,6 @@ export {
   useGroupMetadataEose,
   useMessages,
   useMessagesByGroup,
-  useMessagesEose,
   useMessagesStatus,
   useLoadEarlier,
   useUserMetadata,
@@ -42,7 +41,6 @@ export type {
   JsReaction,
   JsDirectMessage,
   MessagesStatus,
-  NostrBridge,
   RelayAccessState,
   Unsubscribe,
 } from './types';
