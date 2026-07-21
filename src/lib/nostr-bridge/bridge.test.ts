@@ -1628,6 +1628,7 @@ describe('nostr-bridge', () => {
     await bridge.loginWithNsec(skHex, pkHex);
     const groupId = "general";
     const seen: string[][] = [];
+    bridge.setActiveGroup(groupId);
     bridge.subscribeMessages(groupId, (messages) => seen.push(messages.map((message) => message.content)));
     await flush();
 
@@ -1642,6 +1643,34 @@ describe('nostr-bridge', () => {
       return sub.relays?.includes("wss://other.example")
         && filter.kinds?.includes(9)
         && filter["#h"]?.includes(groupId);
+    })).toBe(true);
+  });
+
+  it("does not announce a relay switch before its handshake is ready", async () => {
+    const { getBridge } = await import("./client");
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+    const relay = "wss://slow-switch.example";
+    let resolveRelay!: (relay: { connected: boolean; onclose?: () => void }) => void;
+    fake.state.ensureRelayImpl = () => new Promise((resolve) => { resolveRelay = resolve; });
+
+    const seenRelays: string[] = [];
+    bridge.subscribeCurrentRelayUrl((url) => seenRelays.push(url));
+    const switchPromise = bridge.switchRelay(relay);
+    await flush();
+
+    expect(seenRelays.at(-1)).toBe("wss://public.obelisk.ar");
+    expect(fake.state.subscriptions.filter((sub) => sub.relays?.includes(relay))).toHaveLength(0);
+
+    resolveRelay({ connected: true });
+    await switchPromise;
+    await flush();
+
+    expect(seenRelays.at(-1)).toBe(relay);
+    expect(fake.state.subscriptions.some((sub) => {
+      const kinds = sub.filter.kinds as number[] | undefined;
+      return sub.relays?.includes(relay) && kinds?.includes(39000);
     })).toBe(true);
   });
 

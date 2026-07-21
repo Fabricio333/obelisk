@@ -2112,7 +2112,15 @@ export class BridgeImpl {
       } catch {
         throw new Error('no relays connected');
       }
+      // Announce a relay change only after its socket is ready. Mounted UI
+      // hooks react to this store and open relay-scoped REQs immediately.
+      if (relaySnapshot.length === 1) this.currentRelayUrl.set(relaySnapshot[0]);
+      // The standard relay path is authoritative and must not wait behind
+      // optional HTTP bootstrap discovery/signing.
+      this.preflightRelayAccess();
+      const metadataFallback = this.subscribeGroupMetadata();
       const indexedBootstrapUsed = await this.tryIndexedBootstrap(relaySnapshot);
+      if (indexedBootstrapUsed) this.closeTrackedSub(metadataFallback);
       // Reopen any per-group REQs that were live on the previous pool.
       // Components that mounted pre-login (or pre-relay-switch) still have
       // their store listeners wired up; without this re-issue the new pool
@@ -2120,10 +2128,6 @@ export class BridgeImpl {
       // a manual refresh. Reapply them after the global subscriptions open.
       const pending = this.pendingResubscribe;
       this.pendingResubscribe = null;
-      if (!indexedBootstrapUsed) {
-        this.preflightRelayAccess();
-        this.subscribeGroupMetadata();
-      }
       if (this.session) this.ensureUserMetadata(this.session.pubKeyHex);
       queueMicrotask(() => {
         if (!indexedBootstrapUsed) this.subscribeAllAdminMember();
@@ -2307,15 +2311,15 @@ export class BridgeImpl {
     const previousRelays = [...this.relays];
     const shouldClosePool = this.poolSocketAlive;
     this.connectGeneration++;
-    // Mounted consumers keep their store listeners across a relay switch,
-    // so carry their per-group REQs onto the replacement pool. Otherwise a
-    // channel with the same id on both relays stays loading until refresh.
-    this.pendingResubscribe = {
-      messages: Array.from(this.messageSubscribedGroups),
-      reactions: Array.from(this.reactionSubscribedGroups),
-      adminMember: Array.from(this.adminMemberSubscribedGroups),
-      metadata: Array.from(this.metadataRequested),
-    };
+    // Preserve only the mounted channel. Background subscriptions belong to
+    // the old relay and reopening them here can exhaust the new relay quota.
+    const activeGroup = this.activeGroupId;
+    this.pendingResubscribe = activeGroup ? {
+      messages: [activeGroup],
+      reactions: this.reactionSubscribedGroups.has(activeGroup) ? [activeGroup] : [],
+      adminMember: this.adminMemberSubscribedGroups.has(activeGroup) ? [activeGroup] : [],
+      metadata: [],
+    } : null;
     this.subs.forEach((s) => (s.markClosed ?? s.close)());
     this.subs = [];
     this.dmSubHandles = [];
@@ -2325,7 +2329,6 @@ export class BridgeImpl {
     }
     this.pool = this.createPool();
     this.relays = [normalized];
-    this.currentRelayUrl.set(normalized);
     this.ensureRelayInList(normalized);
     if (this.session) this.session.relayUrl = normalized;
     this.persist();
@@ -4034,7 +4037,7 @@ export class BridgeImpl {
     pending.metadata.forEach((pk) => this.ensureUserMetadata(pk));
   }
 
-  private subscribeGroupMetadata(): void {
+  private subscribeGroupMetadata() {
     const filter: Filter = { kinds: [KIND_GROUP_METADATA] };
     const sub = this.subscribeWatched(
       this.relays,
@@ -4043,6 +4046,7 @@ export class BridgeImpl {
       () => this.handleGroupMetadataEose(),
     );
     this.subs.push(sub);
+    return sub;
   }
 
   /**
