@@ -3,6 +3,7 @@ import { clearAllClientCacheExceptSession } from "./cache-clear";
 
 const PUBKEY = "a".repeat(64);
 const wiped = [
+  "obelisk-cache-v4/public.obelisk.ar/39000/group-1",
   "obelisk-cache-v3/public.obelisk.ar/39000/group-1",
   "obelisk-cache-v2/old-key",
   "obelisk-cache/older-key",

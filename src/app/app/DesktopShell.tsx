@@ -69,7 +69,7 @@ import type { MemberInfo } from '@/lib/mentions';
 import { useToastStore } from '@/store/toast';
 import EmojiPicker from '@/components/chat/EmojiPicker';
 import MessageMediaPicker, { type MediaPickerTab } from '@/components/chat/MessageMediaPicker';
-import { AttachmentMenu, StickerIcon, VoiceNoteButton } from '@/components/chat/ComposerActions';
+import { AttachmentMenu, StickerIcon, VoiceNoteButton, VoiceNoteDraft } from '@/components/chat/ComposerActions';
 import { useMessageZaps, type MessageZapTotal } from '@/hooks/chat/useMessageZaps';
 import { useMessageZapStore } from '@/store/messageZap';
 import MessageZapModal from '@/components/chat/MessageZapModal';
@@ -2512,6 +2512,7 @@ function ChatPanel({
           );
         })()}
         <div className="flex min-h-[3.5rem] items-center gap-1 rounded-xl border border-lc-border bg-lc-card px-2 focus-within:border-lc-green">
+          {!draftVoiceNote && (<>
           <AttachmentMenu
             disabled={uploadingMedia}
             onFiles={(files) => void onPickFiles(files)}
@@ -2550,6 +2551,7 @@ function ChatPanel({
               />
             )}
           </div>
+          </>)}
           <div className="relative flex-1">
             {slashQuery !== null && slashResults.length > 0 && (
               <SlashCommandAutocomplete
@@ -2566,6 +2568,12 @@ function ChatPanel({
                 onSelect={applyMention}
                 onHover={setMentionIndex}
                 onClose={() => setMentionQuery(null)}
+              />
+            )}
+            {draftVoiceNote && (
+              <VoiceNoteDraft
+                note={draftVoiceNote}
+                onDiscard={() => { setDraft(''); setDraftVoiceNote(null); }}
               />
             )}
             <input
@@ -2599,7 +2607,7 @@ function ChatPanel({
                 }
               }}
               placeholder={t('desktop.composer.placeholder').replace('{name}', group?.name ?? groupId.slice(0, 8))}
-              className="w-full bg-transparent text-sm text-lc-white outline-none placeholder:text-lc-muted disabled:opacity-50"
+              className={(draftVoiceNote ? "hidden " : "") + "w-full bg-transparent text-sm text-lc-white outline-none placeholder:text-lc-muted disabled:opacity-50"}
             />
           </div>
           {draft.trim() ? (
@@ -3012,6 +3020,8 @@ function MessageRow({
             customEmojis={msg.customEmojis as CustomEmojiMap | undefined}
             sticker={msg.sticker}
             voiceNote={msg.voiceNote}
+            voiceAuthorPicture={meta?.picture}
+            voiceTimestamp={msg.createdAt}
           />
         </div>
         {msg.failed && (
@@ -3345,8 +3355,9 @@ function ChannelSettingsModal({ group, onClose }: { group: JsGroup; onClose: () 
   const [about, setAbout] = useState(group.about ?? '');
   const [picture, setPicture] = useState(group.picture ?? '');
   const [banner, setBanner] = useState(group.banner ?? '');
-  const [isPublic, setIsPublic] = useState(group.isPublic);
-  const [isOpen, setIsOpen] = useState(group.isOpen);
+  const [access, setAccess] = useState<'public' | 'read-only' | 'private'>(
+    !group.isPublic ? 'private' : group.isRestricted ? 'read-only' : 'public',
+  );
   const [channelKind, setChannelKind] = useState<'text' | 'voice' | 'voice-sfu' | 'forum'>(group.kind);
   // Forum-container curated tags. Initialized from the relay's current
   // metadata so the admin sees the existing set on open; mutated through
@@ -3420,8 +3431,10 @@ function ChannelSettingsModal({ group, onClose }: { group: JsGroup; onClose: () 
         about,
         picture: picture || undefined,
         banner: banner || undefined,
-        isPublic,
-        isOpen,
+        isPublic: access !== 'private',
+        isHidden: access === 'private',
+        isRestricted: access !== 'public',
+        isOpen: access === 'public',
         kind: channelKind,
         // Only meaningful for forums; harmless on other kinds (the chip
         // bar only renders for `kind === 'forum'`). Passing the full set
@@ -3548,39 +3561,30 @@ function ChannelSettingsModal({ group, onClose }: { group: JsGroup; onClose: () 
 
             {/* Access --------------------------------------------------- */}
             <section className="space-y-3">
-              <SectionHeader title="Access" hint="Who can read and join" />
-              <div className="grid gap-2 sm:grid-cols-2">
+              <SectionHeader title="Access" hint="Relay-enforced NIP-29 permissions" />
+              <div className="grid gap-2 sm:grid-cols-3">
                 <ToggleCard
-                  active={isPublic}
-                  onClick={() => setIsPublic(!isPublic)}
+                  active={access === 'public'}
+                  onClick={() => setAccess('public')}
                   icon="🌐"
                   title="Public"
-                  subtitle={isPublic ? 'Readable without joining' : 'Members only can read'}
+                  subtitle="Everyone can read and post"
                 />
                 <ToggleCard
-                  active={isOpen}
-                  onClick={() => setIsOpen(!isOpen)}
-                  icon={isOpen ? '🟢' : '🔒'}
-                  title="Open"
-                  subtitle={isOpen ? 'Anyone can join' : 'Invite-only'}
+                  active={access === 'read-only'}
+                  onClick={() => setAccess('read-only')}
+                  icon="👁"
+                  title="Read-only"
+                  subtitle="Everyone reads; members post"
+                />
+                <ToggleCard
+                  active={access === 'private'}
+                  onClick={() => setAccess('private')}
+                  icon="🔒"
+                  title="Private"
+                  subtitle="Hidden; members only"
                 />
               </div>
-              {isPublic && isOpen && (
-                <div className="flex items-start gap-2 rounded-lg border border-lc-green/30 bg-lc-green/5 px-3 py-2 text-xs text-lc-white/90">
-                  <span className="text-base leading-none">✨</span>
-                  <div>
-                    <div className="font-semibold text-lc-green">Relay-whitelisted users have full access</div>
-                    <div className="mt-0.5 text-lc-muted">
-                      With <b>Public + Open</b>, anyone the relay already accepts can read and post here — no need to add them as members manually. The relay&apos;s whitelist is the only gate.
-                    </div>
-                  </div>
-                </div>
-              )}
-              {!isPublic && !isOpen && (
-                <p className="text-[11px] text-lc-muted">
-                  Strictest mode: only members listed below can read or post.
-                </p>
-              )}
             </section>
 
             {/* Channel type --------------------------------------------- */}
@@ -3736,7 +3740,7 @@ function ChannelSettingsModal({ group, onClose }: { group: JsGroup; onClose: () 
               ))}
               {members.length === 0 && (
                 <div className="rounded-lg border border-dashed border-lc-border px-3 py-4 text-center text-xs text-lc-muted">
-                  No members yet. {isPublic && isOpen
+                  No members yet. {access === 'public'
                     ? 'Not required — relay whitelist controls access.'
                     : 'Add at least one to grant access.'}
                 </div>

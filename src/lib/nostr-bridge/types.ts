@@ -18,6 +18,8 @@ export interface JsGroup {
    */
   readonly banner: string | null;
   readonly isPublic: boolean;
+  readonly isHidden: boolean;
+  readonly isRestricted: boolean;
   readonly isOpen: boolean;
   readonly parent: string | null;
   /**

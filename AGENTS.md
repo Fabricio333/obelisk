@@ -222,10 +222,15 @@ await bridge.editUserMetadata({ name: 'Alice', displayName: 'Alice' });
 - **Bridge:** subscription lifecycle, ingestion logic, cache integration, login race regressions
 - **Lib functions:** pure functions, async with timeouts, error handling
 
+### Test scope
+- **Small, localized changes** (CSS, copy, one isolated component or helper): run only the directly affected test file(s), plus a targeted lint/type/build check when relevant. Do **not** run the full suite by default.
+- **Broad or high-risk changes** (bridge/auth/protocol behavior, shared state, cross-cutting refactors, dependency/config upgrades): run the affected tests and the full `npm run test` suite.
+- Run the full suite before a release or when the user explicitly requests it.
+- If a focused test exposes wider regressions or the impact cannot be isolated confidently, expand the test scope.
+
 > **CRITICAL — NON-NEGOTIABLE RULE:**
-> A feature is **NOT done** until its tests are written, passing, and the full suite runs green.
-> Do NOT move on to the next task until `npm run test` passes with the new tests included.
-> **No exceptions. Tests are part of the implementation, not an afterthought.**
+> A change is **NOT done** until the appropriately scoped tests are written and passing.
+> Tests are part of the implementation, not an afterthought.
 
 ## Relays
 - **Default for groups:** `wss://relay.obelisk.ar` (overridable per session)

@@ -98,7 +98,9 @@ Obelisk adds an explicit event-local marker so an audio-only WebM is never guess
 
 The third value is the rounded duration in seconds. Clients accept the marker only when the URL is HTTP(S), the trimmed message content exactly matches it, and the duration is between 0 and 3600 seconds. Invalid markers fall back to normal URL rendering.
 
-Tagged voice notes render with the compact Obelisk audio player (play/pause, seek, elapsed time, total duration) rather than a native video canvas. Editing the uploaded URL clears voice-note intent before send.
+Tagged voice notes render as a WhatsApp-style dark bubble with a white play/pause control, vertically centered gray/cyan seekable waveform, reserved spacing before the sender avatar and microphone badge, duration, and message time rather than a native video canvas. While recording, the composer shows the elapsed timer, a finish button, and a trash button; trashing at this stage stops the microphone without uploading. After upload, the same waveform appears as a send preview with a second trash action that clears the draft.
+
+For compatibility with voice notes published before the `voice` marker existed, an untagged `.webm` is probed after metadata loads: files with no video track use the voice bubble, while actual WebM video remains in the video player.
 
 Code map:
 

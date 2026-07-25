@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AttachmentMenu, VoiceNoteButton } from './ComposerActions';
+import { AttachmentMenu, VoiceNoteButton, VoiceNoteDraft } from './ComposerActions';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -49,6 +49,22 @@ describe('AttachmentMenu', () => {
 });
 
 
+describe("VoiceNoteDraft", () => {
+  it("lets the user discard a finished recording", () => {
+    const onDiscard = vi.fn();
+    render(
+      <VoiceNoteDraft
+        note={{ url: "https://cdn.example/voice.webm", durationSeconds: 5 }}
+        onDiscard={onDiscard}
+      />,
+    );
+
+    expect(screen.getByTestId("voice-waveform")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Discard voice note" }));
+    expect(onDiscard).toHaveBeenCalledOnce();
+  });
+});
+
 describe("VoiceNoteButton", () => {
   it("shows elapsed recording time and returns the final duration", async () => {
     vi.useFakeTimers({ now: 0 });
@@ -76,8 +92,16 @@ describe("VoiceNoteButton", () => {
     act(() => vi.advanceTimersByTime(2100));
     expect(screen.getByTestId("voice-recording-time")).toHaveTextContent("0:02");
 
+    fireEvent.click(screen.getByRole("button", { name: "Discard voice recording" }));
+    expect(onRecorded).not.toHaveBeenCalled();
+    expect(stopTrack).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Record voice note" }));
+    await act(async () => {});
+    act(() => vi.advanceTimersByTime(2100));
     fireEvent.click(screen.getByRole("button", { name: "Stop voice note" }));
+
     expect(onRecorded).toHaveBeenCalledWith(expect.any(File), 2);
-    expect(stopTrack).toHaveBeenCalled();
+    expect(stopTrack).toHaveBeenCalledTimes(2);
   });
 });

@@ -8,12 +8,14 @@ import { fireEvent, render, screen } from '@testing-library/react';
 // so we mock the bridge module wholesale here.
 
 const mockCreateGroup = vi.fn();
+const mockEditGroupMetadata = vi.fn();
 const mockSwitchRelay = vi.fn();
 const mockRemoveRelay = vi.fn();
 
 vi.mock('@/lib/nostr-bridge', () => ({
   nostrActions: {
     createGroup: (...a: unknown[]) => mockCreateGroup(...a),
+    editGroupMetadata: (...a: unknown[]) => mockEditGroupMetadata(...a),
     switchRelay: (...a: unknown[]) => mockSwitchRelay(...a),
     removeRelay: (...a: unknown[]) => mockRemoveRelay(...a),
   },
@@ -79,10 +81,11 @@ vi.mock('@/components/admin/RelayEmojiAdminModal', () => ({
   ),
 }));
 
-import { CreateChannelSheet, RelayMenuSheet } from './PhoneShell';
+import { ChannelSettingsSheet, CreateChannelSheet, RelayMenuSheet } from './PhoneShell';
 
 afterEach(() => {
   mockCreateGroup.mockReset();
+  mockEditGroupMetadata.mockReset();
   mockSwitchRelay.mockReset();
   mockRemoveRelay.mockReset();
 });
@@ -126,6 +129,43 @@ describe('CreateChannelSheet', () => {
     );
     const submit = screen.getByTestId('mobile-create-channel-submit') as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
+  });
+});
+
+describe('ChannelSettingsSheet access presets', () => {
+  it.each([
+    ['read-only', 'mobile-channel-access-read-only', { isPublic: true, isHidden: false, isRestricted: true, isOpen: false }],
+    ['private', 'mobile-channel-access-private', { isPublic: false, isHidden: true, isRestricted: true, isOpen: false }],
+  ])('publishes %s as relay-enforced NIP-29 flags', async (_label, testId, expected) => {
+    mockEditGroupMetadata.mockResolvedValueOnce(undefined);
+    const close = vi.fn();
+    render(
+      <ChannelSettingsSheet
+        close={close}
+        group={{
+          id: 'channel-1',
+          name: 'General',
+          about: null,
+          picture: null,
+          banner: null,
+          isPublic: true,
+          isHidden: false,
+          isRestricted: false,
+          isOpen: true,
+          parent: null,
+          kind: 'text',
+          forumTags: [],
+          topics: [],
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId(testId));
+    fireEvent.click(screen.getByTestId('mobile-channel-settings-save'));
+
+    await vi.waitFor(() => expect(mockEditGroupMetadata).toHaveBeenCalledTimes(1));
+    expect(mockEditGroupMetadata).toHaveBeenCalledWith(expect.objectContaining(expected));
+    expect(close).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -24,6 +24,7 @@ describe('EmojiPicker', () => {
       />,
     );
 
+    expect(screen.getByRole('dialog', { name: 'Emoji picker' })).toHaveClass('bg-lc-black');
     expect(screen.getByText('Server GIFs')).toBeInTheDocument();
     expect(screen.getByText('Server emojis')).toBeInTheDocument();
     expect(screen.getByAltText(':party_dance:')).toHaveAttribute('src', gifUrl);
@@ -35,6 +36,28 @@ describe('EmojiPicker', () => {
       ':party_dance:',
       expect.objectContaining({ name: 'party_dance', url: gifUrl }),
     );
+  });
+
+  it("jumps directly to classified emoji sections", () => {
+    const { container } = render(
+      <EmojiPicker onPick={() => {}} onClose={() => {}} skipRecent customEmojis={{}} />,
+    );
+
+    expect(screen.getByRole("navigation", { name: "Emoji categories" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Smileys & people" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Animals & nature" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Flags" })).toBeInTheDocument();
+
+    const transport = container.querySelector<HTMLElement>("[data-emoji-category=\"Transport\"]")!;
+    expect(transport).toHaveTextContent("🚗");
+    expect(container.querySelector<HTMLElement>("[data-emoji-category=\"Flags\"]")).toHaveTextContent("🇦🇷");
+    const scroller = transport.parentElement!;
+    scroller.scrollTo = vi.fn();
+    Object.defineProperty(transport, "offsetTop", { configurable: true, value: 320 });
+    fireEvent.click(screen.getByRole("button", { name: "Cars & transport" }));
+
+    expect(scroller.scrollTo).toHaveBeenCalledWith({ top: 320, behavior: "smooth" });
+    expect(screen.getByRole("button", { name: "Cars & transport" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it('positions popovers above or below the trigger', () => {

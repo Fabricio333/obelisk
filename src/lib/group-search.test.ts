@@ -9,6 +9,8 @@ const g = (id: string, name: string | null, about: string | null = null): JsGrou
   picture: null,
   banner: null,
   isPublic: true,
+  isHidden: false,
+  isRestricted: false,
   isOpen: true,
   parent: null,
   kind: 'text',

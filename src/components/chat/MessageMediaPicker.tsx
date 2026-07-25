@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
-import EmojiPicker, { type PickedCustomEmoji } from './EmojiPicker';
+import EmojiPicker, { MediaPickerSearch, type PickedCustomEmoji } from './EmojiPicker';
 import { uploadToBlossom } from '@/lib/blossom';
 import { loadPersonalStickers, savePersonalSticker } from '@/lib/personal-stickers';
 import { normalizeCustomEmojiName, type CustomEmojiMap } from '@/lib/custom-emoji-tags';
@@ -46,14 +46,16 @@ export default function MessageMediaPicker({
   if (tab === 'emoji') {
     return (
       <div className={shellClass}>
-        <PickerTabs tab={tab} onTab={setTab} onClose={onClose} />
         <div className="min-h-0 flex-1 [&_[role=dialog]]:static [&_[role=dialog]]:h-full [&_[role=dialog]]:w-full [&_[role=dialog]]:rounded-none [&_[role=dialog]]:border-0">
           <EmojiPicker
             variant="sheet"
+            showClose={false}
             customEmojis={{}}
             onPick={onPick}
             onClose={onClose}
-          />
+          >
+            <PickerTabs tab={tab} onTab={setTab} onClose={onClose} />
+          </EmojiPicker>
         </div>
       </div>
     );
@@ -74,14 +76,15 @@ export default function MessageMediaPicker({
   return (
     <div role="dialog" aria-label="Media picker" className={shellClass} onClick={(event) => event.stopPropagation()}>
       <PickerTabs tab={tab} onTab={setTab} onClose={onClose} />
-      <div className="flex items-center gap-2 border-b border-white/10 p-3">
-        <input
+      <div className="border-b border-white/10 p-3">
+        <MediaPickerSearch
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder={tab === 'gif' ? 'Search GIFs' : 'Search stickers'}
-          className="min-w-0 flex-1 rounded-lg bg-[#111b21] px-3 py-2 text-sm outline-none placeholder:text-lc-muted focus:ring-1 focus:ring-lc-green"
+          onChange={setQuery}
+          placeholder={tab === "gif" ? "Search GIFs" : "Search stickers"}
         />
-        {tab === 'sticker' && (
+      </div>
+      <div className="grid min-h-0 flex-1 grid-cols-4 auto-rows-[82px] content-start gap-2 overflow-y-auto p-3" data-testid="media-grid">
+        {tab === "sticker" && (
           <>
             <input
               ref={fileRef}
@@ -90,21 +93,21 @@ export default function MessageMediaPicker({
               className="hidden"
               onChange={(event) => {
                 void createSticker(event.target.files?.[0]);
-                event.target.value = '';
+                event.target.value = "";
               }}
             />
             <button
               type="button"
               disabled={uploading}
               onClick={() => fileRef.current?.click()}
-              className="rounded-full bg-lc-green px-3 py-2 text-xs font-semibold text-lc-black disabled:opacity-50"
+              className="flex h-full min-h-0 min-w-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-xl border border-lc-border bg-lc-dark text-lc-muted hover:border-lc-green/50 hover:text-lc-white disabled:opacity-50"
+              aria-label="Create sticker"
             >
-              {uploading ? 'Creating…' : 'Create'}
+              <span className="text-3xl font-light leading-none" aria-hidden="true">+</span>
+              <span className="text-xs">{uploading ? "Creating…" : "Create"}</span>
             </button>
           </>
         )}
-      </div>
-      <div className="grid min-h-0 flex-1 grid-cols-4 auto-rows-[82px] content-start gap-2 overflow-y-auto p-3">
         {visible.map((entry) => (
           <button
             type="button"

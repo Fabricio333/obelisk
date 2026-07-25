@@ -71,11 +71,24 @@ function formatAudioTime(seconds: number): string {
   return Math.floor(seconds / 60) + ":" + String(Math.floor(seconds % 60)).padStart(2, "0");
 }
 
-function VoiceMessage({ note }: { note: MessageVoiceNote }) {
+const VOICE_WAVEFORM = [10, 18, 13, 25, 20, 12, 28, 17, 23, 14, 30, 20, 12, 24, 17, 28, 15, 22, 30, 18, 11, 25, 16, 21, 13, 27, 19, 10] as const;
+
+export function VoiceMessage({
+  note,
+  compact = false,
+  authorPicture,
+  timestamp,
+}: {
+  note: MessageVoiceNote;
+  compact?: boolean;
+  authorPicture?: string | null;
+  timestamp?: number;
+}) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(note.durationSeconds);
+  const progress = duration > 0 ? Math.min(current / duration, 1) : 0;
   const toggle = () => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -84,7 +97,10 @@ function VoiceMessage({ note }: { note: MessageVoiceNote }) {
   };
 
   return (
-    <span className="mt-1 flex w-[min(19rem,78vw)] items-center gap-3 rounded-2xl border border-lc-border bg-lc-card px-3 py-2.5 shadow-sm" data-testid="voice-message">
+    <span
+      className={`flex min-w-0 items-center ${compact ? "w-full gap-2" : "mt-1 min-h-20 w-[min(24rem,84vw)] gap-3 rounded-[18px] bg-[#202c33] px-3 py-2 shadow-sm"}`}
+      data-testid="voice-message"
+    >
       <audio
         ref={audioRef}
         src={note.url}
@@ -96,37 +112,98 @@ function VoiceMessage({ note }: { note: MessageVoiceNote }) {
         onTimeUpdate={(event) => setCurrent(event.currentTarget.currentTime)}
         onLoadedMetadata={(event) => { if (Number.isFinite(event.currentTarget.duration)) setDuration(event.currentTarget.duration); }}
       />
-      <button type="button" onClick={toggle} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-lc-green text-lc-black" aria-label={playing ? "Pause voice message" : "Play voice message"}>
+      <button type="button" onClick={toggle} className={`flex shrink-0 items-center justify-center text-white ${compact ? "h-11 w-9" : "h-14 w-10"}`} aria-label={playing ? "Pause voice message" : "Play voice message"}>
         {playing ? (
-          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>
+          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>
         ) : (
-          <svg className="ml-0.5 h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="m8 5 11 7-11 7z" /></svg>
+          <svg className="ml-0.5 h-6 w-6" viewBox="0 0 24 24" fill="currentColor"><path d="m7 4 13 8-13 8z" /></svg>
         )}
       </button>
-      <span className="min-w-0 flex-1">
-        <input
-          type="range"
-          min={0}
-          max={Math.max(duration, 1)}
-          step={0.1}
-          value={Math.min(current, Math.max(duration, 1))}
-          onChange={(event) => {
-            const next = Number(event.target.value);
-            if (audioRef.current) audioRef.current.currentTime = next;
-            setCurrent(next);
-          }}
-          className="h-1.5 w-full cursor-pointer accent-lc-green"
-          aria-label="Voice message progress"
-        />
-        <span className="mt-1 flex justify-between font-mono text-[11px] text-lc-muted">
-          <span>{formatAudioTime(current)}</span>
-          <span>{formatAudioTime(duration)}</span>
+      <span className={`min-w-0 flex-1 ${compact ? "" : "relative h-16 pr-2"}`}>
+        <span className={compact ? "relative block h-9" : "absolute left-0 right-3 top-1/2 block h-9 -translate-y-1/2"} data-testid="voice-waveform">
+          <span className="flex h-full items-center gap-[2px]" aria-hidden="true">
+            {VOICE_WAVEFORM.map((height, index) => (
+              <span
+                key={index}
+                className={`min-w-[2px] flex-1 rounded-full transition-colors ${((index + 1) / VOICE_WAVEFORM.length) <= progress ? "bg-[#53bdeb]" : "bg-[#7f8b90]"}`}
+                style={{ height }}
+              />
+            ))}
+          </span>
+          <span
+            className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#53bdeb]"
+            style={{ left: `${progress * 100}%` }}
+            data-testid="voice-progress-dot"
+          />
+          <input
+            type="range"
+            min={0}
+            max={Math.max(duration, 1)}
+            step={0.1}
+            value={Math.min(current, Math.max(duration, 1))}
+            onChange={(event) => {
+              const next = Number(event.target.value);
+              if (audioRef.current) audioRef.current.currentTime = next;
+              setCurrent(next);
+            }}
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            aria-label="Voice message progress"
+          />
+        </span>
+        <span className={`flex justify-between text-[11px] leading-none text-[#aebac1] ${compact ? "mt-0.5" : "absolute bottom-0 left-0 right-3"}`} data-testid="voice-time-row">
+          <span>{formatAudioTime(compact ? current : current || duration)}</span>
+          {compact
+            ? <span>{formatAudioTime(duration)}</span>
+            : timestamp
+              ? <span>{new Date(timestamp * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span>
+              : null}
         </span>
       </span>
-      <svg className="h-5 w-5 shrink-0 text-lc-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-        <path d="M11 5 6 9H3v6h3l5 4zM15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12" />
-      </svg>
+      {!compact && (
+        <span className="relative h-14 w-14 shrink-0" data-testid="voice-avatar">
+          {authorPicture ? (
+            <img src={authorPicture} alt="Voice message sender" className="h-14 w-14 rounded-full object-cover" />
+          ) : (
+            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[#6b7c85] text-white/80">
+              <svg className="h-7 w-7" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm-8 9a8 8 0 0 1 16 0Z" /></svg>
+            </span>
+          )}
+          <span className="absolute -bottom-1 left-1/2 flex h-6 w-6 -translate-x-1/2 items-center justify-center rounded-full bg-[#202c33] text-[#53bdeb]" data-testid="voice-mic-badge">
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3" /></svg>
+          </span>
+        </span>
+      )}
     </span>
+  );
+}
+
+function VideoMedia({
+  url,
+  authorPicture,
+  timestamp,
+}: {
+  url: string;
+  authorPicture?: string | null;
+  timestamp?: number;
+}) {
+  const [voiceDuration, setVoiceDuration] = useState<number | null>(null);
+  if (voiceDuration !== null) {
+    return <VoiceMessage note={{ url, durationSeconds: voiceDuration }} authorPicture={authorPicture} timestamp={timestamp} />;
+  }
+  return (
+    <video
+      src={url}
+      controls
+      preload="metadata"
+      className="mt-1 max-w-sm max-h-80 rounded-lg bg-lc-black/50"
+      data-testid="video-player"
+      onLoadedMetadata={(event) => {
+        const video = event.currentTarget;
+        if (/\.webm(?:$|[?#])/i.test(url) && video.videoWidth === 0 && Number.isFinite(video.duration)) {
+          setVoiceDuration(video.duration);
+        }
+      }}
+    />
   );
 }
 
@@ -266,6 +343,8 @@ export default function MessageContent({
   customEmojis,
   sticker,
   voiceNote,
+  voiceAuthorPicture,
+  voiceTimestamp,
 }: {
   content: string;
   messageId?: string;
@@ -273,6 +352,8 @@ export default function MessageContent({
   customEmojis?: CustomEmojiMap;
   sticker?: MessageSticker;
   voiceNote?: MessageVoiceNote;
+  voiceAuthorPicture?: string | null;
+  voiceTimestamp?: number;
 }) {
   const serverEmojis = useChatStore((s) => s.serverEmojis);
   const memberList = useGroupMemberInfo(channelId ?? null);
@@ -495,7 +576,7 @@ export default function MessageContent({
   return (
     <span data-testid="message-content">
       {sticker && <StickerImg sticker={sticker} />}
-      {voiceNote && <VoiceMessage note={voiceNote} />}
+      {voiceNote && <VoiceMessage note={voiceNote} authorPicture={voiceAuthorPicture} timestamp={voiceTimestamp} />}
       {text && (
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkSpoiler]}
@@ -521,13 +602,11 @@ export default function MessageContent({
       })}
       {/* Videos: inline native player, one per video */}
       {videoUrls.map((url) => (
-        <video
+        <VideoMedia
           key={url}
-          src={url}
-          controls
-          preload="metadata"
-          className="mt-1 max-w-sm max-h-80 rounded-lg bg-lc-black/50"
-          data-testid="video-player"
+          url={url}
+          authorPicture={voiceAuthorPicture}
+          timestamp={voiceTimestamp}
         />
       ))}
       {/* Audio: native <audio controls>, one per file. Matches the video

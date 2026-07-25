@@ -132,10 +132,11 @@ function eventKindDescription(kind: number): string {
  * Single-pass parser for NIP-29 kind 39000 (group metadata) tag arrays.
  * Replaces ~9 separate `ev.tags.find / .some / for-of` scans with one loop.
  *
- * Semantics preserved bit-for-bit from the previous open-coded version:
- *  - `d`, `parent`, `name`, `about`, `picture`, `banner`: first occurrence wins
- *    (matches the old `tag(name)` lambda which used `ev.tags.find`).
- *  - `public` / `open`: presence-as-boolean flags.
+ * NIP-29 access defaults are public and open when negative tags are absent;
+ * legacy affirmative `public` and `open` tags remain accepted. `hidden` controls
+ * metadata discovery independently, and `restricted` controls write access.
+ *
+ *  - `d`, `parent`, `name`, `about`, `picture`, `banner`: first occurrence wins.
  *  - `t`: channel-kind hint with `voice-sfu > voice > forum > text` precedence.
  *  - `forum-tag`: id-keyed map, last entry wins; malformed entries (missing
  *    id or name) are skipped silently.
@@ -152,6 +153,8 @@ function parseGroupMetadataTags(tags: NostrEvent['tags']): {
   picture?: string;
   banner?: string;
   isPublic: boolean;
+  isHidden: boolean;
+  isRestricted: boolean;
   isOpen: boolean;
   channelKind: 'voice-sfu' | 'voice' | 'forum' | 'text';
   forumTags: JsForumTag[];
@@ -163,8 +166,10 @@ function parseGroupMetadataTags(tags: NostrEvent['tags']): {
   let about: string | undefined;
   let picture: string | undefined;
   let banner: string | undefined;
-  let isPublic = false;
-  let isOpen = false;
+  let isPublic = true;
+  let isHidden = false;
+  let isRestricted = false;
+  let isOpen = true;
   let hasVoiceSfu = false;
   let hasVoice = false;
   let hasForum = false;
@@ -180,7 +185,11 @@ function parseGroupMetadataTags(tags: NostrEvent['tags']): {
     if (k === 'picture') { if (picture === undefined) picture = t[1]; continue; }
     if (k === 'banner') { if (banner === undefined) banner = t[1]; continue; }
     if (k === 'public') { isPublic = true; continue; }
+    if (k === 'private') { isPublic = false; continue; }
+    if (k === 'hidden') { isHidden = true; continue; }
+    if (k === 'restricted') { isRestricted = true; continue; }
     if (k === 'open') { isOpen = true; continue; }
+    if (k === 'closed') { isOpen = false; continue; }
     if (k === 't') {
       const v = t[1];
       if (v === 'voice-sfu') hasVoiceSfu = true;
@@ -207,7 +216,7 @@ function parseGroupMetadataTags(tags: NostrEvent['tags']): {
 
   return {
     d, parent, name, about, picture, banner,
-    isPublic, isOpen, channelKind,
+    isPublic, isHidden, isRestricted, isOpen, channelKind,
     forumTags: Array.from(forumTagMap.values()),
     topics: Array.from(topicSet),
   };
@@ -235,7 +244,8 @@ function groupEqual(a: JsGroup, b: JsGroup): boolean {
   if (a === b) return true;
   if (a.id !== b.id || a.name !== b.name || a.about !== b.about
       || a.picture !== b.picture || a.banner !== b.banner
-      || a.isPublic !== b.isPublic || a.isOpen !== b.isOpen
+      || a.isPublic !== b.isPublic || a.isHidden !== b.isHidden
+      || a.isRestricted !== b.isRestricted || a.isOpen !== b.isOpen
       || a.parent !== b.parent || a.kind !== b.kind) return false;
   if (a.forumTags.length !== b.forumTags.length) return false;
   for (let i = 0; i < a.forumTags.length; i++) {
@@ -1445,6 +1455,7 @@ export class BridgeImpl {
     const idsFor = (kind: number) => ids.get(kind) ?? [];
     let hasRenderableCache = false;
 
+    const hiddenGroupIds = new Set<string>();
     const cachedGroups: JsGroup[] = [];
     const cachedChildren: Record<string, string[]> = {};
     for (const groupId of idsFor(KIND_GROUP_METADATA)) {
@@ -1453,9 +1464,17 @@ export class BridgeImpl {
       const { group: cached, createdAt } = entry.value;
       const group: JsGroup = {
         ...cached,
+        isHidden: cached.isHidden ?? !cached.isPublic,
+        isRestricted: cached.isRestricted ?? !cached.isOpen,
         forumTags: cached.forumTags ?? [],
         topics: cached.topics ?? [],
       };
+      // Hidden channels are revalidated live on every login. Never paint
+      // their names or content from a previous identity/membership snapshot.
+      if (group.isHidden) {
+        hiddenGroupIds.add(groupId);
+        continue;
+      }
       this.groupMetadataLatestAt.set(
         groupId,
         Math.max(this.groupMetadataLatestAt.get(groupId) ?? 0, createdAt),
@@ -1485,10 +1504,12 @@ export class BridgeImpl {
     const cachedAdmins: Record<string, string[]> = {};
     const cachedMembers: Record<string, string[]> = {};
     for (const groupId of idsFor(KIND_GROUP_ADMINS)) {
+      if (hiddenGroupIds.has(groupId)) continue;
       const entry = cacheGet<string[]>(relay, KIND_GROUP_ADMINS, groupId);
       if (entry) cachedAdmins[groupId] = entry.value;
     }
     for (const groupId of idsFor(KIND_GROUP_MEMBERS)) {
+      if (hiddenGroupIds.has(groupId)) continue;
       const entry = cacheGet<string[]>(relay, KIND_GROUP_MEMBERS, groupId);
       if (entry) cachedMembers[groupId] = entry.value;
     }
@@ -1509,6 +1530,7 @@ export class BridgeImpl {
 
     const cachedCreators: Record<string, string> = {};
     for (const groupId of idsFor(KIND_GROUP_CREATE)) {
+      if (hiddenGroupIds.has(groupId)) continue;
       const entry = cacheGet<string>(relay, KIND_GROUP_CREATE, groupId);
       if (entry) cachedCreators[groupId] = entry.value;
     }
@@ -1532,6 +1554,7 @@ export class BridgeImpl {
     const currentMessages = this.messagesByGroup.get();
     const cachedMessages: Record<string, JsMessage[]> = {};
     for (const groupId of idsFor(KIND_GROUP_MESSAGE)) {
+      if (hiddenGroupIds.has(groupId)) continue;
       if ((currentMessages[groupId]?.length ?? 0) > 0) continue;
       const entry = cacheGet<JsMessage[]>(relay, KIND_GROUP_MESSAGE, groupId);
       if (!entry || entry.value.length === 0) continue;
@@ -1560,6 +1583,7 @@ export class BridgeImpl {
     const cachedReactions: Record<string, Record<string, JsReaction[]>> = {};
     const currentReactions = this.reactionsByGroup.get();
     for (const groupId of idsFor(KIND_REACTION)) {
+      if (hiddenGroupIds.has(groupId)) continue;
       if (currentReactions[groupId]) continue;
       const entry = cacheGet<Record<string, JsReaction[]>>(relay, KIND_REACTION, groupId);
       if (entry) cachedReactions[groupId] = entry.value;
@@ -1571,6 +1595,9 @@ export class BridgeImpl {
   }
 
   private seedCachedMessagesForGroup(relay: string, groupId: string): boolean {
+    const cachedGroup = cacheGet<{ group: JsGroup }>(relay, KIND_GROUP_METADATA, groupId)?.value.group;
+    const hidden = cachedGroup && (cachedGroup.isHidden ?? !cachedGroup.isPublic);
+    if (hidden && !this.groups.get().some((group) => group.id === groupId)) return false;
     const existing = this.messagesByGroup.get()[groupId];
     if (existing && existing.length > 0) {
       this.setMessagesStatus(groupId, 'has-messages');
@@ -2869,6 +2896,8 @@ export class BridgeImpl {
     picture?: string;
     banner?: string;
     isPublic?: boolean;
+    isHidden?: boolean;
+    isRestricted?: boolean;
     isOpen?: boolean;
     kind?: 'text' | 'voice' | 'voice-sfu' | 'forum';
     parent?: string;
@@ -2997,6 +3026,8 @@ export class BridgeImpl {
     picture?: string;
     banner?: string;
     isPublic?: boolean;
+    isHidden?: boolean;
+    isRestricted?: boolean;
     isOpen?: boolean;
     kind?: 'text' | 'voice' | 'voice-sfu' | 'forum';
     parent?: string;
@@ -3009,6 +3040,8 @@ export class BridgeImpl {
     if (opts.picture !== undefined) tags.push(['picture', opts.picture]);
     if (opts.banner !== undefined) tags.push(['banner', opts.banner]);
     if (opts.isPublic !== undefined) tags.push([opts.isPublic ? 'public' : 'private']);
+    if (opts.isHidden) tags.push(['hidden']);
+    if (opts.isRestricted) tags.push(['restricted']);
     if (opts.isOpen !== undefined) tags.push([opts.isOpen ? 'open' : 'closed']);
     if (opts.parent !== undefined && opts.parent) tags.push(['parent', opts.parent]);
     // The variant marker is "just another tag" on kind 9002; the relay
@@ -4518,7 +4551,8 @@ export class BridgeImpl {
       // the failure while the message pane stays noncommittal.
       const relay = this.currentRelayUrl.get();
       const access = this.relayAccess.get()[relay];
-      if (access !== 'ok') {
+      const groupIsPublic = this.groups.get().some((group) => group.id === groupId && group.isPublic);
+      if (access !== 'ok' && !groupIsPublic) {
         this.clearMessagesRetry(groupId);
         return;
       }
@@ -5325,6 +5359,8 @@ export class BridgeImpl {
       picture: t.picture ?? null,
       banner: t.banner ?? null,
       isPublic: t.isPublic,
+      isHidden: t.isHidden,
+      isRestricted: t.isRestricted,
       isOpen: t.isOpen,
       parent: t.parent ?? null,
       kind: t.channelKind,

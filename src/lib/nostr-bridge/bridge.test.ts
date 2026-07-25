@@ -212,6 +212,44 @@ describe('nostr-bridge', () => {
     expect(last.find((g) => g.id === id)?.name).toBe('Test Channel');
   });
 
+  it('parses and publishes NIP-29 hidden/restricted access tags', async () => {
+    const { getBridge } = await import('./client');
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+
+    const groupsSeen: ReadonlyArray<{ id: string; isPublic: boolean; isHidden: boolean; isRestricted: boolean; isOpen: boolean }>[] = [];
+    bridge.subscribeGroups((groups) => groupsSeen.push(groups));
+    deliver(await fakeRelayMetadata({
+      groupId: 'private-hidden',
+      isPublic: false,
+      isHidden: true,
+      isRestricted: true,
+      isOpen: false,
+    }));
+    await flush();
+
+    expect(groupsSeen.at(-1)?.find((group) => group.id === 'private-hidden')).toMatchObject({
+      isPublic: false,
+      isHidden: true,
+      isRestricted: true,
+      isOpen: false,
+    });
+
+    await bridge.editGroupMetadata({
+      groupId: 'private-hidden',
+      isPublic: false,
+      isHidden: true,
+      isRestricted: true,
+      isOpen: false,
+    });
+    const edit = fake.state.published.find((event) => event.kind === 9002);
+    expect(edit?.tags).toContainEqual(['private']);
+    expect(edit?.tags).toContainEqual(['hidden']);
+    expect(edit?.tags).toContainEqual(['restricted']);
+    expect(edit?.tags).toContainEqual(['closed']);
+  });
+
   it('sendMessage round-trips through subscribers', async () => {
     const { getBridge } = await import('./client');
     const { skHex, pkHex } = makeKeypair();
@@ -2231,6 +2269,39 @@ describe('nostr-bridge', () => {
     }
   });
 
+
+  it("public channel confirms an empty EOSE even while relay AUTH is inconclusive", async () => {
+    const { getBridge, getBridgeImpl } = await import("./client");
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+    await flush();
+
+    const impl = getBridgeImpl()!;
+    const groupId = "public-empty-auth-inconclusive";
+    const activeRelay = impl["relays"][0];
+    (impl as unknown as { relayAccess: { set: (v: Record<string, unknown>) => void } }).relayAccess.set({
+      [activeRelay]: "authenticating",
+    });
+
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      deliver(await fakeRelayMetadata({
+        groupId,
+        name: "Public empty channel",
+        isPublic: true,
+        isOpen: true,
+      }));
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(impl.messagesStatusByGroup.get()[groupId]).toBe("empty-confirmed");
+      expect(impl.messagesRetryByGroup.has(groupId)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('setActiveGroup on a stuck-loading channel restarts the sub so the click gets fresh priority', async () => {
     // Regression for "I clicked the channel and it's still spinning,
     // had to refresh the page for it to load." When the background
@@ -2981,6 +3052,46 @@ describe('nostr-bridge', () => {
     expect(impl.messagesStatusByGroup.get()[groupId]).toBe('has-messages');
   });
 
+  it('does not paint hidden channels or messages from cache before live relay confirmation', async () => {
+    const { getBridge, getBridgeImpl } = await import('./client');
+    const { cacheSet } = await import('./cache');
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+    await flush();
+
+    const impl = getBridgeImpl()!;
+    const groupId = 'hidden-cache-seed';
+    const relay = impl.currentRelayUrl.get();
+    cacheSet(relay, 39000, groupId, {
+      group: {
+        id: groupId,
+        name: 'Secret channel',
+        about: null,
+        picture: null,
+        banner: null,
+        isPublic: false,
+        isHidden: true,
+        isRestricted: true,
+        isOpen: false,
+        parent: null,
+        kind: 'text' as const,
+        forumTags: [],
+        topics: [],
+      },
+      createdAt: Math.floor(Date.now() / 1000),
+    });
+    cacheSet(relay, 9, groupId, [
+      { id: 'secret-msg', pubkey: 'x'.repeat(64), content: 'secret', createdAt: 1, kind: 9, replyToId: null, mentions: [] },
+    ]);
+
+    await bridge.switchRelay(relay);
+    await flush();
+
+    expect(impl.groups.get().some((group) => group.id === groupId)).toBe(false);
+    expect(impl.messagesByGroup.get()[groupId]).toBeUndefined();
+  });
+
   it('setActiveGroup seeds cached messages when the channel memory is empty', async () => {
     const { getBridge, getBridgeImpl } = await import('./client');
     const { cacheSet } = await import('./cache');
@@ -3591,6 +3702,8 @@ async function fakeRelayMetadata(opts: {
   about?: string;
   parent?: string;
   isPublic?: boolean;
+  isHidden?: boolean;
+  isRestricted?: boolean;
   isOpen?: boolean;
 }): Promise<NostrEvent> {
   // Sign with a throwaway key — the bridge doesn't verify authorship of
@@ -3601,8 +3714,10 @@ async function fakeRelayMetadata(opts: {
   if (opts.name) tags.push(['name', opts.name]);
   if (opts.about) tags.push(['about', opts.about]);
   if (opts.parent) tags.push(['parent', opts.parent]);
-  if (opts.isPublic) tags.push(['public']);
-  if (opts.isOpen) tags.push(['open']);
+  if (opts.isPublic !== undefined) tags.push([opts.isPublic ? 'public' : 'private']);
+  if (opts.isHidden) tags.push(['hidden']);
+  if (opts.isRestricted) tags.push(['restricted']);
+  if (opts.isOpen !== undefined) tags.push([opts.isOpen ? 'open' : 'closed']);
   return finalizeEvent(
     {
       kind: 39000,

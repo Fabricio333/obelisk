@@ -35,7 +35,7 @@ let mockGroups: JsGroup[] = [];
 
 const g = (id: string, name: string): JsGroup => ({
   id, name, about: null, picture: null, banner: null,
-  isPublic: true, isOpen: true, parent: null, kind: 'text',
+  isPublic: true, isHidden: false, isRestricted: false, isOpen: true, parent: null, kind: 'text',
   forumTags: [], topics: [],
 });
 

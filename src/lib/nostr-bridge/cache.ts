@@ -45,19 +45,12 @@
  * give the chat pane something to paint before the relay round-trips.
  */
 
-// v3 — bumped to evict cache entries written by the pre-bleed-fix bridge,
-// where in-flight events from a markClosed sub on the previous relay's
-// still-open WebSocket were ingested under the new relay's cache key (via
-// `cacheSet(currentRelayUrl, ...)`). Those entries persist forever because
-// no fresh event from the actual relay ever overwrites them — symptom is
-// channels from another relay sticking in "Uncategorized" across page
-// reloads. Wiping the namespace is the cheapest correctness-restoring
-// migration; relays repopulate within seconds on next paint.
+// v4 — evicts metadata and message cache entries written before hidden NIP-29
+// groups were privacy-gated. Relays repopulate visible groups after login.
 //
-// Older `obelisk-cache/` (v1) and `obelisk-cache-v2/` keys are now
-// orphaned. Both prefixes are evicted on module load.
-const KEY_PREFIX = 'obelisk-cache-v3/';
-const LEGACY_KEY_PREFIXES = ['obelisk-cache/', 'obelisk-cache-v2/'] as const;
+// Older cache namespaces are orphaned and evicted on module load.
+const KEY_PREFIX = 'obelisk-cache-v4/';
+const LEGACY_KEY_PREFIXES = ['obelisk-cache/', 'obelisk-cache-v2/', 'obelisk-cache-v3/'] as const;
 
 export interface CachedEntry<T> {
   readonly value: T;

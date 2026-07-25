@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import MessageMediaPicker from './MessageMediaPicker';
 
@@ -21,13 +21,20 @@ describe('MessageMediaPicker', () => {
       />,
     );
 
+    expect(screen.getByRole('searchbox', { name: 'Search emoji' }).parentElement).toHaveClass('rounded-xl', 'border-lc-green/80');
+    const categoryNav = screen.getByRole('navigation', { name: 'Emoji categories' });
+    const emojiTab = screen.getByRole('button', { name: 'emoji' });
+    expect(categoryNav.compareDocumentPosition(emojiTab) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Close emoji picker' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'gif' }));
+    expect(screen.getByRole('searchbox', { name: 'Search GIFs' }).parentElement).toHaveClass('rounded-xl', 'border-lc-green/80');
     expect(screen.getByAltText(':dance:')).toBeInTheDocument();
     expect(screen.queryByAltText(':wave:')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Stickers' }));
+    expect(screen.getByRole('searchbox', { name: 'Search stickers' }).parentElement).toHaveClass('rounded-xl', 'border-lc-green/80');
     expect(screen.getByAltText(':wave:')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Create' })).toBeInTheDocument();
+    expect(within(screen.getByTestId('media-grid')).getAllByRole('button')[0]).toHaveAccessibleName('Create sticker');
   });
 
   it('returns a picked sticker with its portable NIP-30 metadata', () => {

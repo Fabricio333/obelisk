@@ -13,8 +13,8 @@
  *   - `obelisk:preferences` — explicit settings the user just chose.
  *
  * Wiped (prefix scans, account-agnostic):
- *   - `obelisk-cache-v3/*`             — `bridgeCache` namespace (every kind on every relay).
- *   - `obelisk-cache/*`, `obelisk-cache-v2/*` — legacy bridgeCache prefixes (defensive).
+ *   - `obelisk-cache-v4/*`             — `bridgeCache` namespace (every kind on every relay).
+ *   - `obelisk-cache/*`, `obelisk-cache-v2/*`, `obelisk-cache-v3/*` — legacy bridgeCache prefixes (defensive).
  *   - `obelisk:relay-info-v2`          — NIP-11 relay-info cache (singleton key).
  *   - `obelisk-read-state:*`           — per-account read cursors + inbox events.
  *   - `obelisk-dm-store:*`             — per-account DM store.
@@ -37,6 +37,7 @@ const PRESERVED_EXACT = new Set<string>([
 ]);
 
 const WIPED_PREFIXES = [
+  'obelisk-cache-v4/',
   'obelisk-cache-v3/',
   'obelisk-cache-v2/',
   'obelisk-cache/',

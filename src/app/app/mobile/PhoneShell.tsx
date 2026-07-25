@@ -68,7 +68,7 @@ import MentionNavigator from '@/components/chat/MentionNavigator';
 import HistoryPaginationStatus from '@/components/chat/HistoryPaginationStatus';
 import EmojiPicker, { type PickedCustomEmoji } from '@/components/chat/EmojiPicker';
 import MessageMediaPicker, { type MediaPickerTab } from '@/components/chat/MessageMediaPicker';
-import { AttachmentMenu, StickerIcon, VoiceNoteButton } from '@/components/chat/ComposerActions';
+import { AttachmentMenu, StickerIcon, VoiceNoteButton, VoiceNoteDraft } from '@/components/chat/ComposerActions';
 import { uploadToBlossom } from '@/lib/blossom';
 import { stickerTagsForContent, type MessageSticker } from '@/lib/sticker-tags';
 import { voiceNoteTagForContent, type MessageVoiceNote } from '@/lib/voice-note-tags';
@@ -1373,7 +1373,7 @@ function CategoryChannelsBlock({
 // ChannelSettingsModal but trimmed to fit a phone — SFU pin + advanced fields
 // stay desktop-only for now; admins can still toggle the channel kind to
 // voice-sfu which falls through to the env-var defaults.
-function ChannelSettingsSheet({
+export function ChannelSettingsSheet({
   group,
   close,
 }: {
@@ -1384,8 +1384,9 @@ function ChannelSettingsSheet({
   const [about, setAbout] = useState(group.about ?? '');
   const [picture, setPicture] = useState(group.picture ?? '');
   const [banner, setBanner] = useState(group.banner ?? '');
-  const [isPublic, setIsPublic] = useState(group.isPublic);
-  const [isOpen, setIsOpen] = useState(group.isOpen);
+  const [access, setAccess] = useState<'public' | 'read-only' | 'private'>(
+    !group.isPublic ? 'private' : group.isRestricted ? 'read-only' : 'public',
+  );
   const [channelKind, setChannelKind] = useState<JsGroup['kind']>(group.kind);
   const [savingMeta, setSavingMeta] = useState(false);
   const [metaErr, setMetaErr] = useState<string | null>(null);
@@ -1413,8 +1414,10 @@ function ChannelSettingsSheet({
         about,
         picture: picture || undefined,
         banner: banner || undefined,
-        isPublic,
-        isOpen,
+        isPublic: access !== 'private',
+        isHidden: access === 'private',
+        isRestricted: access !== 'public',
+        isOpen: access === 'public',
         kind: channelKind,
         // Preserve the admin-curated forum tag set as-is — mobile doesn't
         // expose a tag editor (desktop does), and NIP-29 9002 is a full
@@ -1524,15 +1527,20 @@ function ChannelSettingsSheet({
         <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <label style={{ fontSize: 10, color: 'var(--app-text-dim)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Access</label>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button type="button" style={togglePillStyle(isPublic)} onClick={() => setIsPublic(!isPublic)}>
-              <div style={{ fontSize: 16 }}>{isPublic ? '🌐' : '🔒'}</div>
+            <button type="button" data-testid="mobile-channel-access-public" style={togglePillStyle(access === 'public')} onClick={() => setAccess('public')}>
+              <div style={{ fontSize: 16 }}>🌐</div>
               <div>Public</div>
-              <div style={{ fontSize: 10, opacity: 0.7, fontWeight: 400 }}>{isPublic ? 'readable without joining' : 'members only'}</div>
+              <div style={{ fontSize: 10, opacity: 0.7, fontWeight: 400 }}>everyone reads and posts</div>
             </button>
-            <button type="button" style={togglePillStyle(isOpen)} onClick={() => setIsOpen(!isOpen)}>
-              <div style={{ fontSize: 16 }}>{isOpen ? '🟢' : '⊝'}</div>
-              <div>Open</div>
-              <div style={{ fontSize: 10, opacity: 0.7, fontWeight: 400 }}>{isOpen ? 'anyone can join' : 'invite only'}</div>
+            <button type="button" data-testid="mobile-channel-access-read-only" style={togglePillStyle(access === 'read-only')} onClick={() => setAccess('read-only')}>
+              <div style={{ fontSize: 16 }}>👁</div>
+              <div>Read-only</div>
+              <div style={{ fontSize: 10, opacity: 0.7, fontWeight: 400 }}>members post</div>
+            </button>
+            <button type="button" data-testid="mobile-channel-access-private" style={togglePillStyle(access === 'private')} onClick={() => setAccess('private')}>
+              <div style={{ fontSize: 16 }}>🔒</div>
+              <div>Private</div>
+              <div style={{ fontSize: 10, opacity: 0.7, fontWeight: 400 }}>hidden; members only</div>
             </button>
           </div>
         </section>
@@ -1622,8 +1630,7 @@ function ChannelSettingsSheet({
           </label>
           {allPubkeys.length === 0 ? (
             <div style={{ fontSize: 12, color: 'var(--app-text-mute)', padding: '6px 4px' }}>
-              No members listed yet. With <b>Public + Open</b> the relay&apos;s
-              whitelist gates everything anyway.
+              No members listed yet. Public channels do not require a member list.
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: '40vh', overflowY: 'auto' }}>
@@ -2872,6 +2879,7 @@ function ChannelScreen({
           />
         )}
         <div className="composer-inner">
+          {!draftVoiceNote && (<>
           <AttachmentMenu
             disabled={uploading}
             onFiles={(files) => { if (files[0]) void handleAttach(files[0]); }}
@@ -2890,9 +2898,16 @@ function ChannelScreen({
           >
             <StickerIcon />
           </button>
+          </>)}
+          {draftVoiceNote && (
+            <VoiceNoteDraft
+              note={draftVoiceNote}
+              onDiscard={() => { setDraft(''); setDraftVoiceNote(null); }}
+            />
+          )}
           <input
             ref={composerInputRef}
-            className="composer-input"
+            className={draftVoiceNote ? "hidden" : "composer-input"}
             value={draft}
             onChange={(e) => handleDraftInput(e.target.value, e.target.selectionStart ?? e.target.value.length)}
             onSelect={(e) => {
@@ -3124,6 +3139,8 @@ export function ChannelMessage({
             customEmojis={msg.customEmojis as CustomEmojiMap | undefined}
             sticker={msg.sticker}
             voiceNote={msg.voiceNote}
+            voiceAuthorPicture={meta?.picture}
+            voiceTimestamp={msg.createdAt}
           />
         </div>
         {msg.failed && (
@@ -4234,6 +4251,8 @@ function ForumScreen({
           forumTags={forumTags}
           initialTitle={prefillTitle}
           isPublic={group?.isPublic ?? true}
+          isHidden={group?.isHidden ?? false}
+          isRestricted={group?.isRestricted ?? false}
           isOpen={group?.isOpen ?? true}
           close={() => setShowNewThread(false)}
           onCreated={(childId) => {
@@ -4459,6 +4478,8 @@ function NewThreadSheet({
   forumTags,
   initialTitle,
   isPublic,
+  isHidden,
+  isRestricted,
   isOpen,
   close,
   onCreated,
@@ -4467,6 +4488,8 @@ function NewThreadSheet({
   forumTags: ReadonlyArray<JsForumTag>;
   initialTitle: string;
   isPublic: boolean;
+  isHidden: boolean;
+  isRestricted: boolean;
   isOpen: boolean;
   close: () => void;
   onCreated: (childId: string) => void;
@@ -4499,6 +4522,8 @@ function NewThreadSheet({
         name: title.trim(),
         about: undefined,
         isPublic,
+        isHidden,
+        isRestricted,
         isOpen,
         parent: forumGroupId,
         topics: selectedTagIds,

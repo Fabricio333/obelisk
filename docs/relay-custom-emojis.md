@@ -128,7 +128,7 @@ The sticker marker is accepted only when the name is normalized, the URL uses HT
 
 Personal stickers use the normal Blossom BUD-01 upload flow. Their local picker index is stored under `obelisk:personal-stickers`; portability does not depend on that index because each sent event copies the URL into both tags.
 
-The picker uses La Crypta black/card tokens, fixed-height grid tracks, clipped cells, and `object-contain`, so mixed source dimensions cannot overlap.
+The picker uses a true La Crypta black panel, fixed-height grid tracks, clipped cells, and `object-contain`, so mixed source dimensions cannot overlap. Emoji, GIF, and Stickers share the same green-outlined 12px-radius rectangular search control. In Stickers, the personal-sticker Create action is always the first grid tile. The Emoji tab has an icon category rail above the Emoji/GIF/Stickers selectors that jumps directly to classified sections, including Smileys & people, Animals & nature, Cars & transport, and Flags. Category jumps scroll only the emoji list, never the page.
 
 ## Removing messages and reactions
 

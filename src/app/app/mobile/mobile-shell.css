@@ -3347,7 +3347,7 @@
 }
 .obelisk-mobile .emoji-sheet {
   width: 100%;
-  background: var(--app-surface-2);
+  background: var(--app-bg);
   border-top-left-radius: 22px;
   border-top-right-radius: 22px;
   padding: 6px 0 calc(8px + env(safe-area-inset-bottom));

@@ -241,6 +241,8 @@ export default function ForumView({ groupId, channelName, onSelectThread }: Prop
           forumTags={forumTags}
           initialTitle={prefillTitle}
           isPublic={forum?.isPublic ?? true}
+          isHidden={forum?.isHidden ?? false}
+          isRestricted={forum?.isRestricted ?? false}
           isOpen={forum?.isOpen ?? true}
           onClose={() => setShowNewThread(false)}
           onCreated={(childId) => {
@@ -878,6 +880,8 @@ function NewThreadModal({
   forumTags,
   initialTitle,
   isPublic,
+  isHidden,
+  isRestricted,
   isOpen,
   onClose,
   onCreated,
@@ -886,6 +890,8 @@ function NewThreadModal({
   forumTags: ReadonlyArray<JsForumTag>;
   initialTitle: string;
   isPublic: boolean;
+  isHidden: boolean;
+  isRestricted: boolean;
   isOpen: boolean;
   onClose: () => void;
   onCreated: (childId: string) => void;
@@ -920,6 +926,8 @@ function NewThreadModal({
         name: title.trim(),
         about: undefined,
         isPublic,
+        isHidden,
+        isRestricted,
         isOpen,
         parent: forumGroupId,
         topics: selectedTagIds,

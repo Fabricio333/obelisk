@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   EMOJI_CATEGORIES,
   EMOJI_CATEGORY_NAMES,
@@ -10,6 +10,18 @@ import {
 import { loadRecentEmojis, pushRecentEmoji } from '@/lib/recent-emojis';
 import { normalizeCustomEmojiName, type CustomEmojiMap } from '@/lib/custom-emoji-tags';
 import { useChatStore } from '@/store/chat';
+
+const EMOJI_CATEGORY_META: Record<string, { icon: string; label: string }> = {
+  Smileys: { icon: "😀", label: "Smileys & people" },
+  Gestures: { icon: "👋", label: "People & gestures" },
+  Objects: { icon: "💡", label: "Objects" },
+  Food: { icon: "🍔", label: "Food & drink" },
+  Animals: { icon: "🐻", label: "Animals & nature" },
+  Nature: { icon: "🌿", label: "Plants & weather" },
+  Transport: { icon: "🚗", label: "Cars & transport" },
+  Flags: { icon: "🏳️", label: "Flags" },
+  Activities: { icon: "⚽", label: "Activities" },
+};
 
 export interface PickedCustomEmoji {
   readonly name: string;
@@ -42,8 +54,40 @@ export interface EmojiPickerProps {
   variant?: 'popover' | 'sheet';
   /** Popover direction relative to the trigger. Ignored for sheet variant. */
   placement?: 'above' | 'below';
+  showClose?: boolean;
   className?: string;
   customEmojis?: CustomEmojiMap;
+  children?: ReactNode;
+}
+
+export function MediaPickerSearch({
+  value,
+  onChange,
+  placeholder,
+  autoFocus = false,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  autoFocus?: boolean;
+}) {
+  return (
+    <label className="flex h-11 min-w-0 flex-1 items-center gap-3 rounded-xl border border-lc-green/80 bg-lc-dark px-3 text-lc-muted focus-within:border-lc-green">
+      <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="7" />
+        <path d="m20 20-3.5-3.5" />
+      </svg>
+      <input
+        type="search"
+        autoFocus={autoFocus}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        className="min-w-0 flex-1 bg-transparent text-sm text-lc-white outline-none placeholder:text-lc-muted"
+      />
+    </label>
+  );
 }
 
 export default function EmojiPicker({
@@ -53,11 +97,15 @@ export default function EmojiPicker({
   skipRecent = false,
   variant = 'popover',
   placement = 'above',
+  showClose = true,
   className,
   customEmojis: customEmojisProp,
+  children,
 }: EmojiPickerProps) {
   const [query, setQuery] = useState('');
   const [recents, setRecents] = useState<string[]>(() => loadRecentEmojis());
+  const [activeCategory, setActiveCategory] = useState(EMOJI_CATEGORY_NAMES[0]);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const storeCustomEmojis = useChatStore((s) => s.serverEmojis);
   const customEmojis = customEmojisProp ?? storeCustomEmojis;
 
@@ -107,11 +155,18 @@ export default function EmojiPicker({
     onPick(shortcode, emoji);
   };
 
+  const jumpToCategory = (category: string) => {
+    setActiveCategory(category);
+    const scroller = scrollRef.current;
+    const target = scroller?.querySelector<HTMLElement>(`[data-emoji-category="${category}"]`);
+    if (scroller && target) scroller.scrollTo({ top: target.offsetTop, behavior: "smooth" });
+  };
+
   const isSheet = variant === 'sheet';
   const popoverPlacementClass = placement === 'below' ? 'top-full mt-1' : 'bottom-full mb-1';
   const containerClass = isSheet
-    ? 'flex h-full w-full flex-col bg-[#313338] p-3 text-lc-white '
-    : `absolute right-0 ${popoverPlacementClass} z-30 flex h-[430px] w-[360px] flex-col overflow-hidden rounded-lg border border-black/40 bg-[#313338] text-lc-white shadow-2xl `;
+    ? 'flex h-full w-full flex-col bg-lc-black p-3 text-lc-white '
+    : `absolute right-0 ${popoverPlacementClass} z-30 flex h-[430px] w-[360px] flex-col overflow-hidden rounded-lg border border-lc-border bg-lc-black text-lc-white shadow-2xl `;
   const gridClass = isSheet
     ? 'grid grid-cols-7 gap-1.5'
     : 'grid grid-cols-8 gap-1 px-3';
@@ -119,11 +174,11 @@ export default function EmojiPicker({
     ? 'flex aspect-square items-center justify-center rounded-md text-2xl active:bg-[#3f4147] disabled:cursor-default disabled:opacity-40'
     : 'flex aspect-square items-center justify-center rounded-md text-2xl hover:bg-[#3f4147] disabled:cursor-default disabled:opacity-40';
   const scrollClass = isSheet
-    ? 'min-h-0 flex-1 overflow-y-auto'
-    : 'min-h-0 flex-1 overflow-y-auto pb-3';
+    ? 'relative min-h-0 flex-1 overflow-y-auto'
+    : 'relative min-h-0 flex-1 overflow-y-auto pb-3';
   const sectionTitleClass = isSheet
     ? 'mb-2 px-1 text-[11px] font-bold uppercase tracking-wider text-[#b5bac1]'
-    : 'sticky top-0 z-10 mb-2 bg-[#313338]/95 px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-[#b5bac1] backdrop-blur';
+    : 'sticky top-0 z-10 mb-2 bg-lc-black/95 px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-[#b5bac1] backdrop-blur';
   const customImageClass = isSheet
     ? 'h-[1.45em] w-[1.45em] object-contain'
     : 'h-8 w-8 object-contain';
@@ -161,7 +216,28 @@ export default function EmojiPicker({
       className={containerClass + (className ?? '')}
       onClick={(e) => e.stopPropagation()}
     >
-      <div className={isSheet ? 'mb-2 flex items-center gap-2' : 'border-b border-black/20 p-3'}>
+      {!filtered && (
+        <nav className="mb-2 flex shrink-0 gap-1 overflow-x-auto border-b border-lc-border px-1 pb-1" aria-label="Emoji categories">
+          {EMOJI_CATEGORY_NAMES.map((category) => {
+            const meta = EMOJI_CATEGORY_META[category] ?? { icon: "•", label: category };
+            return (
+              <button
+                type="button"
+                key={category}
+                onClick={() => jumpToCategory(category)}
+                aria-label={meta.label}
+                aria-pressed={activeCategory === category}
+                title={meta.label}
+                className={`flex h-10 min-w-10 shrink-0 items-center justify-center rounded-lg border-b-2 text-xl ${activeCategory === category ? "border-lc-green bg-lc-green/10" : "border-transparent hover:bg-white/5"}`}
+              >
+                <span aria-hidden="true">{meta.icon}</span>
+              </button>
+            );
+          })}
+        </nav>
+      )}
+      {children}
+      <div className={isSheet ? 'my-2 flex items-center gap-2' : 'border-b border-black/20 p-3'}>
         {!isSheet && (
           <div className="mb-2 flex items-center justify-between">
             <div>
@@ -178,17 +254,13 @@ export default function EmojiPicker({
             </button>
           </div>
         )}
-        <input
+        <MediaPickerSearch
           autoFocus={!isSheet}
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search emoji…"
-          className={
-            'w-full rounded border border-transparent bg-[#1e1f22] text-lc-white placeholder:text-[#949ba4] focus:border-lc-green focus:outline-none ' +
-            (isSheet ? 'px-3 py-2 text-sm' : 'px-2.5 py-2 text-xs')
-          }
+          onChange={setQuery}
+          placeholder="Search emoji"
         />
-        {isSheet && (
+        {isSheet && showClose && (
           <button
             onClick={onClose}
             className="h-9 w-9 rounded text-lc-muted hover:bg-[#3f4147] hover:text-lc-white"
@@ -199,7 +271,7 @@ export default function EmojiPicker({
           </button>
         )}
       </div>
-      <div className={scrollClass}>
+      <div ref={scrollRef} className={scrollClass}>
         {filtered ? (
           <>
             {renderCustomSection('Server GIFs', filteredCustomGifEntries)}
@@ -254,8 +326,8 @@ export default function EmojiPicker({
             {renderCustomSection('Server GIFs', customGifEntries)}
             {renderCustomSection('Server emojis', customEmojiEntries)}
             {EMOJI_CATEGORY_NAMES.map((cat) => (
-              <div key={cat} className="mb-2">
-                <div className={sectionTitleClass}>{cat}</div>
+              <div key={cat} className="mb-2 scroll-mt-1" data-emoji-category={cat}>
+                <div className={sectionTitleClass}>{EMOJI_CATEGORY_META[cat]?.label ?? cat}</div>
                 <div className={gridClass}>
                   {EMOJI_CATEGORIES[cat].map((e) => {
                     const mine = disabled.has(e.char);

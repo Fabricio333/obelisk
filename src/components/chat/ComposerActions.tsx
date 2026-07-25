@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { VoiceMessage } from './MessageContent';
+import type { MessageVoiceNote } from '@/lib/voice-note-tags';
 
 const iconClass = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lc-muted hover:bg-white/5 hover:text-lc-white disabled:opacity-40';
 
@@ -137,6 +139,37 @@ function formatDuration(seconds: number): string {
   return Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0");
 }
 
+function TrashIcon() {
+  return (
+    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" />
+    </svg>
+  );
+}
+
+export function VoiceNoteDraft({
+  note,
+  onDiscard,
+}: {
+  note: MessageVoiceNote;
+  onDiscard: () => void;
+}) {
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-1" data-testid="voice-note-draft">
+      <VoiceMessage note={note} compact />
+      <button
+        type="button"
+        onClick={onDiscard}
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lc-muted hover:bg-red-500/10 hover:text-red-400"
+        aria-label="Discard voice note"
+        title="Discard voice note"
+      >
+        <TrashIcon />
+      </button>
+    </div>
+  );
+}
+
 export function VoiceNoteButton({
   disabled,
   onRecorded,
@@ -147,10 +180,18 @@ export function VoiceNoteButton({
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const discardedRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const startedAtRef = useRef(0);
 
-  useEffect(() => () => streamRef.current?.getTracks().forEach((track) => track.stop()), []);
+  useEffect(() => () => {
+    const recorder = recorderRef.current;
+    if (recorder?.state === "recording") {
+      discardedRecorderRef.current = recorder;
+      recorder.stop();
+    }
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
   useEffect(() => {
     if (!recording) return;
     const update = () => setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000));
@@ -159,19 +200,27 @@ export function VoiceNoteButton({
     return () => window.clearInterval(timer);
   }, [recording]);
 
-  const toggle = async () => {
-    if (recorderRef.current?.state === "recording") {
-      recorderRef.current.stop();
-      setRecording(false);
-      return;
-    }
+  const stop = (discard = false) => {
+    const recorder = recorderRef.current;
+    if (recorder?.state !== "recording") return;
+    if (discard) discardedRecorderRef.current = recorder;
+    recorder.stop();
+    setRecording(false);
+  };
+
+  const start = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const chunks: Blob[] = [];
     const recorder = new MediaRecorder(stream);
     recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
     recorder.onstop = () => {
       stream.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
+      if (streamRef.current === stream) streamRef.current = null;
+      if (recorderRef.current === recorder) recorderRef.current = null;
+      if (discardedRecorderRef.current === recorder) {
+        discardedRecorderRef.current = null;
+        return;
+      }
       const durationSeconds = Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000));
       onRecorded(
         new File(chunks, "voice-" + Date.now() + ".weba", { type: recorder.mimeType || "audio/webm" }),
@@ -186,21 +235,47 @@ export function VoiceNoteButton({
     setRecording(true);
   };
 
+  if (recording) {
+    return (
+      <span className="flex shrink-0 items-center gap-1" data-testid="voice-recording-controls">
+        <button
+          type="button"
+          className="flex h-9 w-9 items-center justify-center rounded-full text-lc-muted hover:bg-red-500/10 hover:text-red-400"
+          onClick={() => stop(true)}
+          aria-label="Discard voice recording"
+          title="Discard voice recording"
+        >
+          <TrashIcon />
+        </button>
+        <span className="flex items-center gap-2 px-1 font-mono text-sm text-red-400">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-red-400" aria-hidden="true" />
+          <span data-testid="voice-recording-time">{formatDuration(elapsed)}</span>
+        </span>
+        <button
+          type="button"
+          className="flex h-9 w-9 items-center justify-center rounded-full bg-red-500/15 text-red-400 hover:bg-red-500/25"
+          onClick={() => stop(false)}
+          aria-label="Stop voice note"
+          title="Finish recording"
+        >
+          <span className="h-3 w-3 rounded-[3px] bg-current" aria-hidden="true" />
+        </button>
+      </span>
+    );
+  }
+
   return (
     <button
       type="button"
-      className={iconClass + (recording ? " w-auto gap-2 bg-red-500/15 px-3 font-mono text-red-400" : "")}
+      className={iconClass}
       disabled={disabled}
-      onClick={() => void toggle()}
-      aria-label={recording ? "Stop voice note" : "Record voice note"}
-      aria-pressed={recording}
+      onClick={() => void start()}
+      aria-label="Record voice note"
     >
-      {recording && <span className="h-2 w-2 animate-pulse rounded-full bg-red-400" aria-hidden="true" />}
       <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="9" y="2" width="6" height="12" rx="3" />
         <path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8" />
       </svg>
-      {recording && <span data-testid="voice-recording-time">{formatDuration(elapsed)}</span>}
     </button>
   );
 }
