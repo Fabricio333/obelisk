@@ -87,6 +87,15 @@ npm run test:watch   # Run tests in watch mode
 npm run test:coverage # Run tests with coverage report
 ```
 
+## Deployment discipline
+
+- Production runs from `/root/obelisk-dex`; never build or restart it when deploying test.
+- Test runs from the single persistent `/root/obelisk-dex-test` directory on port 3002. Reuse it in place.
+- **Never create timestamped, versioned, or disposable `/root/obelisk-dex-test-release-*` directories.**
+- Preserve the test directory's `.env*` files and `node_modules` symlink when updating it, then build there and restart the same `obelisk-dex-test` PM2 process.
+- Use a temporary directory under `/tmp` if staging is unavoidable, and remove it before finishing.
+- Do not deploy production unless the user explicitly asks.
+
 ## Auth (3 methods, all relay-only)
 
 See [docs/data-system.md](docs/data-system.md) for the complete contract.
