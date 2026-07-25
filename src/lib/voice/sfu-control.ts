@@ -41,7 +41,7 @@ import { resolveSfuPin } from './sfu-pin';
 
 /** Trusted-author relay used as a hard fallback when no advertisement is
  *  cached yet (matches services/sfu defaults). */
-const FALLBACK_TRUSTED_RELAY = 'wss://relay.obelisk.ar';
+const FALLBACK_TRUSTED_RELAY = 'wss://lacrypta-relay.obelisk.ar';
 
 /** Lifetime of the kind 25052 `expiration` tag. The SFU drops events with
  *  `expiration <= now`, so this is just enough headroom for relay delivery. */

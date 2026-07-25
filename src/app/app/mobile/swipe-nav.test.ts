@@ -256,9 +256,9 @@ describe('mobile swipe-nav', () => {
 
     it('relay query param is preserved on every seeded URL', () => {
       const parsed: NavState = { ...initialNav, screen: 'channel', groupId: 'gid' };
-      const entries = buildSeedHistory(parsed, 'wss://relay.obelisk.ar');
+      const entries = buildSeedHistory(parsed, 'wss://lacrypta-relay.obelisk.ar');
       for (const e of entries) {
-        expect(e.url).toContain('relay=relay.obelisk.ar');
+        expect(e.url).toContain('relay=lacrypta-relay.obelisk.ar');
       }
     });
   });

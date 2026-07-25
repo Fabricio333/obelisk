@@ -45,7 +45,6 @@ import ServerRail from './ServerRail';
 import DMList from './DMList';
 import { DMOptInBoundary } from './DMOptInGate';
 import LoginModal from './LoginModal';
-import RelayStatusBanner from './RelayStatusBanner';
 import ShootingStars from '@/components/ShootingStars';
 import UserPanel from './UserPanel';
 import SearchBar from './SearchBar';
@@ -80,6 +79,7 @@ import SlashCommandScaffold, { scaffoldMentionSlotQuery, scaffoldMentionSlotRang
 import { applyMentionToDraft, filterMembers, relayMentionCandidates } from '@/lib/mentions';
 import { npubToHex } from '@nostr-wot/data';
 import {
+  applyLayout,
   useChannelLayout,
   useRelayOperatorPubkey,
   type ChannelLayout,
@@ -105,7 +105,6 @@ import { channelInitialAnchorFromCursor } from '@/lib/channel-scroll-anchor';
 import { useChannelScrollPosition } from '@/hooks/chat/useChannelScrollPosition';
 import RelayEmojiAdminModal from '@/components/admin/RelayEmojiAdminModal';
 import BlossomImageInput from '@/components/BlossomImageInput';
-import ActivityIndicator from '@/components/ActivityIndicator';
 import { extractUrls, isImageUrl } from '@/lib/markdown';
 import { useTranslation } from '@/i18n/context';
 
@@ -239,12 +238,12 @@ export default function AppShell() {
     // optional NIP-46 bunker pre-warm). Show a connecting screen instead of
     // the LoginModal so the user isn't told they're logged out when they're
     // not. See `useIsRehydrating` and docs/data-system.md §3.
-    if (isRehydrating) return (<><RehydratingScreen /><ActivityIndicator /></>);
+    if (isRehydrating) return <RehydratingScreen />;
     // Defer LoginModal until after mount: the underlying nui Modal portal +
     // a NIP-07 extension that injects DOM before React hydrates produce a
     // server/client mismatch on the modal-overlay div. Rendering a no-op
     // placeholder for the first paint sidesteps the hydration warning.
-    if (!mounted) return <ActivityIndicator />;
+    if (!mounted) return null;
     return (
       <>
         {/* Animated backdrop — matrix grid + shooting stars + green corner
@@ -256,7 +255,6 @@ export default function AppShell() {
           <ShootingStars />
         </div>
         <LoginModal />
-        <ActivityIndicator />
       </>
     );
   }
@@ -374,7 +372,6 @@ export default function AppShell() {
         </main>
         <FloatingUserPanel sidebarWidth={sidebarWidth} />
       </div>
-      <ActivityIndicator />
     </div>
   );
 }
@@ -972,8 +969,7 @@ function Sidebar({
       )}
 
       <div className={`flex-1 overflow-y-auto px-2 pb-2 ${inVoice ? 'md:pb-52' : 'md:pb-20'}`}>
-        {/* RelayStatusBanner above the chat pane is the single source of
-            truth for relay/AUTH state — the sidebar no longer duplicates it. */}
+        {/* Relay/AUTH state lives in the unified bottom-right activity stack. */}
         {groups.length === 0 && channelsVisible && !groupMetadataEoseGlobal && (
           <div
             className="px-2 py-3 flex items-center gap-2 text-xs text-lc-muted"
@@ -2205,7 +2201,7 @@ function ChatPanel({
     }
   }
 
-  function onSend(e: React.FormEvent) {
+  async function onSend(e: React.FormEvent) {
     e.preventDefault();
     const content = draft.trim();
     if (!content) return;
@@ -2228,27 +2224,8 @@ function ChatPanel({
 
     setSendError(null);
     const replyToCopy = replyingTo ? { id: replyingTo.id, pubkey: replyingTo.pubkey } : null;
-    // Clear the composer immediately — the optimistic placeholder appears
-    // inline in the message list with a spinner, so the user can keep
-    // typing the next message without waiting for the publish to ack.
-    setDraft('');
-    setReplyingTo(null);
-
-    // Lazy member self-add for open groups. Without this, a user who has
-    // never been explicitly added by an admin can read but their first
-    // kind 9 send is rejected with "user is not a member". Gated by a
-    // localStorage key so we publish exactly one kind 9000 ever per
-    // (relay, group, user) triple. Closed groups (`isOpen === false`)
-    // skip this — those require an admin invite by design.
-    //
-    // Also gated on relayAccess === 'ok': if the relay is rejecting our
-    // writes wholesale (auth-required / restricted / unreachable), the
-    // putUser will fail with a noisy "Publishing to relays / restricted:
-    // your pubkey is not whitelisted" activity entry. The user's actual
-    // sendMessage will surface the real error on the message bubble — we
-    // don't want a noisy console warning + Publishing toast for an
-    // optimistic membership write that the spec says shouldn't be
-    // required.
+    // Open groups use the NIP-29 join request before their first message.
+    // Await it so browser extensions never receive two signature requests at once.
     if (
       myPubkey
       && relayAccess === 'ok'
@@ -2256,18 +2233,18 @@ function ChatPanel({
       && !memberPubkeys.includes(myPubkey)
       && !admins.includes(myPubkey)
     ) {
-      const key = `obelisk:claimed-member:${relay}:${groupId}:${myPubkey}`;
-      let alreadyTried = false;
       try {
-        alreadyTried = typeof localStorage !== 'undefined' && !!localStorage.getItem(key);
-      } catch {}
-      if (!alreadyTried) {
-        try { localStorage?.setItem(key, '1'); } catch {}
-        nostrActions.putUser(groupId, myPubkey, [], { quiet: true }).catch((err) => {
-          console.debug('[appshell] lazy member putUser skipped (relay declined)', err);
-        });
+        await nostrActions.joinGroup(groupId);
+      } catch (err) {
+        setSendError(err instanceof Error ? err.message : 'Could not join this channel');
+        return;
       }
     }
+
+    // Clear only after the prerequisite signature succeeds, preserving the
+    // draft if the user rejects the join request in their extension.
+    setDraft('');
+    setReplyingTo(null);
 
     // Fire-and-forget — bridge inserts the pending placeholder synchronously
     // and surfaces send failures via the bubble's `failed` flag (with retry).
@@ -2341,7 +2318,6 @@ function ChatPanel({
       {(() => {
         const textBody = (
       <>
-      <RelayStatusBanner />
       <div className="relative flex min-h-0 flex-1 flex-col">
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-4" data-testid={messagesVisible ? undefined : 'messages-gated-by-auth'}>
         {messages.length === 0 ? (
@@ -4263,9 +4239,8 @@ function RelayAccessModal() {
 
 function EmptyState() {
   const { t } = useTranslation();
-  // Relay/AUTH state is surfaced exclusively by the chat-pane
-  // RelayStatusBanner now. The EmptyState only shows the "pick a
-  // channel" prompt — the banner mounts above this section regardless.
+  // Relay/AUTH state lives in the unified bottom-right activity stack.
+  // The empty state only owns the channel-selection prompt.
   return (
     <div className="flex h-full items-center justify-center text-lc-muted">
       <div className="text-center">

@@ -299,7 +299,9 @@ export const RELAYS_KEY = 'obelisk-dex/relays';
 const LEGACY_STORAGE_KEY = 'obeliskord/session';
 const LEGACY_RELAYS_KEY = 'obeliskord/relays';
 const DEFAULT_RELAY = 'wss://public.obelisk.ar';
-const DEFAULT_RELAYS = ['wss://public.obelisk.ar'];
+const LACRYPTA_RELAY = 'wss://lacrypta-relay.obelisk.ar';
+const RETIRED_RELAY = 'wss://relay.obelisk.ar';
+const DEFAULT_RELAYS = [DEFAULT_RELAY, LACRYPTA_RELAY];
 
 // Per-channel message backfill cap. Only this many of the most recent kind 9
 // events are pulled into `messagesByGroup` on the live REQ; older messages
@@ -354,7 +356,7 @@ function readMigrated(key: string, legacyKey: string): string | null {
 // list intentionally small: normal channel browsing must not open persistent
 // subscriptions against broad public profile relays.
 export const DEFAULT_PROFILE_LOOKUP_RELAYS = [
-  'wss://relay.obelisk.ar',
+  LACRYPTA_RELAY,
   'wss://public.obelisk.ar',
   'wss://purplepag.es',
 ] as const;
@@ -783,13 +785,9 @@ export class BridgeImpl {
         // history without the user manually reloading.
         this.refreshStuckChannelsAfterAuthOk();
       } else {
-        // 'auth-required' / 'restricted' / 'unreachable' / 'error' —
-        // AUTH definitively failed. Any channel held in
-        // `empty-unconfirmed` by the ladder's AUTH-pending defer
-        // promotes to `empty-confirmed` now so the UI shows the
-        // honest "No messages yet" instead of a forever spinner.
-        // The RelayStatusBanner explains the failure separately.
-        this.promoteStuckChannelsAfterAuthFail();
+        // A rejected or unreachable relay cannot prove that a channel is
+        // empty. Stop retrying; the relay banner explains the failure.
+        this.stopStuckChannelRetriesAfterAccessFail();
       }
     });
   }
@@ -822,13 +820,9 @@ export class BridgeImpl {
     }
   }
 
-  private promoteStuckChannelsAfterAuthFail(): void {
-    const statuses = this.messagesStatusByGroup.get();
-    for (const [id, status] of Object.entries(statuses)) {
-      if (status === 'empty-unconfirmed') {
-        this.setMessagesStatus(id, 'empty-confirmed');
-        this.clearMessagesRetry(id);
-      }
+  private stopStuckChannelRetriesAfterAccessFail(): void {
+    for (const [id, status] of Object.entries(this.messagesStatusByGroup.get())) {
+      if (status === 'empty-unconfirmed') this.clearMessagesRetry(id);
     }
   }
 
@@ -1271,9 +1265,11 @@ export class BridgeImpl {
     if (!raw) return;
     try {
       const parsed = JSON.parse(raw) as PersistedSession;
-      parsed.relayUrl = normalizeRelayUrl(parsed.relayUrl);
+      const storedRelayUrl = parsed.relayUrl;
+      parsed.relayUrl = normalizeConfiguredRelayUrl(parsed.relayUrl);
       if (!isImportableRelayUrl(parsed.relayUrl)) parsed.relayUrl = DEFAULT_RELAY;
       this.session = parsed;
+      if (parsed.relayUrl !== storedRelayUrl) this.persist();
       this.wireBrowserConnectionEvents();
       this.currentRelayUrl.set(parsed.relayUrl);
       this.relays = [parsed.relayUrl];
@@ -1342,7 +1338,7 @@ export class BridgeImpl {
   }
 
   private ensureRelayInList(url: string): void {
-    const normalized = normalizeRelayUrl(url);
+    const normalized = normalizeConfiguredRelayUrl(url);
     const list = this.configuredRelays.get();
     if (list.includes(normalized)) return;
     const next = uniqueRelayUrls([...list, normalized]);
@@ -2186,7 +2182,7 @@ export class BridgeImpl {
 
   async switchRelay(url: string): Promise<void> {
     this.cancelReconnectTimer();
-    const normalized = normalizeRelayUrl(url);
+    const normalized = normalizeConfiguredRelayUrl(url);
     validateRelayUrl(normalized);
     if (!isImportableRelayUrl(normalized)) throw new Error("relay URL must be a public wss:// hostname");
     const previousPool = this.pool;
@@ -2310,7 +2306,7 @@ export class BridgeImpl {
   }
 
   async addRelay(url: string): Promise<void> {
-    const trimmed = normalizeRelayUrl(url);
+    const trimmed = normalizeConfiguredRelayUrl(url);
     if (!trimmed) return;
     validateRelayUrl(trimmed);
     if (!isImportableRelayUrl(trimmed)) throw new Error("relay URL must be a public wss:// hostname");
@@ -2326,7 +2322,7 @@ export class BridgeImpl {
   }
 
   async removeRelay(url: string): Promise<void> {
-    const normalized = normalizeRelayUrl(url);
+    const normalized = normalizeConfiguredRelayUrl(url);
     const list = this.configuredRelays.get().filter((u) => normalizeRelayUrl(u) !== normalized);
     if (list.length === 0) return; // never empty the rail
     this.configuredRelays.set(list);
@@ -3056,10 +3052,13 @@ export class BridgeImpl {
     if (opts.query && opts.query.trim()) filter.search = opts.query.trim();
     if (opts.authors && opts.authors.length > 0) filter.authors = [...opts.authors];
     if (opts.mentions && opts.mentions.length > 0) (filter as Record<string, unknown>)['#p'] = [...opts.mentions];
-    if (opts.groupIds && opts.groupIds.length > 0) (filter as Record<string, unknown>)['#h'] = [...opts.groupIds];
+    if (opts.groupIds && opts.groupIds.length > 0) {
+      (filter as Record<string, unknown>)['#h'] = Array.from(new Set(opts.groupIds));
+    }
     if (opts.since) filter.since = opts.since;
     if (opts.until) filter.until = opts.until;
-    const events = await this.pool.querySync(this.relays, filter, { maxWait: 4000 });
+    const { events, complete } = await this.queryRelaysWithConfidence(this.relays, filter, 4000);
+    if (events.length === 0 && !complete) throw new Error('Search timed out. Try again.');
     const has = new Set(opts.has ?? []);
     const URL_RE = /https?:\/\/\S+/i;
     const IMG_RE = /https?:\/\/\S+\.(?:png|jpe?g|gif|webp|avif|svg)(?:\?\S*)?/i;
@@ -3073,17 +3072,20 @@ export class BridgeImpl {
     };
     return events
       .filter((e) => matches(e.content))
-      .map((e) => ({
-        id: e.id,
-        pubkey: e.pubkey,
-        content: e.content,
-        createdAt: e.created_at,
-        kind: e.kind,
-        replyToId: getTag(e, 'e') ?? null,
-        mentions: extractMentionPubkeysFromMessage(e.content, e.tags),
-        customEmojis: customEmojiMapFromTags(e.tags),
-        groupId: getTag(e, 'h') ?? null,
-      }))
+      .map((e) => {
+        const eventGroupId = getTag(e, 'h');
+        return {
+          id: e.id,
+          pubkey: e.pubkey,
+          content: e.content,
+          createdAt: e.created_at,
+          kind: e.kind,
+          replyToId: getTag(e, 'e') ?? null,
+          mentions: extractMentionPubkeysFromMessage(e.content, e.tags),
+          customEmojis: customEmojiMapFromTags(e.tags),
+          groupId: eventGroupId ?? null,
+        };
+      })
       .sort((a, b) => b.createdAt - a.createdAt);
   }
 
@@ -3101,14 +3103,20 @@ export class BridgeImpl {
     const me = this.session.pubKeyHex;
     const profileRelays = Array.from(new Set([...this.relays, ...DEFAULT_PROFILE_LOOKUP_RELAYS]));
 
-    let existing: Record<string, unknown> = {};
-    try {
-      const events = await this.pool.querySync(profileRelays, { kinds: [KIND_USER_METADATA], authors: [me], limit: 5 }, { maxWait: PROFILE_LOOKUP_MAX_WAIT_MS });
-      const ev = newestEvent(events.filter((e) => e.kind === KIND_USER_METADATA && e.pubkey === me));
-      if (ev) existing = JSON.parse(ev.content) as Record<string, unknown>;
-    } catch {
-      // ignore — start from empty
+    const profileQuery = await this.queryRelaysWithConfidence(
+      profileRelays,
+      { kinds: [KIND_USER_METADATA], authors: [me], limit: 5 },
+      PROFILE_LOOKUP_MAX_WAIT_MS,
+    );
+    const existingEvent = newestEvent(
+      profileQuery.events.filter((e) => e.kind === KIND_USER_METADATA && e.pubkey === me),
+    );
+    if (!existingEvent && !profileQuery.complete) {
+      throw new Error('Could not load your current profile. Try again.');
     }
+    const existing = existingEvent
+      ? JSON.parse(existingEvent.content) as Record<string, unknown>
+      : {};
 
     const merged: Record<string, unknown> = { ...existing };
     if (opts.name !== undefined) merged.name = opts.name;
@@ -3151,17 +3159,17 @@ export class BridgeImpl {
 
     // Pull the latest kind 10000 so we don't drop encrypted content or
     // non-`p` tags published by other clients.
-    let existingTags: string[][] = [];
-    let existingContent = '';
-    try {
-      const ev = await this.pool.get(muteRelays, { kinds: [KIND_MUTE_LIST], authors: [me] });
-      if (ev) {
-        existingTags = ev.tags;
-        existingContent = ev.content;
-      }
-    } catch {
-      // ignore — start from empty
+    const muteQuery = await this.queryRelaysWithConfidence(
+      muteRelays,
+      { kinds: [KIND_MUTE_LIST], authors: [me], limit: 1 },
+      4000,
+    );
+    const existingMuteEvent = newestEvent(muteQuery.events);
+    if (!existingMuteEvent && !muteQuery.complete) {
+      throw new Error('Could not load your mute list. Try again.');
     }
+    const existingTags = existingMuteEvent?.tags ?? [];
+    const existingContent = existingMuteEvent?.content ?? '';
 
     const otherTags = existingTags.filter((t) => !(t[0] === 'p' && t[1] === pubkey));
     const nextTags = muted ? [...otherTags, ['p', pubkey]] : otherTags;
@@ -3217,14 +3225,11 @@ export class BridgeImpl {
       until: oldest - 1,
       limit: LOAD_MORE_PAGE_SIZE,
     };
-    let events: NostrEvent[];
-    try {
-      events = await this.pool.querySync(this.relays, filter, { maxWait: 5000 });
-    } catch {
-      return 'unavailable';
-    }
+    const relayBefore = this.currentRelayUrl.get();
+    const { events, complete } = await this.queryRelaysWithConfidence(this.relays, filter, 5000);
+    if (this.currentRelayUrl.get() !== relayBefore) return 'unavailable';
     const accessAfter = this.relayAccess.get()[relayKey] ?? 'unknown';
-    if (events.length === 0) return accessAfter === 'ok' ? 'end' : 'unavailable';
+    if (events.length === 0) return complete && accessAfter === 'ok' ? 'end' : 'unavailable';
     let added = 0;
     for (const ev of events) {
       const before = this.messagesByGroup.get()[groupId]?.length ?? 0;
@@ -3255,12 +3260,7 @@ export class BridgeImpl {
       '#d': [groupId],
       limit: 1,
     };
-    let events: NostrEvent[];
-    try {
-      events = await this.pool.querySync(this.relays, filter, { maxWait: 4000 });
-    } catch {
-      return false;
-    }
+    const { events } = await this.queryRelaysWithConfidence(this.relays, filter, 4000);
     let added = 0;
     for (const ev of events) {
       const before = this.groups.get().length;
@@ -3435,7 +3435,7 @@ export class BridgeImpl {
     // Optional `relays` override merges with the bridge's default relay
     // list. Used by callers that need to listen on relays the bridge
     // hasn't been switched to — e.g. the SFU RPC client, where the SFU
-    // only publishes responses to its trusted relays (relay.obelisk.ar)
+    // only publishes responses to its trusted relays (for example La Crypta)
     // while the dex tab might be on public.obelisk.ar. Without the
     // override, getRouterRtpCapabilities responses never reach the
     // browser and `start()` times out at 8s.
@@ -3470,6 +3470,58 @@ export class BridgeImpl {
   }
 
   // -- Internals ---------------------------------------------------------
+
+  private async queryRelaysWithConfidence(
+    relays: readonly string[],
+    filter: Filter,
+    maxWait: number,
+  ): Promise<{ events: NostrEvent[]; complete: boolean }> {
+    const results = await Promise.all(
+      uniqueRelayUrls(Array.from(relays)).map((relay) => this.queryRelayWithConfidence(relay, filter, maxWait)),
+    );
+    const byId = new Map<string, NostrEvent>();
+    for (const result of results) for (const event of result.events) byId.set(event.id, event);
+    return {
+      events: Array.from(byId.values()),
+      complete: results.length > 0 && results.every((result) => result.complete),
+    };
+  }
+
+  private queryRelayWithConfidence(
+    relay: string,
+    filter: Filter,
+    maxWait: number,
+  ): Promise<{ events: NostrEvent[]; complete: boolean }> {
+    return new Promise((resolve) => {
+      const events: NostrEvent[] = [];
+      let done = false;
+      let sub: { close: () => void } | null = null;
+      const timeout = setTimeout(() => finish(false), maxWait);
+      const finish = (complete: boolean) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timeout);
+        try { sub?.close(); } catch { /* ignore */ }
+        resolve({ events, complete });
+      };
+      try {
+        sub = this.pool.subscribe([relay], filter, {
+          label: 'obelisk-query',
+          onevent: (event) => events.push(event),
+          // nostr-tools uses maxWait as a synthetic EOSE timer. Keep its
+          // timer behind ours so only an actual relay EOSE can prove empty.
+          maxWait: maxWait + 1000,
+          oneose: () => queueMicrotask(() => finish(true)),
+          // nostr-tools reports EOSE before onclose for a failed relay.
+          // One microtask lets that synchronous onclose keep the result uncertain.
+          onclose: () => finish(false),
+          onauth: this.getAuthSigner(),
+        });
+      } catch {
+        finish(false);
+      }
+    });
+  }
 
   /**
    * Wrap `pool.subscribe` with a per-subscription watchdog.
@@ -3730,6 +3782,9 @@ export class BridgeImpl {
           }
         },
         onauth: wrappedSigner,
+        // Keep nostr-tools' synthetic EOSE behind our watchdog. Otherwise a
+        // silent timeout is indistinguishable from an authoritative empty REQ.
+        maxWait: WATCHDOG_MS + 1000,
       });
       activeSub = sub;
       timer = setTimeout(onWatchdog, WATCHDOG_MS);
@@ -3784,8 +3839,7 @@ export class BridgeImpl {
       content: template.content,
       tags: template.tags,
       created_at: template.created_at ?? Math.floor(Date.now() / 1000),
-      pubkey: this.session.pubKeyHex,
-    } as EventTemplate & { pubkey: string };
+    } satisfies EventTemplate;
     if (this.session.loginMethod === 'nsec' && this.session.privKeyHex) {
       const sk = hexToBytes(this.session.privKeyHex);
       return finalizeEvent(fullTemplate, sk) as NostrEvent;
@@ -4293,7 +4347,9 @@ export class BridgeImpl {
     const relays = [...this.relays];
     let events: NostrEvent[];
     try {
-      events = await pool.querySync(relays, { kinds: [KIND_GROUP_METADATA] }, { maxWait: 6000 });
+      const result = await this.queryRelaysWithConfidence(relays, { kinds: [KIND_GROUP_METADATA] }, 6000);
+      events = result.events;
+      if (events.length === 0 && !result.complete) return;
     } catch {
       if (!this.session || this.currentRelayUrl.get() !== relay || this.pool !== pool) return;
       this.handleGroupMetadataEose();
@@ -4450,12 +4506,11 @@ export class BridgeImpl {
       // into thinking the channel is empty. When AUTH settles,
       // {@link wireAuthSettledHook} fires a fresh REQ via
       // refreshGroupMessages and the verdict will be re-evaluated then.
-      // Failed AUTH states ('auth-required', 'restricted', etc.) bypass
-      // the gate — there the relay banner explains the situation and
-      // 'empty-confirmed' is honest.
+      // Any non-ok access state is inconclusive; the relay banner explains
+      // the failure while the message pane stays noncommittal.
       const relay = this.currentRelayUrl.get();
       const access = this.relayAccess.get()[relay];
-      if (access === 'unknown' || access === 'authenticating') {
+      if (access !== 'ok') {
         this.clearMessagesRetry(groupId);
         return;
       }
@@ -4522,7 +4577,7 @@ export class BridgeImpl {
     };
     let events: NostrEvent[];
     try {
-      events = await this.pool.querySync(this.relays, filter, { maxWait: 6000 });
+      events = (await this.queryRelaysWithConfidence(this.relays, filter, 6000)).events;
     } catch {
       return;
     }
@@ -4624,12 +4679,14 @@ export class BridgeImpl {
 
   private async findNewestOwnProfileFromLookupRelays(pubkey: string): Promise<NostrEvent | null> {
     const relays = uniqueRelayUrls([...this.getProfileLookupRelays(), ...this.relays]);
-    const events = await this.pool.querySync(
+    const result = await this.queryRelaysWithConfidence(
       relays,
       { kinds: [KIND_USER_METADATA], authors: [pubkey], limit: 5 },
-      { maxWait: PROFILE_LOOKUP_MAX_WAIT_MS },
+      PROFILE_LOOKUP_MAX_WAIT_MS,
     );
-    return newestEvent(events.filter((e) => e.kind === KIND_USER_METADATA && e.pubkey === pubkey));
+    const newest = newestEvent(result.events.filter((e) => e.kind === KIND_USER_METADATA && e.pubkey === pubkey));
+    if (!newest && !result.complete) throw new Error('Profile lookup timed out');
+    return newest;
   }
 
   private async publishSignedEventToRelays(ev: NostrEvent, relays: readonly string[]): Promise<string[]> {
@@ -4657,7 +4714,7 @@ export class BridgeImpl {
           this.ingestUserMetadata(newest, { cacheRelayScoped: false });
         }
       } catch {
-        state.ownProfileLookupAt[me] = now;
+        // Retry on the next sync; a timeout is not an authoritative miss.
       }
       saveProfileSyncState(state);
     }
@@ -4683,29 +4740,26 @@ export class BridgeImpl {
     const inFlight = this.profileLookupInFlight.get(pubkey);
     if (inFlight) return inFlight;
     const p = (async () => {
-      this.profileLookupAt.set(pubkey, now);
       try {
-        const events = await this.pool.querySync(
+        const result = await this.queryRelaysWithConfidence(
           this.getProfileLookupRelays(),
           { kinds: [KIND_USER_METADATA], authors: [pubkey], limit: 5 },
-          { maxWait: PROFILE_LOOKUP_MAX_WAIT_MS },
+          PROFILE_LOOKUP_MAX_WAIT_MS,
         );
-        if (state) {
-          const next = loadProfileSyncState();
-          next.ownProfileLookupAt[pubkey] = now;
-          saveProfileSyncState(next);
+        const newest = newestEvent(result.events.filter((e) => e.kind === KIND_USER_METADATA && e.pubkey === pubkey));
+        if (newest || result.complete) {
+          this.profileLookupAt.set(pubkey, now);
+          if (state) {
+            const next = loadProfileSyncState();
+            next.ownProfileLookupAt[pubkey] = now;
+            saveProfileSyncState(next);
+          }
         }
-        const newest = newestEvent(events.filter((e) => e.kind === KIND_USER_METADATA && e.pubkey === pubkey));
         if (!newest) return;
         setCachedKind0(newest);
         this.ingestUserMetadata(newest, { cacheRelayScoped: false });
       } catch {
-        if (state) {
-          const next = loadProfileSyncState();
-          next.ownProfileLookupAt[pubkey] = now;
-          saveProfileSyncState(next);
-        }
-        // best-effort only
+        // best-effort only; do not cache a timeout as a profile miss
       } finally {
         this.profileLookupInFlight.delete(pubkey);
       }
@@ -5675,7 +5729,7 @@ export class BridgeImpl {
         if (session.loginMethod === 'nip07') {
           const w = (window as unknown as { nostr?: { signEvent: (e: unknown) => Promise<NostrEvent> } }).nostr;
           if (!w) throw new Error('NIP-07 extension unavailable');
-          return w.signEvent({ ...template, pubkey });
+          return w.signEvent(template);
         }
         if (session.loginMethod === 'bunker') {
           const b = await this.ensureBunkerSigner();
@@ -5805,14 +5859,16 @@ export class BridgeImpl {
     const cached = this.recipientReadRelaysCache.get(pubkey);
     if (cached && Date.now() - cached.fetchedAt < TTL_MS) return cached.relays;
     const searchRelays = Array.from(new Set([...this.relays, ...PROFILE_RELAYS]));
-    let event: NostrEvent | null = null;
-    try {
-      event = await this.pool.get(searchRelays, { kinds: [10002], authors: [pubkey] }, { maxWait: 4000 });
-    } catch {
-      event = null;
-    }
+    const result = await this.queryRelaysWithConfidence(
+      searchRelays,
+      { kinds: [10002], authors: [pubkey], limit: 1 },
+      4000,
+    );
+    const event = newestEvent(result.events);
     const read = event ? parseRelayList(event, 'public').read.filter(isImportableRelayUrl) : [];
-    this.recipientReadRelaysCache.set(pubkey, { relays: read, fetchedAt: Date.now() });
+    if (event || result.complete) {
+      this.recipientReadRelaysCache.set(pubkey, { relays: read, fetchedAt: Date.now() });
+    }
     return read;
   }
 
@@ -5828,10 +5884,10 @@ export class BridgeImpl {
     const searchRelays = Array.from(new Set([...this.relays, ...PROFILE_RELAYS]));
     const out = new Set<string>();
     try {
-      const events = await this.pool.querySync(
+      const { events } = await this.queryRelaysWithConfidence(
         searchRelays,
         { kinds: [10002, 10050], authors: [me] },
-        { maxWait: 4000 },
+        4000,
       );
       // Pick the newest of each kind.
       const newest = new Map<number, NostrEvent>();
@@ -5891,7 +5947,7 @@ export class BridgeImpl {
       } else if (this.session.loginMethod === 'nip07') {
         const win = (window as any).nostr;
         if (!win) throw new Error('NIP-07 extension unavailable');
-        event = (await win.signEvent({ ...template, pubkey: this.session.pubKeyHex })) as NostrEvent;
+        event = (await win.signEvent(template)) as NostrEvent;
       } else if (this.session.loginMethod === 'bunker') {
         const b = await this.ensureBunkerSigner();
         event = (await b.signEvent(template)) as NostrEvent;
@@ -5921,7 +5977,7 @@ export class BridgeImpl {
     const publishes = this.pool.publish(targetRelays, event, { onauth: this.getAuthSigner() });
 
     // Ephemeral events (NIP-01: kinds 20000-29999) are not stored and some
-    // relays don't even send OK for them — strfry/relay.obelisk.ar in
+    // relays don't even send OK for them — some NIP-29 relays in
     // particular times out the publish promise instead of acknowledging.
     // The bytes are already on the wire by the time pool.publish returns;
     // waiting for OK just produces "publish time out" errors that mislead
@@ -5982,7 +6038,14 @@ export class BridgeImpl {
       });
       accepted = finalResults.filter((r) => r.status === 'fulfilled');
     }
-    if (accepted.length === 0) {
+    const alreadyJoined =
+      event.kind === KIND_GROUP_JOIN_REQUEST
+      && finalResults.some((r) => {
+        if (r.status === 'fulfilled') return false;
+        const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
+        return reason.toLowerCase().includes('already a member');
+      });
+    if (accepted.length === 0 && !alreadyJoined) {
       const reasons = finalResults
         .map((r, i) => {
           if (r.status === 'fulfilled') return null;
@@ -5996,8 +6059,11 @@ export class BridgeImpl {
       pushRelayDebug({ kind: "publish-error", relays: targetRelays, eventKind: event.kind, reason: msg });
       throw new Error(msg);
     }
-    if (pubId != null) resolveActivity(pubId, "accepted by " + accepted.length + "/" + targetRelays.length);
-    pushRelayDebug({ kind: "publish-ok", relays: targetRelays, eventKind: event.kind, payload: { accepted: accepted.length, total: targetRelays.length } });
+    if (pubId != null) resolveActivity(
+      pubId,
+      alreadyJoined ? 'already joined' : "accepted by " + accepted.length + "/" + targetRelays.length,
+    );
+    pushRelayDebug({ kind: "publish-ok", relays: targetRelays, eventKind: event.kind, payload: { accepted: accepted.length, total: targetRelays.length, alreadyJoined } });
     return event;
   }
 
@@ -6079,7 +6145,7 @@ function uniqueRelayUrls(urls: readonly string[]): string[] {
   const seen = new Set<string>();
   for (const raw of urls) {
     try {
-      const normalized = normalizeRelayUrl(raw);
+      const normalized = normalizeConfiguredRelayUrl(raw);
       validateRelayUrl(normalized);
       if (!isImportableRelayUrl(normalized)) continue;
       if (seen.has(normalized)) continue;
@@ -6090,6 +6156,11 @@ function uniqueRelayUrls(urls: readonly string[]): string[] {
     }
   }
   return out;
+}
+
+function normalizeConfiguredRelayUrl(url: string): string {
+  const normalized = normalizeRelayUrl(url);
+  return normalized === RETIRED_RELAY ? LACRYPTA_RELAY : normalized;
 }
 
 function generateGroupId(): string {

@@ -123,7 +123,7 @@ export class SfuRpc {
   /**
    * Relays the RPC envelopes are published to. Defaults to whatever the
    * bridge has, but for SFUs that only listen on a permissioned trusted
-   * relay (e.g. relay.obelisk.ar), the caller must pass that relay here
+   * relay (e.g. lacrypta-relay.obelisk.ar), the caller must pass that relay here
    * — otherwise envelopes go to the bridge default (public.obelisk.ar)
    * and the SFU never sees them. Browser stays on its bridge relays for
    * receiving; this only scopes outbound publishes.
@@ -163,7 +163,7 @@ export class SfuRpc {
     const since = Math.floor(Date.now() / 1000) - 30;
     // Subscribe on the SFU's trusted relays in addition to the dex's
     // bridge defaults — the SFU only publishes responses where it itself
-    // is connected (typically relay.obelisk.ar), and a dex tab opened on
+    // is connected (typically lacrypta-relay.obelisk.ar), and a dex tab opened on
     // public.obelisk.ar would otherwise time out every RPC. The bridge
     // merges with its own relay list so we don't drop events from
     // peers that publish to the default relays either.

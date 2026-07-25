@@ -396,7 +396,7 @@ export default function LandingPage() {
           <LandingHeroAnimation />
 
           <div className="flex min-w-0 flex-col items-center text-center lg:items-start lg:text-left">
-            <h1 className={(locale === 'es' ? 'text-sm min-[360px]:text-base min-[380px]:text-lg sm:text-4xl lg:text-[2.55rem] xl:text-5xl whitespace-nowrap' : 'text-4xl sm:text-5xl lg:text-6xl') + ' w-full font-extrabold tracking-normal leading-[1.05] mb-4 max-w-[680px]'}>
+            <h1 className="w-full max-w-[680px] text-4xl font-extrabold leading-[1.05] tracking-normal sm:text-5xl lg:text-6xl mb-4">
               {t('hero.title')}{' '}
               <span className="text-lc-green lc-glow-text">{t('hero.titleHighlight')}</span>
             </h1>

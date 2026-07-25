@@ -13,7 +13,7 @@
 //
 // Bump CACHE_VERSION to force every installed client to re-evaluate the
 // cache namespace and reload once after activation.
-const CACHE_VERSION = 'obelisk-v3-static-shell-cache';
+const CACHE_VERSION = 'obelisk-v7-static-shell-cache';
 const STATIC_CACHE = `${CACHE_VERSION}:static`;
 const SHELL_CACHE = `${CACHE_VERSION}:shell`;
 const APP_SHELL_KEY = '/app';

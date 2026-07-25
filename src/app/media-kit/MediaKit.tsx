@@ -35,7 +35,7 @@ const COPY = {
 const LINKS = {
   site: 'https://obelisk.ar',
   github: 'https://github.com/Fabricio333/obelisk',
-  defaultRelay: 'wss://relay.obelisk.ar',
+  defaultRelay: 'wss://public.obelisk.ar',
 };
 
 const ASSETS = [

@@ -58,7 +58,6 @@ import {
 import { useFollows } from '@nostr-wot/data/react';
 import LoginModal from '../LoginModal';
 import DMOptInGate from '../DMOptInGate';
-import { RelayStatusBadge } from '../RelayStatusBanner';
 import VoiceRoom from '@/components/voice/VoiceRoom';
 import VoiceStatusBar from '@/components/voice/VoiceStatusBar';
 import BackgroundVoiceAudio from '@/components/voice/BackgroundVoiceAudio';
@@ -72,6 +71,7 @@ import { uploadToBlossom } from '@/lib/blossom';
 import { formatPubkey, hexToNpub as pubkeyToNpub } from '@nostr-wot/data';
 import { faviconFor, fetchRelayInfo, SUGGESTED_RELAYS } from '@/lib/relay-info';
 import {
+  applyLayout,
   useChannelLayout,
   useRelayOperatorPubkey,
   type ChannelLayout,
@@ -2322,8 +2322,6 @@ function ServerScreen({
             onOpenMenu={openActiveRelayMenu}
           />
 
-          <RelayStatusBadge />
-
           <div className="channel-list native-scroll-y" ref={channelListRef}>
         {laidOut.categories.map((cat) => {
           const list = cat.channelIds
@@ -2749,8 +2747,6 @@ function ChannelScreen({
           </div>
         </div>
       </div>
-
-      <RelayStatusBadge />
       <div className="messages-wrap relative flex min-h-0 flex-1 flex-col">
       <div className="messages native-scroll-y" ref={messagesRef}>
         {renderable.length === 0 ? (

@@ -17,7 +17,7 @@ vi.mock('@/lib/nostr-bridge', () => ({
     switchRelay: (...a: unknown[]) => mockSwitchRelay(...a),
     removeRelay: (...a: unknown[]) => mockRemoveRelay(...a),
   },
-  useConfiguredRelays: () => ['wss://relay.obelisk.ar'],
+  useConfiguredRelays: () => ['wss://lacrypta-relay.obelisk.ar'],
   // Stubs for the rest of the bridge hooks the module imports — never
   // exercised by these tests but still need to be defined so the module
   // factory satisfies every named import.
@@ -32,7 +32,7 @@ vi.mock('@/lib/nostr-bridge', () => ({
   useAdminsByGroup: () => ({}),
   useMembers: () => [],
   useReactions: () => ({}),
-  useCurrentRelayUrl: () => 'wss://relay.obelisk.ar',
+  useCurrentRelayUrl: () => 'wss://lacrypta-relay.obelisk.ar',
   useRelayAccess: () => ({ status: 'ok' }),
   useConnectionState: () => 'connected',
   useGroupMetadataEose: () => true,
@@ -94,7 +94,7 @@ describe('CreateChannelSheet', () => {
     const close = vi.fn();
     render(
       <CreateChannelSheet
-        relayLabel="relay.obelisk.ar"
+        relayLabel="lacrypta-relay.obelisk.ar"
         close={close}
         onCreated={onCreated}
       />,
@@ -119,7 +119,7 @@ describe('CreateChannelSheet', () => {
   it('keeps the submit button disabled while the channel name is empty', () => {
     render(
       <CreateChannelSheet
-        relayLabel="relay.obelisk.ar"
+        relayLabel="lacrypta-relay.obelisk.ar"
         close={() => {}}
         onCreated={() => {}}
       />,
@@ -134,7 +134,7 @@ describe('RelayMenuSheet admin gating', () => {
     render(
       <RelayMenuSheet
         close={() => {}}
-        relayUrl="wss://relay.obelisk.ar"
+        relayUrl="wss://lacrypta-relay.obelisk.ar"
         label="Obelisk"
         isAdmin={false}
       />,
@@ -150,7 +150,7 @@ describe('RelayMenuSheet admin gating', () => {
     render(
       <RelayMenuSheet
         close={() => {}}
-        relayUrl="wss://relay.obelisk.ar"
+        relayUrl="wss://lacrypta-relay.obelisk.ar"
         label="Obelisk"
         isAdmin
         branding={{ icon: '', banner: '', name: '', description: '', updatedAt: 0 }}
@@ -169,7 +169,7 @@ describe('RelayMenuSheet admin gating', () => {
     render(
       <RelayMenuSheet
         close={() => {}}
-        relayUrl="wss://relay.obelisk.ar"
+        relayUrl="wss://lacrypta-relay.obelisk.ar"
         label="Obelisk"
         isAdmin
         branding={{ icon: '', banner: '', name: '', description: '', updatedAt: 0 }}
@@ -186,7 +186,7 @@ describe('RelayMenuSheet admin gating', () => {
     render(
       <RelayMenuSheet
         close={() => {}}
-        relayUrl="wss://relay.obelisk.ar"
+        relayUrl="wss://lacrypta-relay.obelisk.ar"
         label="Obelisk"
         isAdmin
         branding={{ icon: '', banner: '', name: '', description: '', updatedAt: 0 }}

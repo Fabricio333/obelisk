@@ -31,7 +31,7 @@
   "faq.q2.question": "¿Hay un servidor al que tengo que registrarme?",
   "faq.q2.answer": "No. Obelisk es un frontend. No hay registro, ni email, ni contraseña, ni cuenta de Obelisk. Entrás con una clave Nostr y la app habla directo con los relays que tengas configurados. Nosotros no corremos ningún servidor de Obelisk, no tenemos base de datos, y nunca vemos tus mensajes.",
   "faq.q3.question": "¿Qué relays usa Obelisk?",
-  "faq.q3.answer": "Los que vos le indiques. El default para grupos es wss://relay.obelisk.ar, pero podés agregar, quitar o reemplazar cualquier relay desde el rail de relays en la app. Cada relay aparece como su propio ícono de 'servidor' a la izquierda, igual que las guilds de Discord, salvo que el servidor es el relay, no nosotros.",
+  "faq.q3.answer": "Los que vos le indiques. Los relays de grupos incluidos son wss://public.obelisk.ar y wss://lacrypta-relay.obelisk.ar, y podés agregar, quitar o reemplazar relays desde el rail de la app. Cada relay aparece como su propio ícono de 'servidor' a la izquierda, igual que las guilds de Discord, salvo que el servidor es el relay, no nosotros.",
   "faq.q4.question": "¿Necesito email o número de teléfono?",
   "faq.q4.answer": "No. Obelisk no tiene formulario de registro. Entrás con una clave Nostr, vía una extensión del navegador (NIP-07) o pegando una nsec. El soporte de bunker NIP-46 está en el roadmap.",
   "faq.q5.question": "¿Cómo están implementados los grupos?",

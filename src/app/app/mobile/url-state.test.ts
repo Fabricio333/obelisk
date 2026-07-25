@@ -6,11 +6,11 @@ const make = (over: Partial<NavState>): NavState => ({ ...initialNav, ...over })
 describe('mobile url-state', () => {
   it('round-trips a channel + relay', () => {
     const nav = make({ screen: 'channel', groupId: 'abc123' });
-    const url = urlFor(nav, 'wss://relay.obelisk.ar');
+    const url = urlFor(nav, 'wss://lacrypta-relay.obelisk.ar');
     const parsed = parseUrl(new URL('http://x' + url).search);
     expect(parsed.nav.screen).toBe('channel');
     expect(parsed.nav.groupId).toBe('abc123');
-    expect(parsed.relay).toBe('wss://relay.obelisk.ar');
+    expect(parsed.relay).toBe('wss://lacrypta-relay.obelisk.ar');
   });
 
   it('omits params for the default server screen', () => {
@@ -34,9 +34,9 @@ describe('mobile url-state', () => {
   });
 
   it('accepts ; as a param separator', () => {
-    const parsed = parseUrl('?c=g1;relay=relay.obelisk.ar');
+    const parsed = parseUrl('?c=g1;relay=lacrypta-relay.obelisk.ar');
     expect(parsed.nav.groupId).toBe('g1');
-    expect(parsed.relay).toBe('wss://relay.obelisk.ar');
+    expect(parsed.relay).toBe('wss://lacrypta-relay.obelisk.ar');
   });
 
   it('rejects unknown screen values', () => {

@@ -23,6 +23,7 @@ const fake = vi.hoisted(() => {
     ensureRelayCalls: [] as string[],
     ensureRelayImpl: null as null | ((url: string, opts?: { connectionTimeout?: number }) => Promise<{ connected: boolean; onclose?: () => void }>),
     querySyncCalls: [] as Array<{ relays: string[]; filter: Record<string, unknown>; opts?: { maxWait?: number } }>,
+    suppressNextEose: false,
     poolSeq: 0,
     poolOptions: [] as Array<Record<string, unknown>>,
     closeCalls: [] as Array<{ poolId: number; relays: string[] }>,
@@ -48,13 +49,15 @@ const fake = vi.hoisted(() => {
       this.id = ++state.poolSeq;
       state.poolOptions.push(opts);
     }
-    subscribe(relays: string[], filter: Record<string, unknown>, opts: { onevent: (ev: any) => void; oneose?: () => void; onclose?: (reasons: string[]) => void; onauth?: unknown }) {
+    subscribe(relays: string[], filter: Record<string, unknown>, opts: { onevent: (ev: any) => void; oneose?: () => void; onclose?: (reasons: string[]) => void; onauth?: unknown; maxWait?: number; label?: string }) {
+      if (opts.label === 'obelisk-query') state.querySyncCalls.push({ relays, filter, opts: { maxWait: opts.maxWait } });
       const sub = { filter, sink: opts.onevent, relays, onclose: opts.onclose, poolId: this.id };
-      state.subscriptions.push(sub);
+      if (opts.label !== 'obelisk-query') state.subscriptions.push(sub);
       for (const ev of state.published) if (matchesInternal(filter, ev as any)) opts.onevent(ev);
       // Fire EOSE so subscribeWatched's watchdog marks the sub as alive and
       // doesn't queue retries during tests.
-      queueMicrotask(() => opts.oneose?.());
+      if (state.suppressNextEose) state.suppressNextEose = false;
+      else queueMicrotask(() => opts.oneose?.());
       return { close: () => { state.subscriptions = state.subscriptions.filter((s) => s !== sub); } };
     }
     publish(relays: string[], event: any): Promise<string>[] {
@@ -138,7 +141,7 @@ function setVisibility(value: DocumentVisibilityState): void {
 }
 
 beforeEach(() => {
-  (() => { fake.state.published = []; fake.state.subscriptions = []; fake.state.ensureRelayCalls = []; fake.state.ensureRelayImpl = null; fake.state.querySyncCalls = []; fake.state.poolSeq = 0; fake.state.poolOptions = []; fake.state.closeCalls = []; fake.state.closeOpenSubscriptionCounts = []; })();
+  (() => { fake.state.published = []; fake.state.subscriptions = []; fake.state.ensureRelayCalls = []; fake.state.ensureRelayImpl = null; fake.state.querySyncCalls = []; fake.state.suppressNextEose = false; fake.state.poolSeq = 0; fake.state.poolOptions = []; fake.state.closeCalls = []; fake.state.closeOpenSubscriptionCounts = []; })();
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
     ok: false,
     json: vi.fn().mockResolvedValue({}),
@@ -155,7 +158,7 @@ beforeEach(() => {
 afterEach(async () => {
   const { getBridgeImpl } = await import('./client');
   getBridgeImpl()?.dispose();
-  (() => { fake.state.published = []; fake.state.subscriptions = []; fake.state.ensureRelayCalls = []; fake.state.ensureRelayImpl = null; fake.state.querySyncCalls = []; fake.state.poolSeq = 0; fake.state.poolOptions = []; fake.state.closeCalls = []; fake.state.closeOpenSubscriptionCounts = []; })();
+  (() => { fake.state.published = []; fake.state.subscriptions = []; fake.state.ensureRelayCalls = []; fake.state.ensureRelayImpl = null; fake.state.querySyncCalls = []; fake.state.suppressNextEose = false; fake.state.poolSeq = 0; fake.state.poolOptions = []; fake.state.closeCalls = []; fake.state.closeOpenSubscriptionCounts = []; })();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -166,7 +169,7 @@ describe('nostr-bridge', () => {
     expect(isImportableRelayUrl('wss://localhost:4869/')).toBe(false);
     expect(isImportableRelayUrl('wss://host.docker.internal:3334/')).toBe(false);
     expect(isImportableRelayUrl('wss://vvearoljdsmlkhnvms673x3ra6szhcftz66powh6bbmgodk3rs63wdid.onion/')).toBe(false);
-    expect(isImportableRelayUrl('wss://relay.obelisk.ar/')).toBe(true);
+    expect(isImportableRelayUrl('wss://lacrypta-relay.obelisk.ar/')).toBe(true);
   });
 
   it('logs in with nsec and exposes the public key', async () => {
@@ -415,7 +418,7 @@ describe('nostr-bridge', () => {
     bridgeA.subscribeDirectMessages(() => {});
 
     await bridgeA.sendDirectMessage(bob.pkHex, 'meet me at the obelisk');
-    await flush();
+    await flush(20);
 
     const dms = fake.state.published.filter((e) => e.kind === 4);
     expect(dms).toHaveLength(1);
@@ -1482,7 +1485,7 @@ describe('nostr-bridge', () => {
       await flush();
       expect(impl.groupMetadataEose.get()).toBe(false);
 
-      await vi.advanceTimersByTimeAsync(5000);
+      await vi.advanceTimersByTimeAsync(5500);
       await flush();
       expect(impl.groupMetadataEose.get()).toBe(true);
     } finally {
@@ -1516,8 +1519,12 @@ describe('nostr-bridge', () => {
     expect(initialKind0Subs[0].relays).not.toContain('wss://nos.lol');
     expect(initialKind0Subs[0].relays).not.toContain('wss://relay.primal.net');
     expect(initialKind0Subs[0].relays).not.toContain('wss://relay.nostr.band');
-    const externalLookup = fake.state.querySyncCalls.find((c) => (c.filter.authors as string[] | undefined)?.includes(other));
-    expect(externalLookup?.relays).toEqual(['wss://relay.obelisk.ar', 'wss://public.obelisk.ar', 'wss://purplepag.es']);
+    const externalLookups = fake.state.querySyncCalls.filter((c) => (c.filter.authors as string[] | undefined)?.includes(other));
+    expect(externalLookups.flatMap((call) => call.relays)).toEqual([
+      'wss://lacrypta-relay.obelisk.ar',
+      'wss://public.obelisk.ar',
+      'wss://purplepag.es',
+    ]);
   });
 
   it('editUserMetadata publishes kind:0 to the active relay plus quiet lookup relays', async () => {
@@ -1531,9 +1538,49 @@ describe('nostr-bridge', () => {
 
     const meta = fake.state.published.find((e) => e.kind === 0 && e.pubkey === pkHex);
     expect(meta?.relays).toContain('wss://public.obelisk.ar');
-    expect(meta?.relays).toContain('wss://relay.obelisk.ar');
+    expect(meta?.relays).toContain('wss://lacrypta-relay.obelisk.ar');
     expect(meta?.relays).toContain('wss://purplepag.es');
     expect(meta?.relays).not.toContain('wss://nos.lol');
+  });
+
+  it('does not overwrite profile metadata when the preservation read times out', async () => {
+    const { getBridge } = await import('./client');
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+    fake.state.published = [];
+    fake.state.suppressNextEose = true;
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const pending = expect(bridge.editUserMetadata({ name: 'Alice' }))
+        .rejects.toThrow('Could not load your current profile');
+      await vi.advanceTimersByTimeAsync(3500);
+      await pending;
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(fake.state.published.some((event) => event.kind === 0)).toBe(false);
+  });
+
+  it('does not overwrite the mute list when the preservation read times out', async () => {
+    const { getBridge } = await import('./client');
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+    fake.state.published = [];
+    fake.state.suppressNextEose = true;
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const pending = expect(bridge.setMuted(makeKeypair().pkHex, true))
+        .rejects.toThrow('Could not load your mute list');
+      await vi.advanceTimersByTimeAsync(4000);
+      await pending;
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(fake.state.published.some((event) => event.kind === 10000)).toBe(false);
   });
 
   it('cached kind:0 keeps the newest event', async () => {
@@ -1549,8 +1596,8 @@ describe('nostr-bridge', () => {
     expect(getCachedKind0(pkHex)?.content).toBe('{"name":"new"}');
   });
 
-  it('switchRelay republishes cached kind:0 without repeating wide profile lookup inside TTL', async () => {
-    const { getBridge, setCachedKind0 } = await import('./client');
+  it('redirects the retired relay and republishes cached kind:0 without a wide profile lookup', async () => {
+    const { getBridge, getBridgeImpl, setCachedKind0 } = await import('./client');
     const { skHex, pkHex } = makeKeypair();
     const cached = finalizeEvent({ kind: 0, content: '{"name":"Cached"}', tags: [], created_at: 30 }, hexToBytesForTest(skHex));
     setCachedKind0(cached);
@@ -1564,10 +1611,11 @@ describe('nostr-bridge', () => {
     await bridge.switchRelay('wss://relay.obelisk.ar');
     await flush(8);
 
+    expect(getBridgeImpl()?.currentRelayUrl.get()).toBe('wss://lacrypta-relay.obelisk.ar');
     expect(fake.state.querySyncCalls.filter((c) => (c.filter.kinds as number[] | undefined)?.includes(0))).toHaveLength(0);
     const meta = fake.state.published.find((e) => e.kind === 0 && e.pubkey === pkHex);
     expect(meta?.content).toBe('{"name":"Cached"}');
-    expect(meta?.relays).toEqual(['wss://relay.obelisk.ar']);
+    expect(meta?.relays).toEqual(['wss://lacrypta-relay.obelisk.ar']);
   });
 
   it('does not run connect fan-out or flip login before a delayed relay handshake completes', async () => {
@@ -2020,6 +2068,23 @@ describe('nostr-bridge', () => {
     expect(impl.configuredRelays.get()).not.toContain('wss://lacrypta-relay.obelisk.ar/');
   });
 
+  it('migrates a persisted retired relay to La Crypta', async () => {
+    window.localStorage.setItem('obelisk-dex/relays', JSON.stringify(['wss://relay.obelisk.ar', 'wss://public.obelisk.ar']));
+
+    const { getBridge, getBridgeImpl } = await import('./client');
+    await getBridge();
+
+    const impl = getBridgeImpl()!;
+    expect(impl.configuredRelays.get()).toEqual([
+      'wss://lacrypta-relay.obelisk.ar',
+      'wss://public.obelisk.ar',
+    ]);
+    expect(JSON.parse(window.localStorage.getItem('obelisk-dex/relays')!)).toEqual([
+      'wss://lacrypta-relay.obelisk.ar',
+      'wss://public.obelisk.ar',
+    ]);
+  });
+
   it('editUserMetadata publishes kind 0 to the active relay plus quiet profile lookup relays', async () => {
     const { getBridge } = await import('./client');
     const { skHex, pkHex } = makeKeypair();
@@ -2034,7 +2099,7 @@ describe('nostr-bridge', () => {
 
     const metadataEvent = fake.state.published.find((event) => event.kind === 0);
     expect(metadataEvent).toBeTruthy();
-    expect(metadataEvent?.relays).toContain('wss://relay.obelisk.ar');
+    expect(metadataEvent?.relays).not.toContain('wss://relay.obelisk.ar');
     expect(metadataEvent?.relays).toContain('wss://public.obelisk.ar');
     expect(metadataEvent?.relays).toContain('wss://purplepag.es');
     expect(metadataEvent?.relays).toContain('wss://lacrypta-relay.obelisk.ar');
@@ -2182,27 +2247,24 @@ describe('nostr-bridge', () => {
     const impl = getBridgeImpl()!;
     const groupId = 'click-parallel-querysync';
 
-    // Spy on pool.querySync to count kind-9 calls for this group.
-    const pool = (impl as unknown as { pool: { querySync: (...args: unknown[]) => Promise<NostrEvent[]> } }).pool;
-    let kind9QueryCalls = 0;
-    (pool as { querySync: (...args: unknown[]) => Promise<NostrEvent[]> }).querySync = async (_relays: unknown, filter: unknown) => {
-      const f = filter as { kinds?: number[]; '#h'?: string[] };
-      if (f.kinds?.includes(9) && f['#h']?.includes(groupId)) kind9QueryCalls++;
-      return [];
-    };
+    fake.state.querySyncCalls = [];
+    const kind9QueryCalls = () => fake.state.querySyncCalls.filter((call) => {
+      const filter = call.filter as { kinds?: number[]; '#h'?: string[] };
+      return filter.kinds?.includes(9) && filter['#h']?.includes(groupId);
+    }).length;
 
     // Initial subscribe → status flips to 'empty-unconfirmed' after
     // FakePool's auto-EOSE.
     bridge.subscribeMessages(groupId, () => {});
     await flush();
     expect(impl.messagesStatusByGroup.get()[groupId]).toBe('empty-unconfirmed');
-    expect(kind9QueryCalls).toBe(0);
+    expect(kind9QueryCalls()).toBe(0);
 
     // Click → setActiveGroup → bumpGroupMessagesPriority → both
     // refreshGroupMessages (live restart) AND querySync fire.
     bridge.setActiveGroup(groupId);
     await flush();
-    expect(kind9QueryCalls).toBe(1);
+    expect(kind9QueryCalls()).toBe(1);
   });
 
   it('AUTH ok also refreshes channels stuck in "loading" (not just empty-*)', async () => {
@@ -2391,13 +2453,9 @@ describe('nostr-bridge', () => {
     expect(impl.messagesStatusByGroup.get()[groupId]).toBe('has-messages');
   });
 
-  it('AUTH fails permanently → stuck empty-unconfirmed channels promote to empty-confirmed', async () => {
-    // Regression for the third state: AUTH-pending defer would
-    // otherwise hold channels in `empty-unconfirmed` forever. When
-    // `relayAccess` transitions to a failed state ('auth-required',
-    // 'restricted', etc.), the bridge promotes everything stuck on
-    // the gate so the chat pane shows "No messages yet" alongside the
-    // RelayStatusBanner explaining the access failure.
+  it('AUTH failure keeps channel emptiness unconfirmed', async () => {
+    // A rejected relay cannot prove the channel is empty. The relay
+    // banner owns the failure while message emptiness stays unconfirmed.
     const { getBridge, getBridgeImpl } = await import('./client');
     const { skHex, pkHex } = makeKeypair();
     const bridge = await getBridge();
@@ -2428,7 +2486,7 @@ describe('nostr-bridge', () => {
     }
     await flush();
 
-    expect(impl.messagesStatusByGroup.get()[groupId]).toBe('empty-confirmed');
+    expect(impl.messagesStatusByGroup.get()[groupId]).toBe('empty-unconfirmed');
   });
 
   it('cold-load fallback: querySync fires after the ladder exhausts and recovers messages', async () => {
@@ -2505,17 +2563,11 @@ describe('nostr-bridge', () => {
     const impl = getBridgeImpl()!;
     const groupId = 'cold-load-fallback-singleshot';
 
-    // Stub `pool.querySync` to count calls AND return empty so the
-    // status reaches `empty-confirmed` (not has-messages — that would
-    // hit ingestMessage which clears retry state and complicates the
-    // single-shot trace).
-    const pool = (impl as unknown as { pool: { querySync: (...args: unknown[]) => Promise<NostrEvent[]> } }).pool;
-    let kind9QueryCalls = 0;
-    (pool as { querySync: (...args: unknown[]) => Promise<NostrEvent[]> }).querySync = async (_relays: unknown, filter: unknown) => {
-      const f = filter as { kinds?: number[]; '#h'?: string[] };
-      if (f.kinds?.includes(9) && f['#h']?.includes(groupId)) kind9QueryCalls++;
-      return [];
-    };
+    fake.state.querySyncCalls = [];
+    const kind9QueryCalls = () => fake.state.querySyncCalls.filter((call) => {
+      const filter = call.filter as { kinds?: number[]; '#h'?: string[] };
+      return filter.kinds?.includes(9) && filter['#h']?.includes(groupId);
+    }).length;
 
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
@@ -2528,7 +2580,7 @@ describe('nostr-bridge', () => {
       vi.useRealTimers();
     }
     await flush();
-    expect(kind9QueryCalls).toBe(1);
+    expect(kind9QueryCalls()).toBe(1);
     expect(impl.messagesStatusByGroup.get()[groupId]).toBe('empty-confirmed');
 
     // No second auto-fire even after another full ladder length — the
@@ -2541,7 +2593,7 @@ describe('nostr-bridge', () => {
       vi.useRealTimers();
     }
     await flush();
-    expect(kind9QueryCalls).toBe(1);
+    expect(kind9QueryCalls()).toBe(1);
 
     // Explicit user retry re-arms the fallback flag and restarts the
     // sub. The new ladder runs to exhaustion → fallback fires a second
@@ -2556,7 +2608,7 @@ describe('nostr-bridge', () => {
       vi.useRealTimers();
     }
     await flush();
-    expect(kind9QueryCalls).toBe(2);
+    expect(kind9QueryCalls()).toBe(2);
   });
 
   it('post-empty-confirmed EOSE keeps status pinned and does not restart the ladder', async () => {
@@ -3421,7 +3473,7 @@ describe('nostr-bridge', () => {
     await expect(bridge.loadMoreMessages(groupId)).resolves.toBe('end');
   });
 
-  it('keeps normal relay pagination retryable when querySync fails', async () => {
+  it('keeps pagination retryable when the relay never sends EOSE', async () => {
     const { getBridge, getBridgeImpl } = await import('./client');
     const { skHex, pkHex } = makeKeypair();
     const groupId = 'normal-pagination-error';
@@ -3437,12 +3489,15 @@ describe('nostr-bridge', () => {
 
     const impl = getBridgeImpl()!;
     impl.relayAccess.set({ [impl.currentRelayUrl.get()]: 'ok' });
-    const pool = (impl as unknown as { pool: { querySync: (...args: unknown[]) => Promise<NostrEvent[]> } }).pool;
-    pool.querySync = async () => {
-      throw new Error('relay query failed');
-    };
-
-    await expect(bridge.loadMoreMessages(groupId)).resolves.toBe('unavailable');
+    fake.state.suppressNextEose = true;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const pending = bridge.loadMoreMessages(groupId);
+      await vi.advanceTimersByTimeAsync(5000);
+      await expect(pending).resolves.toBe('unavailable');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('adds older messages from normal relay pagination', async () => {
@@ -3467,8 +3522,7 @@ describe('nostr-bridge', () => {
 
     const impl = getBridgeImpl()!;
     impl.relayAccess.set({ [impl.currentRelayUrl.get()]: 'ok' });
-    const pool = (impl as unknown as { pool: { querySync: (...args: unknown[]) => Promise<NostrEvent[]> } }).pool;
-    pool.querySync = async () => [older];
+    fake.state.published.push(older);
 
     await expect(bridge.loadMoreMessages(groupId)).resolves.toBe('added');
     expect(impl.messagesByGroup.get()[groupId]?.map((m) => m.content)).toEqual([

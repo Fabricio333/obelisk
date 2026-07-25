@@ -103,7 +103,7 @@ function makeAdvertisement(overrides: Partial<FakeEvent> = {}): FakeEvent {
       ['d', 'obelisk-sfu'],
       ['url', 'https://sfu.obelisk.ar'],
       ['relay', 'wss://public.obelisk.ar'],
-      ['trusted_relay', 'wss://relay.obelisk.ar'],
+      ['trusted_relay', 'wss://lacrypta-relay.obelisk.ar'],
       ['cap', '50'],
       ['region', 'eu-central'],
     ],
@@ -131,7 +131,7 @@ describe('parseAdvertisement', () => {
     expect(ad.url).toBe('https://sfu.obelisk.ar');
     expect(ad.region).toBe('eu-central');
     expect(ad.cap).toBe(50);
-    expect(ad.trustedRelays).toEqual(['wss://relay.obelisk.ar']);
+    expect(ad.trustedRelays).toEqual(['wss://lacrypta-relay.obelisk.ar']);
     expect(ad.generalRelays).toEqual(['wss://public.obelisk.ar']);
   });
 
@@ -219,8 +219,8 @@ describe('publishSfuStart', () => {
     expect(body.action).toBe('start');
     expect(body.params).toMatchObject({ video: true, screen: true, maxParticipants: 50 });
 
-    // No advertised trustedRelays passed in → falls back to relay.obelisk.ar.
-    expect(extraRelays).toEqual(['wss://relay.obelisk.ar']);
+    // No advertised trustedRelays passed in → falls back to lacrypta-relay.obelisk.ar.
+    expect(extraRelays).toEqual(['wss://lacrypta-relay.obelisk.ar']);
   });
 
   it('respects an explicit trustedRelays override', async () => {
@@ -296,7 +296,7 @@ describe('ensureSfuRoomStarted', () => {
     __testing.ingest(makeAdvertisement({
       tags: [
         ['url', 'https://sfu.obelisk.ar'],
-        ['trusted_relay', 'wss://relay.obelisk.ar'],
+        ['trusted_relay', 'wss://lacrypta-relay.obelisk.ar'],
         ['cap', '50'],
       ],
     }));
@@ -307,7 +307,7 @@ describe('ensureSfuRoomStarted', () => {
     expect(bridgeFake.publishCalls).toHaveLength(1);
     const call = bridgeFake.publishCalls[0];
     expect(call.template.kind).toBe(KIND_SFU_CONTROL);
-    expect(call.extraRelays).toEqual(['wss://relay.obelisk.ar']);
+    expect(call.extraRelays).toEqual(['wss://lacrypta-relay.obelisk.ar']);
   });
 
   it('rate-limited second call returns null (already-started case)', async () => {

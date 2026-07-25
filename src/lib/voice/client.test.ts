@@ -1138,7 +1138,7 @@ describe('VoiceClient SFU push-roster', () => {
   });
 
   it('forwards trustedRelays from pickSfu to the SfuClient', async () => {
-    const relays = ['wss://relay.obelisk.ar'];
+    const relays = ['wss://lacrypta-relay.obelisk.ar'];
     sfuControlFake.setPick({ pubkey: SFU, trustedRelays: relays });
     const client = new VoiceClient('ch1', {
       members: [SELF],

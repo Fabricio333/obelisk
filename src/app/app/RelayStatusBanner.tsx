@@ -1,20 +1,6 @@
 'use client';
 
-/**
- * Single source of truth for "what's wrong with the relay right now."
- * Merges connection state (`useConnectionState`) and NIP-42 access state
- * (`useRelayAccess`) into ONE banner so the chat pane never shows
- * stacked AUTH/connection signs. Mounted ONCE per shell:
- *
- *   - Desktop: `DesktopShell.tsx:ChatPanel`, just above the chat scroll.
- *   - Mobile:  `PhoneShell.tsx:ChannelScreen`, just above the messages.
- *
- * Returns `null` when the relay is fully healthy (`Connected` +
- * `access === 'ok'`) — nothing renders, no layout shift, no chrome.
- *
- * The component intentionally does NOT cover non-relay UI cases (e.g.
- * the user is logged out — LoginModal owns that surface).
- */
+/** Relay status row for the unified bottom-right activity stack. */
 
 import {
   useConnectionState,
@@ -155,10 +141,7 @@ function bannerTestId(state: string): 'connection-loss-banner' | 'relay-access-b
   return state === 'disconnected' || state === 'offline' ? 'connection-loss-banner' : 'relay-access-banner';
 }
 
-/**
- * The unified desktop banner. Renders a full-width strip above the chat
- * pane. Mobile uses {@link RelayStatusBadge} for a tighter inline pill.
- */
+/** Shared relay row inside the bottom-right activity stack. */
 export default function RelayStatusBanner() {
   const isLoggedIn = useIsLoggedIn();
   const conn = useConnectionState();
@@ -173,7 +156,7 @@ export default function RelayStatusBanner() {
       data-testid={bannerTestId(status.state)}
       data-state={status.state}
       data-severity={status.severity}
-      className={`flex items-start gap-3 border-b px-4 py-2.5 ${SEVERITY_CLASSES[status.severity]}`}
+      className={'pointer-events-auto flex items-start gap-3 rounded-xl border px-3 py-2 text-xs shadow-2xl backdrop-blur ' + SEVERITY_CLASSES[status.severity]}
     >
       {status.spinner ? (
         <span
@@ -187,46 +170,9 @@ export default function RelayStatusBanner() {
         />
       )}
       <div className="min-w-0">
-        <div className="text-sm font-semibold leading-tight">{status.label}</div>
-        {status.detail && <div className="text-xs opacity-80 mt-0.5">{status.detail}</div>}
+        <div className="font-semibold leading-tight">{status.label}</div>
+        {status.detail && <div className="mt-0.5 text-[11px] leading-snug opacity-80">{status.detail}</div>}
       </div>
-    </div>
-  );
-}
-
-/**
- * The mobile-styled badge. Identical signal source as {@link RelayStatusBanner}
- * — renders a single-line pill instead of a multi-line strip so it fits the
- * thinner mobile header / channel-list slot.
- */
-export function RelayStatusBadge() {
-  const isLoggedIn = useIsLoggedIn();
-  const conn = useConnectionState();
-  const access = useRelayAccess();
-  const loginMethod = useMyLoginMethod();
-  const relay = useCurrentRelayUrl();
-  if (!isLoggedIn || !relay) return null;
-  const status = computeStatus(conn, access, loginMethod, shortHost(relay));
-  if (!status) return null;
-  return (
-    <div
-      data-testid={bannerTestId(status.state)}
-      data-state={status.state}
-      data-severity={status.severity}
-      className={`flex items-center gap-2 px-3 py-1.5 border-b text-xs ${SEVERITY_CLASSES[status.severity]}`}
-    >
-      {status.spinner ? (
-        <span
-          className={`inline-block h-3 w-3 shrink-0 animate-spin rounded-full border-2 ${SPINNER_CLASSES[status.severity]}`}
-          aria-hidden
-        />
-      ) : (
-        <span
-          className={`inline-block h-2 w-2 shrink-0 rounded-full ${status.severity === 'warn' ? 'bg-yellow-400' : 'bg-red-400'} animate-pulse`}
-          aria-hidden
-        />
-      )}
-      <span className="truncate">{status.label}</span>
     </div>
   );
 }

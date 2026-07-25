@@ -22,6 +22,7 @@ import './mobile/mobile-shell.css';
 import { useIsLoggedIn, useMyPubkey } from '@/lib/nostr-bridge';
 import ProfileEditor from '@/components/ProfileEditor';
 import ReadStateRoot from '@/lib/read-state/root';
+import ActivityIndicator from '@/components/ActivityIndicator';
 
 const AppShell = dynamic(() => import('./DesktopShell'), { ssr: false });
 const MobileShell = dynamic(() => import('./mobile/PhoneShell'), { ssr: false });
@@ -93,6 +94,7 @@ export default function AppGate() {
       {loggedIn ? <ReadStateRoot /> : null}
       {isMobile ? <MobileShell /> : <AppShell />}
       {loggedIn ? <ProfileSetupGate /> : null}
+      <ActivityIndicator />
     </>
   );
 }

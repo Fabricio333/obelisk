@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('@/app/app/RelayStatusBanner', () => ({ default: () => 'relay status' }));
+
 describe('ActivityIndicator', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -23,5 +25,6 @@ describe('ActivityIndicator', () => {
     expect(screen.getByText('Waiting for extension signature')).toBeInTheDocument();
     expect(screen.getByText('NIP-42 relay auth · kind 22242')).toBeInTheDocument();
     expect(screen.queryByText('Publishing to relays')).toBeNull();
+    expect(screen.getByText('relay status')).toBeInTheDocument();
   });
 });

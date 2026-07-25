@@ -6,7 +6,7 @@
  * five real keypairs (generated via `nostr-tools.generateSecretKey`) drive
  * five `VoiceClient` instances over an in-process FakeRelay. Beacons and
  * signaling events flow through the relay between clients exactly the way
- * they would over `wss://relay.obelisk.ar`, and the test asserts that the
+ * they would over `wss://lacrypta-relay.obelisk.ar`, and the test asserts that the
  * mesh converges, transitive discovery rescues a peer whose own beacons get
  * dropped, and the per-peer mute API takes effect locally without polluting
  * other clients.

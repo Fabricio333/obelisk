@@ -2,7 +2,7 @@
  * Share-link encoding for relay invites.
  *
  * Format: `obelisk.ar/r/<code>` where `<code>` is either:
- *   - a known short alias (e.g. `obelisk` → `wss://relay.obelisk.ar`)
+ *   - a known short alias (e.g. `lacrypta` → `wss://lacrypta-relay.obelisk.ar`)
  *   - a base64url-encoded `wss://...` URL
  *
  * Visiting the link adds the relay to the user's configured list and switches
@@ -10,9 +10,9 @@
  */
 
 const ALIASES: Record<string, string> = {
-  obelisk: 'wss://relay.obelisk.ar',
   lacrypta: 'wss://lacrypta-relay.obelisk.ar',
   public: 'wss://public.obelisk.ar',
+  obelisk: 'wss://lacrypta-relay.obelisk.ar',
 };
 
 function base64urlEncode(input: string): string {

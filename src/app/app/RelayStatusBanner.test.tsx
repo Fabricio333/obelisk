@@ -36,6 +36,8 @@ describe('RelayStatusBanner test ids', () => {
     const banner = screen.getByTestId('relay-access-banner');
     expect(banner).toHaveAttribute('data-state', 'restricted');
     expect(banner).toHaveTextContent('Not whitelisted');
+    expect(banner).toHaveClass('rounded-xl');
+    expect(banner).not.toHaveClass('border-b');
   });
 
   it('surfaces offline mode with cached-content guidance', () => {

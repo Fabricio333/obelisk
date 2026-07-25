@@ -6,7 +6,7 @@ const sw = readFileSync(join(process.cwd(), 'public/sw.js'), 'utf8');
 
 describe('service worker cache policy', () => {
   it('caches only safe same-origin app shell and static assets', () => {
-    expect(sw).toContain("const CACHE_VERSION = 'obelisk-v3-static-shell-cache'");
+    expect(sw).toContain("const CACHE_VERSION = 'obelisk-v7-static-shell-cache'");
     expect(sw).toContain("const STATIC_CACHE = `${CACHE_VERSION}:static`");
     expect(sw).toContain("const SHELL_CACHE = `${CACHE_VERSION}:shell`");
     expect(sw).toContain("const APP_SHELL_KEY = '/app'");

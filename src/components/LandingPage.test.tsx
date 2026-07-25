@@ -102,7 +102,7 @@ describe('LandingPage hero', () => {
     );
   });
 
-  it('keeps the Spanish hero headline as one line', () => {
+  it('allows the Spanish hero headline to wrap on narrow screens', () => {
     render(
       <LocaleProvider initialLocale="es">
         <LandingPage />
@@ -112,7 +112,7 @@ describe('LandingPage hero', () => {
     const hero = screen.getByTestId('landing-hero');
     const heading = within(hero).getByRole('heading', { level: 1 });
     expect(heading).toHaveTextContent('Tus comunidades, bajo tu control');
-    expect(heading.className).toContain('whitespace-nowrap');
+    expect(heading.className).not.toContain('whitespace-nowrap');
   });
 
 });

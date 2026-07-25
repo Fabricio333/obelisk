@@ -13,7 +13,7 @@
  * test, so the failure / retry paths can be exercised deterministically.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { generateSecretKey, getPublicKey, nip19, type Event as NostrEvent } from 'nostr-tools';
+import { finalizeEvent, generateSecretKey, getPublicKey, nip19, type Event as NostrEvent } from 'nostr-tools';
 
 type PublishOutcome = 'ok' | { reject: string };
 
@@ -104,7 +104,7 @@ function makeKeypair() {
   return { skHex: bytesToHex(sk), pkHex: pk, nsec };
 }
 
-async function flush(times = 6) {
+async function flush(times = 20) {
   for (let i = 0; i < times; i++) await Promise.resolve();
 }
 
@@ -113,6 +113,7 @@ beforeEach(() => {
   fake.state.subscriptions = [];
   fake.state.nextOutcomes = [];
   vi.resetModules();
+  delete window.nostr;
   if (typeof window !== 'undefined') window.localStorage.clear();
 });
 
@@ -123,6 +124,50 @@ afterEach(() => {
 });
 
 describe('optimistic group messages', () => {
+  it('serializes a NIP-07 join request before a pubkey-free kind-9 template', async () => {
+    const { getBridge } = await import('./client');
+    const { skHex, pkHex } = makeKeypair();
+    const sk = Uint8Array.from(skHex.match(/../g)!.map((byte) => parseInt(byte, 16)));
+    let signing = false;
+    const signEvent = vi.fn(async (template: Parameters<typeof finalizeEvent>[0]) => {
+      if ('pubkey' in template) throw new Error('NIP-07 templates must not include pubkey');
+      if (signing) throw new Error('concurrent extension signature request');
+      signing = true;
+      await Promise.resolve();
+      const event = finalizeEvent(template, sk);
+      signing = false;
+      return event;
+    });
+    Object.defineProperty(window, 'nostr', {
+      configurable: true,
+      value: { getPublicKey: vi.fn().mockResolvedValue(pkHex), signEvent },
+    });
+    const bridge = await getBridge();
+    await bridge.loginWithNip07(pkHex);
+
+    await bridge.joinGroup('nip07-group');
+    await bridge.sendMessage('nip07-group', 'signed by extension');
+    await flush();
+
+    expect(signEvent.mock.calls.map(([template]) => template.kind)).toEqual([9021, 9]);
+    expect(signEvent).toHaveBeenLastCalledWith(expect.objectContaining({
+      kind: 9,
+      content: 'signed by extension',
+      tags: [['h', 'nip07-group']],
+    }));
+    expect(fake.state.published.some((event) => event.kind === 9)).toBe(true);
+  });
+
+  it('treats an already-member join rejection as success', async () => {
+    const { getBridge } = await import('./client');
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+    fake.state.nextOutcomes.push({ reject: 'duplicate: User is already a member' });
+
+    await expect(bridge.joinGroup('existing-member-group')).resolves.toBeUndefined();
+  });
+
   it('inserts a pending placeholder synchronously, then replaces it with the real event on publish-ack', async () => {
     const { getBridge } = await import('./client');
     const { skHex, pkHex } = makeKeypair();

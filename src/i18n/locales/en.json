@@ -31,7 +31,7 @@
   "faq.q2.question": "Is there a server I have to sign up to?",
   "faq.q2.answer": "No. Obelisk is a frontend. There is no signup, no email, no password, no Obelisk account. You log in with a Nostr key and the app talks straight to the relays you've configured. We don't run an Obelisk server, we don't have a database, and we never see your messages.",
   "faq.q3.question": "What relays does Obelisk use?",
-  "faq.q3.answer": "Whatever relays you tell it to. The default for groups is wss://relay.obelisk.ar, but you can add, remove, or replace any relay from the relay rail in the app. Each relay you add appears as its own 'server' icon on the left, exactly like Discord guilds — except the server is the relay, not us.",
+  "faq.q3.answer": "Whatever relays you tell it to. The built-in group relays are wss://public.obelisk.ar and wss://lacrypta-relay.obelisk.ar, and you can add, remove, or replace relays from the relay rail in the app. Each relay appears as its own 'server' icon on the left, exactly like Discord guilds — except the server is the relay, not us.",
   "faq.q4.question": "Do I need an email or phone number?",
   "faq.q4.answer": "No. Obelisk has no signup form. You log in with a Nostr key — via a browser extension (NIP-07) or by pasting an nsec. NIP-46 bunker support is on the roadmap.",
   "faq.q5.question": "How are groups implemented?",
