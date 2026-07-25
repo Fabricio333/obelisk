@@ -90,3 +90,6 @@ scripts/.test-peer-ms/
 /scripts/e2e/playwright-report/
 /scripts/e2e/.auth/
 tmp/
+
+# Local issue reference screenshots (never ship)
+/issues-with-pictures-and-description/

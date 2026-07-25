@@ -19,6 +19,8 @@ import { useReadStateStore } from '@/store/read-state';
 import { isUserWatchingDM, isUserWatchingChannel } from '@/lib/read-gates';
 import { extractMentionPubkeysFromMessage } from '@/lib/mentions';
 import { customEmojiMapFromTags } from '@/lib/custom-emoji-tags';
+import { stickerFromTags } from '@/lib/sticker-tags';
+import { voiceNoteFromTags } from '@/lib/voice-note-tags';
 import type {
   JsGroup,
   JsForumTag,
@@ -2560,6 +2562,8 @@ export class BridgeImpl {
       replyToId: replyToCopy?.id ?? null,
       mentions: [],
       customEmojis: customEmojiMapFromTags(emojiTagsCopy),
+      sticker: stickerFromTags(content, emojiTagsCopy) ?? undefined,
+      voiceNote: voiceNoteFromTags(content, emojiTagsCopy) ?? undefined,
       pending: true,
       clientTag,
     };
@@ -2744,6 +2748,8 @@ export class BridgeImpl {
       replyToId: replyTo,
       mentions,
       customEmojis: customEmojiMapFromTags(ev.tags),
+      sticker: stickerFromTags(ev.content, ev.tags) ?? undefined,
+      voiceNote: voiceNoteFromTags(ev.content, ev.tags) ?? undefined,
     };
     this.messagesByGroup.update((prev) => {
       const existing = prev[groupId] ?? [];
@@ -3083,6 +3089,8 @@ export class BridgeImpl {
           replyToId: getTag(e, 'e') ?? null,
           mentions: extractMentionPubkeysFromMessage(e.content, e.tags),
           customEmojis: customEmojiMapFromTags(e.tags),
+          sticker: stickerFromTags(e.content, e.tags) ?? undefined,
+          voiceNote: voiceNoteFromTags(e.content, e.tags) ?? undefined,
           groupId: eventGroupId ?? null,
         };
       })
@@ -5420,6 +5428,8 @@ export class BridgeImpl {
       replyToId: replyTo,
       mentions,
       customEmojis: customEmojiMapFromTags(ev.tags),
+      sticker: stickerFromTags(ev.content, ev.tags) ?? undefined,
+      voiceNote: voiceNoteFromTags(ev.content, ev.tags) ?? undefined,
     };
     let isNew = false;
     let replacedClientTag: string | null = null;

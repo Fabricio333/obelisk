@@ -67,7 +67,11 @@ import { MentionText } from '@/components/chat/MentionText';
 import MentionNavigator from '@/components/chat/MentionNavigator';
 import HistoryPaginationStatus from '@/components/chat/HistoryPaginationStatus';
 import EmojiPicker, { type PickedCustomEmoji } from '@/components/chat/EmojiPicker';
+import MessageMediaPicker, { type MediaPickerTab } from '@/components/chat/MessageMediaPicker';
+import { AttachmentMenu, StickerIcon, VoiceNoteButton } from '@/components/chat/ComposerActions';
 import { uploadToBlossom } from '@/lib/blossom';
+import { stickerTagsForContent, type MessageSticker } from '@/lib/sticker-tags';
+import { voiceNoteTagForContent, type MessageVoiceNote } from '@/lib/voice-note-tags';
 import { formatPubkey, hexToNpub as pubkeyToNpub } from '@nostr-wot/data';
 import { faviconFor, fetchRelayInfo, SUGGESTED_RELAYS } from '@/lib/relay-info';
 import {
@@ -2507,6 +2511,10 @@ function ChannelScreen({
   const isChannelAdmin = !!myPubkey && channelAdmins.includes(myPubkey);
   const [draft, setDraft] = useState('');
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [pickerTab, setPickerTab] = useState<MediaPickerTab>('emoji');
+  const [draftCustomEmojis, setDraftCustomEmojis] = useState<CustomEmojiMap>({});
+  const [draftSticker, setDraftSticker] = useState<MessageSticker | null>(null);
+  const [draftVoiceNote, setDraftVoiceNote] = useState<MessageVoiceNote | null>(null);
   const [uploading, setUploading] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [replyingTo, setReplyingTo] = useState<JsMessage | null>(null);
@@ -2530,7 +2538,6 @@ function ChannelScreen({
   useEffect(() => {
     scrollKeyRef.current = scrollKey;
   }, [scrollKey]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const composerInputRef = useRef<HTMLInputElement>(null);
   const channelHighlights = useChannelHighlights(groupId, myPubkey);
 
@@ -2581,6 +2588,8 @@ function ChannelScreen({
 
   function handleDraftInput(value: string, cursor: number) {
     setDraft(value);
+    setDraftSticker(null);
+    setDraftVoiceNote(null);
     const q = detectMentionQuery(value, cursor);
     if (q !== mentionQuery) {
       setMentionQuery(q);
@@ -2619,12 +2628,29 @@ function ChannelScreen({
 
   const handleAttach = async (file: File) => {
     if (!file || uploading) return;
+    setDraftSticker(null);
+    setDraftVoiceNote(null);
     setUploading(true);
     try {
       const url = await uploadToBlossom(file);
       setDraft((d) => d.length ? `${d} ${url}` : url);
     } catch (err) {
       console.warn('[mobile] blossom upload failed', err);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleVoiceRecorded = async (file: File, durationSeconds: number) => {
+    if (uploading) return;
+    setUploading(true);
+    try {
+      const url = await uploadToBlossom(file);
+      setDraft(url);
+      setDraftSticker(null);
+      setDraftVoiceNote({ url, durationSeconds });
+    } catch (err) {
+      console.warn("[mobile] blossom voice upload failed", err);
     } finally {
       setUploading(false);
     }
@@ -2692,8 +2718,16 @@ function ChannelScreen({
     // Optimistic — placeholder appears in-list with a spinner; failures
     // surface a retry button on the bubble itself, not in the composer.
     setDraft('');
+    setDraftCustomEmojis({});
+    setDraftSticker(null);
+    setDraftVoiceNote(null);
     setReplyingTo(null);
-    const emojiTags = emojiTagsForContent(text, serverEmojis);
+    const voiceTag = voiceNoteTagForContent(text, draftVoiceNote);
+    const emojiTags = [
+      ...emojiTagsForContent(text, mergeCustomEmojiMaps(serverEmojis, draftCustomEmojis)),
+      ...stickerTagsForContent(text, draftSticker).filter((tag) => tag[0] === 'sticker'),
+      ...(voiceTag ? [voiceTag] : []),
+    ];
     nostrActions.sendMessage(groupId, text, replyToCopy, emojiTags).catch((err) => {
       console.warn('[mobile] sendMessage scheduling failed', err);
     });
@@ -2838,25 +2872,23 @@ function ChannelScreen({
           />
         )}
         <div className="composer-inner">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,video/*,audio/*"
-            style={{ display: 'none' }}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void handleAttach(f);
-              e.target.value = '';
+          <AttachmentMenu
+            disabled={uploading}
+            onFiles={(files) => { if (files[0]) void handleAttach(files[0]); }}
+            onContact={(value) => {
+              setDraftSticker(null);
+              setDraftVoiceNote(null);
+              setDraft((current) => current + (current ? ' ' : '') + 'nostr:' + value);
             }}
+            onNewSticker={() => { setPickerTab("sticker"); setEmojiOpen(true); }}
           />
           <button
-            className="composer-attach"
-            style={{ opacity: uploading ? 0.4 : 1 }}
-            aria-label={t('dm.attach')}
-            disabled={uploading}
-            onClick={() => fileInputRef.current?.click()}
+            type="button"
+            className="composer-emoji"
+            aria-label="Open emoji, GIF, and sticker picker"
+            onClick={() => { setPickerTab("emoji"); setEmojiOpen(true); }}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+            <StickerIcon />
           </button>
           <input
             ref={composerInputRef}
@@ -2899,13 +2931,11 @@ function ChannelScreen({
           />
           <div className="composer-btns">
             {draft.trim() ? (
-              <button className="composer-send" onClick={() => send()} aria-label={t('common.send')}>
+              <button className="composer-send" onClick={() => send()} aria-label={t("common.send")}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 14-7-7 14-2-5-5-2z" /></svg>
               </button>
             ) : (
-              <button className="composer-emoji" aria-label="Emoji" onClick={() => setEmojiOpen(true)}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" /></svg>
-              </button>
+              <VoiceNoteButton disabled={uploading} onRecorded={(file, duration) => void handleVoiceRecorded(file, duration)} />
             )}
           </div>
         </div>
@@ -2913,10 +2943,16 @@ function ChannelScreen({
           <div className="emoji-sheet-host" onClick={() => setEmojiOpen(false)}>
             <div className="emoji-sheet native-scroll-y" onClick={(e) => e.stopPropagation()}>
               <div className="sheet-handle" />
-              <EmojiPicker
+              <MessageMediaPicker
                 variant="sheet"
-                onPick={(emoji) => {
-                  setDraft((d) => d + emoji);
+                initialTab={pickerTab}
+                customEmojis={mergeCustomEmojiMaps(serverEmojis, draftCustomEmojis)}
+                onPick={(emoji, custom, kind) => {
+                  if (kind === 'sticker') setDraft(emoji);
+                  else setDraft((current) => current + emoji);
+                  setDraftSticker(kind === 'sticker' && custom ? custom : null);
+                  setDraftVoiceNote(null);
+                  if (custom) setDraftCustomEmojis((current) => ({ ...current, [custom.name]: custom.url }));
                   setEmojiOpen(false);
                 }}
                 onClose={() => setEmojiOpen(false)}
@@ -3086,6 +3122,8 @@ export function ChannelMessage({
             messageId={msg.id}
             channelId={groupId}
             customEmojis={msg.customEmojis as CustomEmojiMap | undefined}
+            sticker={msg.sticker}
+            voiceNote={msg.voiceNote}
           />
         </div>
         {msg.failed && (

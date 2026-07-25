@@ -255,6 +255,50 @@ describe('nostr-bridge', () => {
     expect(seen.flat().some((m) => m.customEmojis?.party === 'https://example.com/party.webp')).toBe(true);
   });
 
+  it("sendMessage preserves the distinct sticker marker through relay echo", async () => {
+    const { getBridge } = await import("./client");
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+
+    const groupId = "sticker-group";
+    const seen: Array<Array<{ sticker?: { name: string; url: string } }>> = [];
+    bridge.subscribeMessages(groupId, (msgs) => {
+      seen.push(msgs.map((message) => ({ sticker: message.sticker })));
+    });
+
+    await bridge.sendMessage(groupId, ":party:", null, [
+      ["emoji", "party", "https://example.com/party.webp"],
+      ["sticker", "party", "https://example.com/party.webp"],
+    ]);
+    await flush();
+
+    const published = fake.state.published.filter((event) => event.kind === 9);
+    expect(published[0].tags).toContainEqual(["sticker", "party", "https://example.com/party.webp"]);
+    expect(seen.flat().some((message) => message.sticker?.name === "party")).toBe(true);
+  });
+
+  it('sendMessage preserves voice-note duration through relay echo', async () => {
+    const { getBridge } = await import('./client');
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+
+    const groupId = 'voice-note-group';
+    const url = 'https://example.com/voice.webm';
+    const seen: Array<Array<{ voiceNote?: { url: string; durationSeconds: number } }>> = [];
+    bridge.subscribeMessages(groupId, (msgs) => {
+      seen.push(msgs.map((message) => ({ voiceNote: message.voiceNote })));
+    });
+
+    await bridge.sendMessage(groupId, url, null, [['voice', url, '5']]);
+    await flush();
+
+    const published = fake.state.published.filter((event) => event.kind === 9);
+    expect(published[0].tags).toContainEqual(['voice', url, '5']);
+    expect(seen.flat().some((message) => message.voiceNote?.durationSeconds === 5)).toBe(true);
+  });
+
   it('sendReaction emits a kind 7 with target and group tags', async () => {
     const { getBridge } = await import('./client');
     const { skHex, pkHex } = makeKeypair();

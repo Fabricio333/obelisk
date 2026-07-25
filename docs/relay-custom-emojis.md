@@ -12,6 +12,7 @@ There are two layers:
 |---|---|---|
 | Relay emoji list | NIP-51 `kind:30030` with `emoji` tags | The admin-managed picker list for one relay |
 | Message/reaction usage | NIP-30 `["emoji", name, url]` tags | Makes each event renderable by other clients even if their local list differs |
+| Sticker message | Obelisk `["sticker", name, url]` plus NIP-30 fallback | Marks sticker-only messages for large media rendering |
 
 The relay list uses a deterministic `d` tag:
 
@@ -105,6 +106,30 @@ This means old events remain renderable even if the relay's current emoji
 list later changes, and other NIP-30-aware clients can render the custom
 emoji from the event itself.
 
+## Stickers
+
+Stickers are distinct from inline custom emoji. Selecting an item from the **Stickers** tab creates a kind `9` message whose content is the matching shortcode and whose tags carry both forms:
+
+```json
+{
+  "kind": 9,
+  "content": ":party_cat:",
+  "tags": [
+    ["h", "<group-id>"],
+    ["emoji", "party_cat", "https://blossom.example/<hash>.webp"],
+    ["sticker", "party_cat", "https://blossom.example/<hash>.webp"]
+  ]
+}
+```
+
+The `emoji` tag is the NIP-30 compatibility fallback. Other NIP-30 clients still have enough event-local data to render the shortcode. Obelisk uses the `sticker` marker to render the asset as standalone media instead of a 20px inline emoji.
+
+The sticker marker is accepted only when the name is normalized, the URL uses HTTP(S), and the entire trimmed content is exactly `:<name>:`. Editing the draft or adding an attachment clears sticker intent. These checks prevent a stray marker from hiding normal message text.
+
+Personal stickers use the normal Blossom BUD-01 upload flow. Their local picker index is stored under `obelisk:personal-stickers`; portability does not depend on that index because each sent event copies the URL into both tags.
+
+The picker uses La Crypta black/card tokens, fixed-height grid tracks, clipped cells, and `object-contain`, so mixed source dimensions cannot overlap.
+
 ## Removing messages and reactions
 
 Clicking a reaction pill that the current user already added removes that
@@ -142,10 +167,12 @@ deleting a message also hides reactions that targeted that message.
 ```text
 src/lib/relay-emojis.ts                  kind:30030 parse/subscribe/publish
 src/lib/custom-emoji-tags.ts             NIP-30 tag extraction and normalization
+src/lib/sticker-tags.ts                  sticker validation + fallback tags
+src/lib/personal-stickers.ts             personal picker index
 src/components/admin/RelayEmojiAdminModal.tsx
                                          relay emoji admin UI, folder import, share
 src/components/chat/EmojiPicker.tsx      custom emoji picker entries
-src/components/chat/MessageContent.tsx   event-local custom emoji rendering
+src/components/chat/MessageContent.tsx   inline emoji + standalone sticker rendering
 src/lib/nostr-bridge/client.ts           sendMessage/sendReaction emoji tags
                                          removeReaction NIP-09 kind 5 events
 ```

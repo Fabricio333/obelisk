@@ -86,6 +86,29 @@ Two tiers, in increasing order of strictness:
 Neither is implemented today. Status quo matches Discord's CDN model and
 is acceptable for a Discord-like chat. Revisit if the threat model shifts.
 
+## Voice notes
+
+The composer records microphone audio with the browser MediaRecorder API, shows a live elapsed timer, uploads the finished file through Blossom, and publishes a kind 9 group message. The message content remains the Blossom HTTP URL for client compatibility.
+
+Obelisk adds an explicit event-local marker so an audio-only WebM is never guessed to be video:
+
+~~~json
+["voice", "https://blossom.example/<hash>.webm", "5"]
+~~~
+
+The third value is the rounded duration in seconds. Clients accept the marker only when the URL is HTTP(S), the trimmed message content exactly matches it, and the duration is between 0 and 3600 seconds. Invalid markers fall back to normal URL rendering.
+
+Tagged voice notes render with the compact Obelisk audio player (play/pause, seek, elapsed time, total duration) rather than a native video canvas. Editing the uploaded URL clears voice-note intent before send.
+
+Code map:
+
+~~~text
+src/components/chat/ComposerActions.tsx  recorder and live timer
+src/lib/voice-note-tags.ts              marker validation
+src/lib/nostr-bridge/client.ts          event parsing and optimistic state
+src/components/chat/MessageContent.tsx  compact audio player
+~~~
+
 ## Size limits
 
 Per-mime caps (bytes) live in `src/lib/attachments.ts`:

@@ -70,6 +70,10 @@ export interface JsMessage {
    * changes later.
    */
   readonly customEmojis?: Readonly<Record<string, string>>;
+  /** Obelisk `["sticker", name, url]` extension; NIP-30 remains the fallback. */
+  readonly sticker?: { readonly name: string; readonly url: string };
+  /** Obelisk `["voice", url, durationSeconds]` extension. */
+  readonly voiceNote?: { readonly url: string; readonly durationSeconds: number };
   /**
    * Optimistic-send fields. Present only on placeholders the bridge inserted
    * for an in-flight or just-failed publish from this client. Once the relay

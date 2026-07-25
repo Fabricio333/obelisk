@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkSpoiler from '@/lib/remark-spoiler';
@@ -25,6 +25,8 @@ import InvoiceCard from './InvoiceCard';
 import { INVOICE_REGEX } from '@/lib/bolt11';
 import ShootingStars from '../ShootingStars';
 import type { Components } from 'react-markdown';
+import type { MessageSticker } from '@/lib/sticker-tags';
+import type { MessageVoiceNote } from '@/lib/voice-note-tags';
 
 function MentionChip({ pubkey, displayName }: { pubkey: string; displayName: string }) {
   const openProfilePopup = useChatStore((s) => s.openProfilePopup);
@@ -61,6 +63,89 @@ function CustomEmojiImg({ name, url }: { name: string; url: string }) {
       className="inline-block w-5 h-5 align-text-bottom object-contain"
       data-testid="custom-emoji"
     />
+  );
+}
+
+function formatAudioTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  return Math.floor(seconds / 60) + ":" + String(Math.floor(seconds % 60)).padStart(2, "0");
+}
+
+function VoiceMessage({ note }: { note: MessageVoiceNote }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [current, setCurrent] = useState(0);
+  const [duration, setDuration] = useState(note.durationSeconds);
+  const toggle = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) void audio.play();
+    else audio.pause();
+  };
+
+  return (
+    <span className="mt-1 flex w-[min(19rem,78vw)] items-center gap-3 rounded-2xl border border-lc-border bg-lc-card px-3 py-2.5 shadow-sm" data-testid="voice-message">
+      <audio
+        ref={audioRef}
+        src={note.url}
+        preload="metadata"
+        className="hidden"
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+        onTimeUpdate={(event) => setCurrent(event.currentTarget.currentTime)}
+        onLoadedMetadata={(event) => { if (Number.isFinite(event.currentTarget.duration)) setDuration(event.currentTarget.duration); }}
+      />
+      <button type="button" onClick={toggle} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-lc-green text-lc-black" aria-label={playing ? "Pause voice message" : "Play voice message"}>
+        {playing ? (
+          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z" /></svg>
+        ) : (
+          <svg className="ml-0.5 h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="m8 5 11 7-11 7z" /></svg>
+        )}
+      </button>
+      <span className="min-w-0 flex-1">
+        <input
+          type="range"
+          min={0}
+          max={Math.max(duration, 1)}
+          step={0.1}
+          value={Math.min(current, Math.max(duration, 1))}
+          onChange={(event) => {
+            const next = Number(event.target.value);
+            if (audioRef.current) audioRef.current.currentTime = next;
+            setCurrent(next);
+          }}
+          className="h-1.5 w-full cursor-pointer accent-lc-green"
+          aria-label="Voice message progress"
+        />
+        <span className="mt-1 flex justify-between font-mono text-[11px] text-lc-muted">
+          <span>{formatAudioTime(current)}</span>
+          <span>{formatAudioTime(duration)}</span>
+        </span>
+      </span>
+      <svg className="h-5 w-5 shrink-0 text-lc-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+        <path d="M11 5 6 9H3v6h3l5 4zM15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12" />
+      </svg>
+    </span>
+  );
+}
+
+function StickerImg({ sticker }: { sticker: MessageSticker }) {
+  return (
+    <a
+      href={sticker.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-1 block h-44 w-44 max-w-full overflow-hidden rounded-2xl bg-transparent p-1"
+      data-testid="message-sticker"
+    >
+      <img
+        src={sticker.url}
+        alt={`Sticker :${sticker.name}:`}
+        loading="lazy"
+        className="block h-full w-full object-contain"
+      />
+    </a>
   );
 }
 
@@ -179,11 +264,15 @@ export default function MessageContent({
   messageId,
   channelId,
   customEmojis,
+  sticker,
+  voiceNote,
 }: {
   content: string;
   messageId?: string;
   channelId?: string;
   customEmojis?: CustomEmojiMap;
+  sticker?: MessageSticker;
+  voiceNote?: MessageVoiceNote;
 }) {
   const serverEmojis = useChatStore((s) => s.serverEmojis);
   const memberList = useGroupMemberInfo(channelId ?? null);
@@ -196,14 +285,14 @@ export default function MessageContent({
   // render them as a gallery / inline player below the text. Without this,
   // each URL would render inline wherever it appears in the markdown.
   const { imageUrls, videoUrls, audioUrls, youtubeUrls } = useMemo(() => {
-    const urls = extractUrls(content);
+    const urls = voiceNote ? [] : extractUrls(content);
     return {
       imageUrls: urls.filter(isImageUrl),
       videoUrls: urls.filter(isVideoUrl),
       audioUrls: urls.filter(isAudioUrl),
       youtubeUrls: urls.filter((u) => !!extractYouTubeId(u)),
     };
-  }, [content]);
+  }, [content, voiceNote]);
 
   // Detect and hoist the welcome banner markdown image. Relative URLs don't
   // match `extractUrls` (which requires http(s)://), so the generic strip
@@ -223,6 +312,7 @@ export default function MessageContent({
   }, [content]);
 
   const bodyContent = useMemo(() => {
+    if (sticker || voiceNote) return '';
     const toStrip = [...imageUrls, ...videoUrls, ...audioUrls, ...youtubeUrls];
     let stripped = content;
     if (welcomeBanner) stripped = stripped.split(welcomeBanner.raw).join('');
@@ -234,7 +324,7 @@ export default function MessageContent({
     }
     // collapse stray whitespace/newlines left behind
     return stripped.replace(/\n{3,}/g, '\n\n').trim();
-  }, [content, imageUrls, videoUrls, audioUrls, youtubeUrls, welcomeBanner, invoices]);
+  }, [content, imageUrls, videoUrls, audioUrls, youtubeUrls, welcomeBanner, invoices, sticker, voiceNote]);
 
   // Resolve `:name:` shortcodes before markdown parsing. Unicode shortcodes
   // are replaced inline (no placeholder — the char is just a char), while
@@ -404,6 +494,8 @@ export default function MessageContent({
 
   return (
     <span data-testid="message-content">
+      {sticker && <StickerImg sticker={sticker} />}
+      {voiceNote && <VoiceMessage note={voiceNote} />}
       {text && (
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkSpoiler]}

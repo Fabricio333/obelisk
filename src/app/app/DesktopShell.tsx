@@ -68,6 +68,8 @@ import { useDMStore } from '@/store/dm';
 import type { MemberInfo } from '@/lib/mentions';
 import { useToastStore } from '@/store/toast';
 import EmojiPicker from '@/components/chat/EmojiPicker';
+import MessageMediaPicker, { type MediaPickerTab } from '@/components/chat/MessageMediaPicker';
+import { AttachmentMenu, StickerIcon, VoiceNoteButton } from '@/components/chat/ComposerActions';
 import { useMessageZaps, type MessageZapTotal } from '@/hooks/chat/useMessageZaps';
 import { useMessageZapStore } from '@/store/messageZap';
 import MessageZapModal from '@/components/chat/MessageZapModal';
@@ -106,6 +108,8 @@ import { useChannelScrollPosition } from '@/hooks/chat/useChannelScrollPosition'
 import RelayEmojiAdminModal from '@/components/admin/RelayEmojiAdminModal';
 import BlossomImageInput from '@/components/BlossomImageInput';
 import { extractUrls, isImageUrl } from '@/lib/markdown';
+import { stickerTagsForContent, type MessageSticker } from '@/lib/sticker-tags';
+import { voiceNoteTagForContent, type MessageVoiceNote } from '@/lib/voice-note-tags';
 import { useTranslation } from '@/i18n/context';
 
 type View =
@@ -2167,6 +2171,10 @@ function ChatPanel({
 
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [pickerTab, setPickerTab] = useState<MediaPickerTab>('emoji');
+  const [draftCustomEmojis, setDraftCustomEmojis] = useState<CustomEmojiMap>({});
+  const [draftSticker, setDraftSticker] = useState<MessageSticker | null>(null);
+  const [draftVoiceNote, setDraftVoiceNote] = useState<MessageVoiceNote | null>(null);
   const emojiBtnRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -2181,6 +2189,8 @@ function ChatPanel({
   }, [emojiOpen]);
   async function onPickFiles(files: File[]) {
     if (files.length === 0) return;
+    setDraftSticker(null);
+    setDraftVoiceNote(null);
     // Cap at 4 — matches the gallery's 2x2 matrix renderer.
     const batch = files.slice(0, 4);
     setUploadingMedia(true);
@@ -2196,6 +2206,22 @@ function ChatPanel({
       });
     } catch (err) {
       setSendError((err as Error).message || 'Upload failed');
+    } finally {
+      setUploadingMedia(false);
+    }
+  }
+
+  async function onVoiceRecorded(file: File, durationSeconds: number) {
+    setUploadingMedia(true);
+    setSendError(null);
+    try {
+      const { uploadToBlossom } = await import("@/lib/blossom");
+      const url = await uploadToBlossom(file);
+      setDraft(url);
+      setDraftSticker(null);
+      setDraftVoiceNote({ url, durationSeconds });
+    } catch (err) {
+      setSendError((err as Error).message || "Upload failed");
     } finally {
       setUploadingMedia(false);
     }
@@ -2244,11 +2270,19 @@ function ChatPanel({
     // Clear only after the prerequisite signature succeeds, preserving the
     // draft if the user rejects the join request in their extension.
     setDraft('');
+    setDraftCustomEmojis({});
+    setDraftSticker(null);
+    setDraftVoiceNote(null);
     setReplyingTo(null);
 
     // Fire-and-forget — bridge inserts the pending placeholder synchronously
     // and surfaces send failures via the bubble's `failed` flag (with retry).
-    const emojiTags = emojiTagsForContent(content, serverEmojis);
+    const voiceTag = voiceNoteTagForContent(content, draftVoiceNote);
+    const emojiTags = [
+      ...emojiTagsForContent(content, mergeCustomEmojiMaps(serverEmojis, draftCustomEmojis)),
+      ...stickerTagsForContent(content, draftSticker).filter((tag) => tag[0] === 'sticker'),
+      ...(voiceTag ? [voiceTag] : []),
+    ];
     nostrActions.sendMessage(groupId, content, replyToCopy, emojiTags).catch((err) => {
       console.error('send failed', err);
     });
@@ -2477,32 +2511,45 @@ function ChatPanel({
             </div>
           );
         })()}
-        <div className="flex min-h-[3.5rem] items-center gap-2 rounded-xl border border-lc-border bg-lc-card px-4 focus-within:border-lc-green">
-          <label
-            className="cursor-pointer text-lc-muted hover:text-lc-white"
-            title={t('desktop.composer.attachMedia')}
-            aria-label={t('desktop.composer.attachMedia')}
-          >
-            {uploadingMedia ? (
-              <span className="text-[10px] uppercase tracking-wider text-lc-muted">…</span>
-            ) : (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.41 17.41a2 2 0 0 1-2.83-2.83l8.49-8.49" />
-              </svg>
+        <div className="flex min-h-[3.5rem] items-center gap-1 rounded-xl border border-lc-border bg-lc-card px-2 focus-within:border-lc-green">
+          <AttachmentMenu
+            disabled={uploadingMedia}
+            onFiles={(files) => void onPickFiles(files)}
+            onContact={(value) => {
+              setDraftSticker(null);
+              setDraftVoiceNote(null);
+              setDraft((current) => current + (current ? ' ' : '') + 'nostr:' + value);
+            }}
+            onNewSticker={() => { setPickerTab("sticker"); setEmojiOpen(true); }}
+          />
+          <div ref={emojiBtnRef} className="relative">
+            <button
+              type="button"
+              onClick={() => { setPickerTab("emoji"); setEmojiOpen((value) => !value); }}
+              className="flex h-9 w-9 items-center justify-center rounded-full text-lc-muted hover:bg-white/5 hover:text-lc-white"
+              aria-label="Open emoji, GIF, and sticker picker"
+              aria-haspopup="dialog"
+              aria-expanded={emojiOpen}
+            >
+              <StickerIcon />
+            </button>
+            {emojiOpen && (
+              <MessageMediaPicker
+                initialTab={pickerTab}
+                customEmojis={mergeCustomEmojiMaps(serverEmojis, draftCustomEmojis)}
+                onPick={(emoji, custom, kind) => {
+                  if (kind === 'sticker') setDraft(emoji);
+                  else setDraft((current) => current + emoji);
+                  setDraftSticker(kind === 'sticker' && custom ? custom : null);
+                  setDraftVoiceNote(null);
+                  if (custom) setDraftCustomEmojis((current) => ({ ...current, [custom.name]: custom.url }));
+                  setEmojiOpen(false);
+                  inputRef.current?.focus();
+                }}
+                onClose={() => setEmojiOpen(false)}
+              />
             )}
-            <input
-              type="file"
-              accept="image/*,video/*"
-              multiple
-              className="hidden"
-              disabled={uploadingMedia}
-              onChange={(e) => {
-                const files = Array.from(e.target.files ?? []);
-                if (files.length > 0) void onPickFiles(files);
-                e.target.value = '';
-              }}
-            />
-          </label>
+          </div>
           <div className="relative flex-1">
             {slashQuery !== null && slashResults.length > 0 && (
               <SlashCommandAutocomplete
@@ -2526,6 +2573,8 @@ function ChatPanel({
               value={draft}
               onChange={(e) => {
                 setDraft(e.target.value);
+                setDraftSticker(null);
+                setDraftVoiceNote(null);
                 detectMention(e.target.value, e.target.selectionStart ?? e.target.value.length);
               }}
               onKeyDown={onMentionKeyDown}
@@ -2553,39 +2602,18 @@ function ChatPanel({
               className="w-full bg-transparent text-sm text-lc-white outline-none placeholder:text-lc-muted disabled:opacity-50"
             />
           </div>
-          <div ref={emojiBtnRef} className="relative">
+          {draft.trim() ? (
             <button
-              type="button"
-              onClick={() => setEmojiOpen((v) => !v)}
-              className="text-lc-muted hover:text-lc-white"
-              title={t('desktop.composer.addEmoji')}
-              aria-label={t('desktop.composer.addEmoji')}
-              aria-haspopup="dialog"
-              aria-expanded={emojiOpen}
+              type="submit"
+              disabled={uploadingMedia}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-lc-green text-lc-black disabled:opacity-30"
+              aria-label={t("common.send")}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="9" />
-                <path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" />
-              </svg>
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 14-7-7 14-2-5-5-2z" /></svg>
             </button>
-            {emojiOpen && (
-              <EmojiPicker
-                onPick={(emoji) => {
-                  setDraft((d) => d + emoji);
-                  setEmojiOpen(false);
-                  inputRef.current?.focus();
-                }}
-                onClose={() => setEmojiOpen(false)}
-              />
-            )}
-          </div>
-          <button
-            type="submit"
-            disabled={!draft.trim() || uploadingMedia}
-            className="text-xs font-semibold text-lc-green hover:text-lc-green/80 disabled:opacity-30"
-          >
-            {t('common.send')}
-          </button>
+          ) : (
+            <VoiceNoteButton disabled={uploadingMedia} onRecorded={(file, duration) => void onVoiceRecorded(file, duration)} />
+          )}
         </div>
       </form>
       </>
@@ -2982,6 +3010,8 @@ function MessageRow({
             messageId={msg.id}
             channelId={groupId}
             customEmojis={msg.customEmojis as CustomEmojiMap | undefined}
+            sticker={msg.sticker}
+            voiceNote={msg.voiceNote}
           />
         </div>
         {msg.failed && (
