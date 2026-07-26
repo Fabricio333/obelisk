@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface ImageGalleryProps {
   urls: string[];
+  wide?: boolean;
 }
 
 /**
@@ -18,7 +19,7 @@ interface ImageGalleryProps {
  * Tapping any tile opens the lightbox on that index. Lightbox supports
  * prev/next + keyboard arrows + Esc.
  */
-export default function ImageGallery({ urls }: ImageGalleryProps) {
+export default function ImageGallery({ urls, wide = false }: ImageGalleryProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   const open = (i: number) => setLightboxIndex(i);
@@ -53,7 +54,7 @@ export default function ImageGallery({ urls }: ImageGalleryProps) {
     return (
       <>
         <div
-          className="mt-1 w-fit max-w-sm rounded-lg overflow-hidden bg-lc-black/50 cursor-pointer"
+          className={`mt-1 overflow-hidden rounded-lg bg-lc-black/50 cursor-pointer ${wide ? 'w-full max-w-full' : 'w-fit max-w-sm'}`}
           onClick={() => open(0)}
           data-testid="image-gallery"
           data-count="1"
@@ -62,7 +63,7 @@ export default function ImageGallery({ urls }: ImageGalleryProps) {
             src={urls[0]}
             alt=""
             loading="lazy"
-            className="max-h-80 w-auto object-contain"
+            className={`${wide ? 'max-h-[32rem] w-full' : 'max-h-80 w-auto'} object-contain`}
             onError={(e) => {
               (e.target as HTMLImageElement).style.display = 'none';
             }}
@@ -96,7 +97,7 @@ export default function ImageGallery({ urls }: ImageGalleryProps) {
   return (
     <>
       <div
-        className={`mt-1 max-w-sm grid ${gridClass} gap-1 rounded-lg overflow-hidden`}
+        className={`mt-1 grid ${wide ? 'w-full max-w-full' : 'max-w-sm'} ${gridClass} gap-1 rounded-lg overflow-hidden`}
         style={{ aspectRatio: urls.length === 2 ? '2 / 1' : '1 / 1' }}
         data-testid="image-gallery"
         data-count={urls.length}

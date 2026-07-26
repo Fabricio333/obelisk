@@ -198,10 +198,12 @@ function VideoMedia({
   url,
   authorPicture,
   timestamp,
+  wide = false,
 }: {
   url: string;
   authorPicture?: string | null;
   timestamp?: number;
+  wide?: boolean;
 }) {
   const [voiceDuration, setVoiceDuration] = useState<number | null>(null);
   if (voiceDuration !== null) {
@@ -212,7 +214,7 @@ function VideoMedia({
       src={url}
       controls
       preload="metadata"
-      className="mt-1 max-w-sm max-h-80 rounded-lg bg-lc-black/50"
+      className={`mt-1 rounded-lg bg-lc-black/50 object-contain ${wide ? 'max-h-[32rem] w-full max-w-full' : 'max-h-80 max-w-sm'}`}
       data-testid="video-player"
       onLoadedMetadata={(event) => {
         const video = event.currentTarget;
@@ -362,6 +364,7 @@ export default function MessageContent({
   voiceNote,
   voiceAuthorPicture,
   voiceTimestamp,
+  wideMedia = false,
 }: {
   content: string;
   messageId?: string;
@@ -371,6 +374,7 @@ export default function MessageContent({
   voiceNote?: MessageVoiceNote;
   voiceAuthorPicture?: string | null;
   voiceTimestamp?: number;
+  wideMedia?: boolean;
 }) {
   const serverEmojis = useChatStore((s) => s.serverEmojis);
   const memberList = useGroupMemberInfo(channelId ?? null);
@@ -444,6 +448,7 @@ export default function MessageContent({
   const previewUrls = useMemo(() => {
     const urls = extractUrls(bodyContent);
     return urls.filter((u) => {
+      if (u.startsWith('https://njump.me/t/')) return false;
       if (isImageUrl(u) || isVideoUrl(u) || extractYouTubeId(u) || isUploadUrl(u)) return false;
       if (typeof window !== 'undefined') {
         try {
@@ -482,6 +487,20 @@ export default function MessageContent({
     // Links — handle images, YouTube, regular links
     a({ href, children }) {
       if (!href) return <>{children}</>;
+
+      if (href.startsWith('https://njump.me/t/')) {
+        return (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="break-all text-sky-400 hover:underline"
+            data-testid="nostr-hashtag"
+          >
+            {children}
+          </a>
+        );
+      }
 
       // Image URL — render only the image, suppress raw URL text
       if (isImageUrl(href)) {
@@ -610,7 +629,7 @@ export default function MessageContent({
         <WelcomeBanner src={welcomeBanner.src} alt={welcomeBanner.alt} />
       )}
       {/* Image matrix hoisted out of the body text */}
-      {imageUrls.length > 0 && <ImageGallery urls={imageUrls} />}
+      {imageUrls.length > 0 && <ImageGallery urls={imageUrls} wide={wideMedia} />}
       {/* YouTube embeds hoisted so they render outside the markdown <p>
           (the player swaps in a <div> on click, which is invalid inside <p>) */}
       {youtubeUrls.map((url) => {
@@ -624,6 +643,7 @@ export default function MessageContent({
           url={url}
           authorPicture={voiceAuthorPicture}
           timestamp={voiceTimestamp}
+          wide={wideMedia}
         />
       ))}
       {/* Uploaded audio uses the same waveform player as recorded voice notes. */}

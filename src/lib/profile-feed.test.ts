@@ -3,8 +3,11 @@ import type { Event as NostrEvent } from 'nostr-tools';
 import {
   DEFAULT_PROFILE_FEED_RELAYS,
   filterProfileFeed,
+  hashtagTags,
+  linkifyHashtags,
   normalizeProfileFeedRelays,
   parseProfileFeedRelays,
+  profileReplyTags,
   toggledFollowTags,
 } from './profile-feed';
 
@@ -36,6 +39,18 @@ describe('profile feed helpers', () => {
     const tags = [['p', 'existing'], ['relay', 'wss://legacy.example']];
     expect(toggledFollowTags(tags, 'target', true)).toEqual([...tags, ['p', 'target']]);
     expect(toggledFollowTags([...tags, ['p', 'target']], 'target', false)).toEqual(tags);
+  });
+
+  it('links hashtags and builds interoperable post tags', () => {
+    expect(linkifyHashtags('hello #Nostr and (#bitcoin)')).toBe(
+      'hello [#Nostr](https://njump.me/t/Nostr) and ([#bitcoin](https://njump.me/t/bitcoin))',
+    );
+    expect(hashtagTags('#Nostr #nostr #Bitcoin')).toEqual([['t', 'nostr'], ['t', 'bitcoin']]);
+    expect(profileReplyTags(note('parent', 'hello'))).toEqual([
+      ['e', 'parent', '', 'root'],
+      ['e', 'parent', '', 'reply'],
+      ['p', 'a'.repeat(64)],
+    ]);
   });
 
   it('accepts exactly three unique wss relays and falls back safely', () => {

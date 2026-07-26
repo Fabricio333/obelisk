@@ -44,6 +44,29 @@ export function mediaUrls(note: Pick<NostrEvent, 'content'>): string[] {
   return extractUrls(note.content).filter((url) => isImageUrl(url) || isVideoUrl(url));
 }
 
+const HASHTAG_PATTERN = /(^|[\s(])#([\p{L}\p{N}_]+)/gu;
+
+export function linkifyHashtags(content: string): string {
+  return content.replace(HASHTAG_PATTERN, (_match, prefix: string, hashtag: string) => (
+    `${prefix}[#${hashtag}](https://njump.me/t/${encodeURIComponent(hashtag)})`
+  ));
+}
+
+export function hashtagTags(content: string): string[][] {
+  const hashtags = new Set<string>();
+  for (const match of content.matchAll(HASHTAG_PATTERN)) hashtags.add(match[2].toLowerCase());
+  return [...hashtags].map((hashtag) => ['t', hashtag]);
+}
+
+export function profileReplyTags(note: Pick<NostrEvent, 'id' | 'pubkey' | 'tags'>): string[][] {
+  const root = note.tags.find((tag) => tag[0] === 'e' && tag[3] === 'root');
+  return [
+    ['e', root?.[1] ?? note.id, root?.[2] ?? '', 'root'],
+    ['e', note.id, '', 'reply'],
+    ['p', note.pubkey],
+  ];
+}
+
 export function filterProfileFeed(notes: readonly NostrEvent[], tab: ProfileFeedTab): NostrEvent[] {
   return notes.filter((note) => (
     tab === 'posts' ? !isReply(note) : tab === 'replies' ? isReply(note) : mediaUrls(note).length > 0

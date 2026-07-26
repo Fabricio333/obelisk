@@ -19,6 +19,7 @@ const poolMocks = vi.hoisted(() => ({
 const bridgeMocks = vi.hoisted(() => ({
   ensureUserMetadata: vi.fn().mockResolvedValue(undefined),
   publishEvent: vi.fn(),
+  myPubkey: 'b'.repeat(64),
 }));
 
 vi.mock('nostr-tools', async (importOriginal) => {
@@ -46,7 +47,7 @@ vi.mock('nostr-tools', async (importOriginal) => {
 vi.mock('@/lib/nostr-bridge', () => ({
   getBridge: async () => ({ publishEvent: bridgeMocks.publishEvent }),
   nostrActions: { ensureUserMetadata: bridgeMocks.ensureUserMetadata },
-  useMyPubkey: () => 'b'.repeat(64),
+  useMyPubkey: () => bridgeMocks.myPubkey,
   useUserMetadata: () => ({
     displayName: 'Alice',
     name: 'alice',
@@ -79,6 +80,7 @@ beforeEach(() => {
   poolMocks.subscriptions.length = 0;
   poolMocks.destroy.mockReset();
   bridgeMocks.ensureUserMetadata.mockClear();
+  bridgeMocks.myPubkey = 'b'.repeat(64);
   bridgeMocks.publishEvent.mockReset().mockImplementation(async (template: {
     kind: number;
     content: string;
@@ -120,6 +122,8 @@ describe('NostrProfile', () => {
     fireEvent.click(screen.getByTestId('profile-tab-media'));
     expect(screen.getByTestId('profile-media-grid').querySelector('img'))
       .toHaveAttribute('src', 'https://example.com/photo.jpg');
+    fireEvent.click(screen.getByRole('button', { name: 'Open media' }));
+    expect(screen.getByTestId('profile-media-lightbox')).toBeInTheDocument();
 
     unmount();
     expect(poolMocks.subscriptions.every((subscription) => subscription.close.mock.calls.length === 1)).toBe(true);
@@ -159,5 +163,82 @@ describe('NostrProfile', () => {
       },
     ));
     expect(screen.getByTestId('profile-follow-button')).toHaveTextContent('Unfollow');
+  });
+
+  it('does not flash a relay error before late notes and accepts an empty EOSE', () => {
+    const { unmount } = render(
+      <LocaleProvider initialLocale="en">
+        <NostrProfile pubkey={PROFILE} onClose={vi.fn()} />
+      </LocaleProvider>,
+    );
+    act(() => poolMocks.subscriptions[0].handlers.onclose?.());
+    expect(screen.queryByText('The profile relays could not load this feed.')).not.toBeInTheDocument();
+    act(() => poolMocks.subscriptions[0].handlers.onevent?.(note('late', 'arrived later')));
+    expect(screen.getByText('arrived later')).toBeInTheDocument();
+    unmount();
+
+    render(
+      <LocaleProvider initialLocale="en">
+        <NostrProfile pubkey={PROFILE} onClose={vi.fn()} />
+      </LocaleProvider>,
+    );
+    act(() => poolMocks.subscriptions.at(-2)?.handlers.oneose?.());
+    expect(screen.getByText('Nothing here yet.')).toBeInTheDocument();
+  });
+
+  it('publishes reactions and NIP-10 replies to only the profile relays', async () => {
+    render(
+      <LocaleProvider initialLocale="en">
+        <NostrProfile pubkey={PROFILE} onClose={vi.fn()} />
+      </LocaleProvider>,
+    );
+    act(() => {
+      poolMocks.subscriptions[0].handlers.onevent?.(note('post', 'hello #nostr', [], 3));
+      poolMocks.subscriptions[0].handlers.oneose?.();
+    });
+
+    fireEvent.click(screen.getByTestId('profile-note-react'));
+    await waitFor(() => expect(bridgeMocks.publishEvent).toHaveBeenCalledWith(
+      { kind: 7, content: '❤️', tags: [['e', 'post'], ['p', PROFILE]] },
+      { extraRelays: expect.any(Array), mode: 'replace' },
+    ));
+
+    fireEvent.click(screen.getByTestId('profile-note-reply'));
+    fireEvent.change(screen.getByTestId('profile-reply-input'), { target: { value: 'reply #Nostr' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(bridgeMocks.publishEvent).toHaveBeenCalledWith(
+      {
+        kind: 1,
+        content: 'reply #Nostr',
+        tags: [
+          ['e', 'post', '', 'root'],
+          ['e', 'post', '', 'reply'],
+          ['p', PROFILE],
+          ['t', 'nostr'],
+        ],
+      },
+      { extraRelays: expect.any(Array), mode: 'replace' },
+    ));
+  });
+
+  it('lets the owner create a formatted kind-1 post and closes from the desktop X', async () => {
+    bridgeMocks.myPubkey = PROFILE;
+    const onClose = vi.fn();
+    render(
+      <LocaleProvider initialLocale="en">
+        <NostrProfile pubkey={PROFILE} onClose={onClose} />
+      </LocaleProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('profile-explore-close'));
+    expect(onClose).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByTestId('profile-create-post'));
+    fireEvent.change(screen.getByTestId('profile-post-input'), { target: { value: 'My **post** #Nostr' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }));
+
+    await waitFor(() => expect(bridgeMocks.publishEvent).toHaveBeenCalledWith(
+      { kind: 1, content: 'My **post** #Nostr', tags: [['t', 'nostr']] },
+      { extraRelays: expect.any(Array), mode: 'replace' },
+    ));
   });
 });

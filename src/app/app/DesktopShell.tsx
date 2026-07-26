@@ -49,6 +49,7 @@ import UserPanel from './UserPanel';
 import SearchBar from './SearchBar';
 import MessageContent from '@/components/chat/MessageContent';
 import NostrProfile from '@/components/chat/NostrProfile';
+import ProfilePopover from '@/components/chat/ProfilePopover';
 import { MentionText } from '@/components/chat/MentionText';
 import MentionNavigator from '@/components/chat/MentionNavigator';
 import HistoryPaginationStatus from '@/components/chat/HistoryPaginationStatus';
@@ -119,6 +120,7 @@ type View =
   | { kind: 'empty' };
 
 const SIDEBAR_KEY = 'obelisk-dex/sidebar-width';
+const PROFILE_PANE_KEY = 'obelisk-dex/profile-pane-width';
 const SHOW_MEMBERS_KEY = 'obelisk-dex/show-members';
 
 export default function AppShell() {
@@ -127,8 +129,9 @@ export default function AppShell() {
   const isRehydrating = useIsRehydrating();
   const conn = useConnectionState();
   const relay = useCurrentRelayUrl();
-  const profilePubkey = useChatStore((state) => state.profilePopupPubkey);
-  const closeProfile = useChatStore((state) => state.closeProfilePopup);
+  const profilePopupPubkey = useChatStore((state) => state.profilePopupPubkey);
+  const closeProfilePopup = useChatStore((state) => state.closeProfilePopup);
+  const [exploredProfilePubkey, setExploredProfilePubkey] = useState<string | null>(null);
   const [view, setView] = useState<View>({ kind: 'empty' });
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
@@ -362,7 +365,7 @@ export default function AppShell() {
           {view.kind === 'group' ? (
             <ChatLayout
               groupId={view.groupId}
-              showMembers={profilePubkey ? false : showMembers}
+              showMembers={exploredProfilePubkey ? false : showMembers}
               onToggleMembers={() => setShowMembers((v) => !v)}
               pendingMessageId={pendingMessageId}
               onConsumePendingMessageId={() => setPendingMessageId(null)}
@@ -376,17 +379,26 @@ export default function AppShell() {
             <EmptyState />
           )}
         </main>
-        {profilePubkey && (
-          <aside className="h-full min-w-0 flex-1 overflow-hidden border-l border-t border-lc-border bg-lc-black" data-testid="desktop-profile-pane">
+        {exploredProfilePubkey && (
+          <ResizablePane storageKey={PROFILE_PANE_KEY} defaultWidth={520} min={340} max={900} side="left">
+          <aside className="h-full min-w-0 flex-1 overflow-hidden bg-lc-black" data-testid="desktop-profile-pane">
             <NostrProfile
-              pubkey={profilePubkey}
-              onClose={closeProfile}
+              pubkey={exploredProfilePubkey}
+              onClose={() => setExploredProfilePubkey(null)}
               onMessage={(peer) => {
                 setView({ kind: 'dm', peer });
-                closeProfile();
+                setExploredProfilePubkey(null);
               }}
             />
           </aside>
+          </ResizablePane>
+        )}
+        {profilePopupPubkey && (
+          <ProfilePopover
+            pubkey={profilePopupPubkey}
+            onClose={closeProfilePopup}
+            onExplore={setExploredProfilePubkey}
+          />
         )}
         <FloatingUserPanel sidebarWidth={sidebarWidth} />
       </div>

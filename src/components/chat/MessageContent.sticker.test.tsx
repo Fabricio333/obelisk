@@ -3,6 +3,15 @@ import { describe, expect, it } from 'vitest';
 import MessageContent from './MessageContent';
 
 describe('MessageContent stickers', () => {
+  it('renders Nostr hashtags blue and feed media at the available width', () => {
+    const { rerender } = render(<MessageContent content="[#Nostr](https://njump.me/t/Nostr)" />);
+    expect(screen.getByTestId('nostr-hashtag')).toHaveClass('text-sky-400');
+    expect(screen.getByTestId('nostr-hashtag')).toHaveAttribute('href', 'https://njump.me/t/Nostr');
+
+    rerender(<MessageContent content="https://cdn.example/photo.jpg" wideMedia />);
+    expect(screen.getByTestId('image-gallery')).toHaveClass('w-full', 'max-w-full');
+  });
+
   it('uses the waveform player for uploaded audio files', () => {
     render(<MessageContent content="https://cdn.example/song.mp3" />);
 

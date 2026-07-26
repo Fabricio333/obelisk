@@ -104,6 +104,7 @@ import LanguagePreference from '@/components/LanguagePreference';
 import AppearancePreferenceControls from '@/components/AppearancePreferenceControls';
 import ProfileFeedRelaySettings from '@/components/settings/ProfileFeedRelaySettings';
 import NostrProfile from '@/components/chat/NostrProfile';
+import ProfilePopover from '@/components/chat/ProfilePopover';
 import { useTranslation } from '@/i18n/context';
 import { npubToHex } from '@nostr-wot/data';
 import {
@@ -5336,6 +5337,8 @@ export default function MobileShell() {
   const myFollowsEntry = useFollows(myPubkey);
   const myFollows = useMemo(() => myFollowsEntry?.follows ?? [], [myFollowsEntry]);
   const serverEmojis = useChatStore((s) => s.serverEmojis);
+  const profilePopupPubkey = useChatStore((s) => s.profilePopupPubkey);
+  const closeProfilePopup = useChatStore((s) => s.closeProfilePopup);
 
   const [nav, setNav] = useState<NavState>(initialNav);
   const navRef = useRef<NavState>(initialNav);
@@ -5846,8 +5849,12 @@ export default function MobileShell() {
   // 'channel' (which resolveParent walks up to 'server'). See
   // docs/mobile-navigation.md §3.
   const openProfile = useCallback((pubkey: string) => {
+    useChatStore.getState().openProfilePopup(pubkey);
+  }, []);
+  const exploreProfile = useCallback((pubkey: string) => {
+    closeProfilePopup();
     pushNav((n) => ({ ...n, screen: 'profile-view', profilePubkey: pubkey, parentScreen: n.screen }));
-  }, [pushNav]);
+  }, [closeProfilePopup, pushNav]);
   const openMembers = useCallback(() => {
     pushNav((n) => ({ ...n, screen: 'member-list', parentScreen: n.screen }));
   }, [pushNav]);
@@ -6306,6 +6313,13 @@ export default function MobileShell() {
         <div className="mobile-exit-toast" role="status" aria-live="polite">
           {t('mobile.navigation.pressBackAgain')}
         </div>
+      )}
+      {profilePopupPubkey && (
+        <ProfilePopover
+          pubkey={profilePopupPubkey}
+          onClose={closeProfilePopup}
+          onExplore={exploreProfile}
+        />
       )}
     </div>
   );
