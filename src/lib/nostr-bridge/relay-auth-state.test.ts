@@ -19,7 +19,7 @@
  *      surfaces a real AUTH failure, not a transient race).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { generateSecretKey, getPublicKey, type Event as NostrEvent } from 'nostr-tools';
+import { finalizeEvent, generateSecretKey, getPublicKey, type Event as NostrEvent } from 'nostr-tools';
 
 const fake = vi.hoisted(() => {
   const state = {
@@ -175,6 +175,36 @@ describe('relay-access "authenticating" state', () => {
     // sidebar/chat-panel gates can hide cached groups/messages BEFORE
     // any signer round-trip — that's the whole point of the new state.
     expect(impl.relayAccess.get()[key]).toBe('authenticating');
+  });
+
+  it('deduplicates identical NIP-42 signature requests', async () => {
+    const clientMod = await import('./client');
+    const { skHex, pkHex } = makeKeypair();
+    const sk = Uint8Array.from(skHex.match(/../g)!.map((byte) => parseInt(byte, 16)));
+    const signEvent = vi.fn(async (template) => finalizeEvent({ ...template }, sk));
+    Object.defineProperty(window, 'nostr', { configurable: true, value: { signEvent } });
+    const bridge = await clientMod.getBridge();
+    await bridge.loginWithNip07(pkHex);
+
+    const pool = fake.state.pools.at(-1)!;
+    const signer = pool.authHandler!(clientMod.getBridgeImpl()!.currentRelayUrl.get())!;
+    const challenge = {
+      kind: 22242,
+      content: 'same challenge',
+      tags: [['relay', 'wss://public.obelisk.ar']],
+      created_at: 1,
+      pubkey: pkHex,
+    };
+
+    await Promise.all([signer(challenge), signer(challenge)]);
+
+    expect(signEvent).toHaveBeenCalledTimes(1);
+    expect(signEvent).toHaveBeenCalledWith({
+      kind: 22242,
+      content: 'same challenge',
+      tags: [['relay', 'wss://public.obelisk.ar']],
+      created_at: 1,
+    });
   });
 
   it('flips from "authenticating" to "ok" when the relay starts delivering events', async () => {

@@ -1,237 +1,150 @@
 /**
- * Single `RTCPeerConnection` wrapper implementing the MDN perfect-negotiation
- * pattern, plus an ICE-restart → hard-reset reconnect ladder ported from the
- * legacy obelisk repo's `WebSocketVoiceClient` (`obelisk/src/lib/voice.ts`
- * `scheduleReconnect`/`performIceRestart`/`performHardReset`).
+ * Pairwise WebRTC connection backed by simple-peer.
  *
- * The owner (`VoiceClient`) decides polite/impolite by lexicographic pubkey
- * comparison and supplies a `send(payload)` callback wired to the Nostr
- * signaling transport. Track-kind announcements travel out-of-band as
- * `trackInfo` payloads because the receiver's `ontrack` only sees the bare
- * track and we need to know `camera` vs `screen` vs `screen-audio` before
- * slotting it into the UI.
- *
- * Reconnect overview:
- *  - Initial-handshake watchdog: fires after `INITIAL_CONNECT_TIMEOUT_MS` if
- *    the peer never reaches `'connected'`. Impolite → hard-reset; polite →
- *    publish a `requestReset` so the impolite peer rebuilds.
- *  - Steady-state recovery: on `'failed'` / `'disconnected'`, schedule
- *    incrementally-backed-off recovery attempts. Impolite calls
- *    `pc.restartIce()` up to `ICE_RESTART_LIMIT` times, then escalates to a
- *    full hard-reset (close + new PC + re-attach all senders). Polite waits
- *    longer and asks the impolite side to reset to avoid offer glare.
- *  - On `requestReset` from the polite peer, the impolite side performs a
- *    hard reset and the resulting `addTrack`s drive a fresh negotiation.
+ * Obelisk still owns Nostr identity, admission, relay signaling, mesh
+ * discovery, media policy, and quality controls. simple-peer owns the
+ * browser-specific SDP/ICE/renegotiation state machine and data channel.
  */
+import SimplePeer from 'simple-peer';
 import type { VoiceSignalPayload, VoiceTrackKind, VoiceQualityHint } from './types';
 import { startStatsMonitor, type QualitySample, type StatsMonitorHandle } from './stats';
 import { AUDIO_MAX_BITRATE } from './quality';
-import { ControlChannel, type ControlMessage } from './control-channel';
+import {
+  CONTROL_CHANNEL_LABEL,
+  DEAD_PEER_TIMEOUT_MS,
+  PEER_SNAPSHOT_INTERVAL_MS,
+  PING_INTERVAL_MS,
+  type ControlMessage,
+} from './control-channel';
 import type { VoiceMetrics } from './metrics';
 import { ICE_SERVERS, ICE_TRANSPORT_POLICY } from './ice-config';
 
-// ── Reconnect schedule ───────────────────────────────────────────────────
-//
-// Start small so transient ICE hiccups (Wi-Fi roam, ~1–2 s) self-heal without
-// a visible gap, then back off so we don't hammer dead peers. The first
-// retry fires fast so a single dropped offer/answer round-trip during
-// the initial handshake doesn't strand the user behind the watchdog.
-export const RECONNECT_DELAYS_MS = [750, 1500, 3000, 6000, 10000];
-// Polite side waits longer because it's asking the remote to do a full PC
-// rebuild — we don't want to spam those requests.
-export const POLITE_RESET_DELAYS_MS = [2500, 5000, 10000];
-// After this many ICE restarts we escalate to a full PC recreate.
-export const ICE_RESTART_LIMIT = 3;
-// Max time the initial handshake is allowed to sit before we treat it as
-// wedged and trigger a fresh PC. Beyond ~9 s
-// the user perceives the channel as "stuck" and reflexively refreshes,
-// which is exactly what the reconnect ladder is meant to prevent. The
-// polite/impolite request-reset path picks up immediately at this mark.
 export const INITIAL_CONNECT_TIMEOUT_MS = 9000;
-export const ICE_CANDIDATE_BATCH_MS = 80;
-const ICE_CANDIDATE_POOL_SIZE = 4;
-
-// After we send an offer we expect an answer back fast — the round-trip
-// is one relay-mediated kind 25050 in each direction. If signalingState
-// is still 'have-local-offer' after this window, the answer either
-// never arrived or the relay dropped one of the legs. Resend the same
-// SDP up to OFFER_RETRY_LIMIT times before logging and giving up. This
-// is the "I had to refresh to get my video to appear" bug class —
-// turning on the camera triggers a renegotiation that gets silently
-// dropped, the PC is still 'connected' so the connect watchdog never
-// fires, and the remote never sees the new transceiver.
-//
-// The watchdog only arms AFTER the initial PC has reached 'connected'
-// (i.e. for mid-call renegotiations). The initial handshake is covered
-// by `armConnectWatchdog`, which has its own escalation path; running
-// both on the same first offer would double up resets.
-//
-// 5 s gives the relay + SFU forwarding path enough time before
-// declaring the leg dropped — the SFU's own offer-to-other-peers
-// renegotiation can take a few seconds before the answer to ours lands.
-//
-// We intentionally do NOT escalate to performHardReset here. A wedged
-// renegotiation on a connected PC is recoverable via more SDP resends;
-// blowing away the PC also loses every live media track and forces
-// fresh getUserMedia trackIds, which the SFU treats as new ingest
-// (and "ended via renegotiation" for the old IDs). The connect
-// watchdog still owns the hard-reset path for genuinely stuck PCs.
-export const OFFER_ACK_TIMEOUT_MS = 5000;
-export const OFFER_RETRY_LIMIT = 3;
-// Remote video tracks can briefly enter muted while the browser wires RTP
-// to the decoder, especially right after SDP/ICE completes. Dropping the
-// track immediately makes the tile blink black during otherwise healthy
-// startup, so only treat a mute as removal if it persists.
 export const REMOTE_VIDEO_MUTE_GRACE_MS = 2500;
 
 export interface PeerEvents {
-  /**
-   * `originPubkey` is set when this RTC peer is forwarding a track that
-   * originated elsewhere (the SFU forwarding-pattern). Mesh peers omit it
-   * — for them the RTC remote IS the origin. The owner (`VoiceClient`)
-   * keys participant tiles by `originPubkey ?? remotePubkey`.
-   */
   onRemoteTrack(track: MediaStreamTrack, stream: MediaStream, kind: VoiceTrackKind, originPubkey?: string): void;
   onRemoteTrackEnded(trackId: string): void;
   onConnectionStateChange(state: RTCPeerConnectionState): void;
-  /** Fires when the underlying `pc` reaches `'connected'`. Used by the
-   *  client to add this pubkey to the `connectedTo` beacon list. */
   onConnectionEstablished?(): void;
-  /** Fires when the underlying `pc` leaves `'connected'` (transition to
-   *  `'failed' | 'disconnected' | 'closed'`). Used by the client to remove
-   *  this pubkey from the `connectedTo` beacon list. */
   onConnectionLost?(): void;
   onQualitySample?(sample: QualitySample): void;
-  /** Control-channel: remote sent a `hello` with their current peer list. */
   onTransitivePeers?(remotePeers: string[], remoteBuild: string): void;
-  /** Control-channel: remote sent a full current peer snapshot. */
   onControlPeerSnapshot?(remotePeers: string[]): void;
-  /** Control-channel: remote announces a peer they just connected to. */
   onControlPeerAdded?(pubkey: string): void;
-  /** Control-channel: remote announces a peer they just lost. */
   onControlPeerRemoved?(pubkey: string): void;
-  /** Control-channel detected the peer is gone (heartbeat lost / bye / channel closed).
-   *  This is the FAST hangup path — owner should tear the peer down. */
   onPeerDead?(reason: string): void;
 }
 
 export interface PeerOptions {
   remotePubkey: string;
-  /** True when our pubkey is lexicographically greater than the remote's;
-   *  the polite peer rolls back on offer glare. */
+  /** Preserved public name: the polite side is the non-initiator. */
   polite: boolean;
   sessionId: string;
-  /** Preserve muted recv-only media sections across hard resets for peers
-   *  that were explicitly bootstrapped to receive remote media. */
   bootstrapRecvOnlyMedia?: boolean;
-  /** Some legacy/SFU peers cannot initiate their side of the first offer. */
-  allowPoliteInitialOffer?: boolean;
   send: (payload: VoiceSignalPayload) => Promise<void> | void;
   events: PeerEvents;
-  /** Test/debug override. Production uses ICE_TRANSPORT_POLICY from ice-config. */
   iceTransportPolicy?: RTCIceTransportPolicy;
-  /** Optional control-channel hookup. When provided, an `obelisk-control`
-   *  RTCDataChannel is opened over the PC for fast hangup detection and
-   *  transitive peer discovery. Tests may omit to keep the Peer minimal. */
   control?: {
     selfBuild: string;
     metrics: VoiceMetrics;
-    /** Snapshot of pubkeys we're currently connected to. Sent in `hello`. */
     getCurrentPeers: () => string[];
   };
+}
+
+type SimplePeerInstance = SimplePeer.Instance;
+type SimplePeerSignal = SimplePeer.SignalData;
+
+interface LocalMedia {
+  track: MediaStreamTrack;
+  stream: MediaStream;
+}
+
+function browserWrtc(): NonNullable<SimplePeer.Options['wrtc']> {
+  const g = globalThis as typeof globalThis & {
+    RTCPeerConnection: typeof RTCPeerConnection;
+    RTCSessionDescription?: typeof RTCSessionDescription;
+    RTCIceCandidate?: typeof RTCIceCandidate;
+  };
+  const SessionDescription = g.RTCSessionDescription ?? class {
+    type: RTCSdpType;
+    sdp: string;
+    constructor(init: RTCSessionDescriptionInit) {
+      this.type = init.type;
+      this.sdp = init.sdp ?? '';
+    }
+    toJSON() { return { type: this.type, sdp: this.sdp }; }
+  } as unknown as typeof RTCSessionDescription;
+  const IceCandidate = g.RTCIceCandidate ?? class {
+    candidate: string;
+    sdpMid: string | null;
+    sdpMLineIndex: number | null;
+    usernameFragment: string | null;
+    constructor(init: RTCIceCandidateInit) {
+      this.candidate = init.candidate ?? '';
+      this.sdpMid = init.sdpMid ?? null;
+      this.sdpMLineIndex = init.sdpMLineIndex ?? null;
+      this.usernameFragment = init.usernameFragment ?? null;
+    }
+    toJSON() {
+      return {
+        candidate: this.candidate,
+        sdpMid: this.sdpMid,
+        sdpMLineIndex: this.sdpMLineIndex,
+        usernameFragment: this.usernameFragment,
+      };
+    }
+  } as unknown as typeof RTCIceCandidate;
+  return {
+    RTCPeerConnection: g.RTCPeerConnection,
+    RTCSessionDescription: SessionDescription,
+    RTCIceCandidate: IceCandidate,
+  };
+}
+
+function decodeControl(data: unknown): ControlMessage | null {
+  try {
+    if (typeof data === 'string') return JSON.parse(data) as ControlMessage;
+    if (data instanceof ArrayBuffer) return JSON.parse(new TextDecoder().decode(new Uint8Array(data))) as ControlMessage;
+    if (ArrayBuffer.isView(data)) {
+      return JSON.parse(new TextDecoder().decode(
+        new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+      )) as ControlMessage;
+    }
+    return JSON.parse(String(data)) as ControlMessage;
+  } catch {
+    return null;
+  }
 }
 
 export class Peer {
   readonly remotePubkey: string;
   readonly polite: boolean;
+  pc: RTCPeerConnection;
+
   private readonly send: PeerOptions['send'];
   private readonly events: PeerEvents;
   private readonly sessionId: string;
-  private readonly controlOpts: PeerOptions['control'];
-  private readonly bootstrapRecvOnlyMedia: boolean;
-  private readonly allowPoliteInitialOffer: boolean;
-  private iceTransportPolicy: RTCIceTransportPolicy;
-  private controlChannel: ControlChannel | null = null;
-
-  pc: RTCPeerConnection;
-
-  private makingOffer = false;
-  /**
-   * Temporarily blocks local offers while we rebuild the PC in order to
-   * accept a remote offer. Re-attaching tracks during that rebuild fires
-   * negotiationneeded; those offers must wait until the remote offer has
-   * been answered.
-   */
-  private negotiationSuppressed = false;
-  /**
-   * Set when local media changes while the PC cannot create an offer yet
-   * (e.g. while answering a remote data-only offer). Flushed as soon as the
-   * signaling state returns to stable so remote peers do not stay avatar-only.
-   */
-  private negotiationQueued = false;
-  // Monotonic marker for local changes that actually require a new local offer.
-  // Native negotiationneeded can also fire after answers with no local change;
-  // honoring those spurious events creates an offer/answer storm.
-  private negotiationRevision = 0;
-  private offeredNegotiationRevision = 0;
-  private ignoreOffer = false;
-  private outboundSeq = 0;
-  /** Track-id → kind, applied in `ontrack`. Sender announces via `trackInfo`. */
+  private readonly control: PeerOptions['control'];
+  private readonly iceTransportPolicy: RTCIceTransportPolicy;
+  private readonly initiator: boolean;
+  private recvOnlyBootstrapped = false;
+  private readonly simple: SimplePeerInstance;
+  private localMedia = new Map<VoiceTrackKind, LocalMedia>();
   private remoteTrackKinds = new Map<string, VoiceTrackKind>();
-  /** Track-id → origin pubkey, set when the SFU forwards a track. Same
-   *  trackInfo path as the kind map; populated only when `originPubkey`
-   *  was present on the inbound payload. */
   private remoteTrackOrigins = new Map<string, string>();
-  /** Senders we've added so we can replace/remove them when toggling cam/screen. */
-  private localSenders = new Map<VoiceTrackKind, RTCRtpSender>();
-  /** Tracks we've attached, kept here separately so we can re-attach them on
-   *  hard reset. The local sender map is rebuilt as part of that re-attach. */
-  private localTracks = new Map<VoiceTrackKind, MediaStreamTrack>();
-  private remoteStreams = new Map<string, MediaStream>();
   private remoteVideoMuteTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private outboundSeq = 0;
+  private connected = false;
+  private controlStarted = false;
   private closed = false;
-  /** Mirrors whether the underlying `pc` is currently in `'connected'`.
-   *  Drives the `onConnectionEstablished` / `onConnectionLost` edges so
-   *  the owner doesn't have to track them itself. */
-  private wasConnected = false;
-  /** Cap requested by the remote peer for our outbound video. */
-  private inboundCap: VoiceQualityHint | null = null;
-  /** Cap chosen locally for our outbound video (user picked 720p, etc). */
   private localVideoCap: { maxBitrate: number | null; maxFramerate: number } | null = null;
+  private inboundCap: VoiceQualityHint | null = null;
+  private connectWatchdog: ReturnType<typeof setTimeout> | null = null;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private snapshotTimer: ReturnType<typeof setInterval> | null = null;
+  private deadTimer: ReturnType<typeof setTimeout> | null = null;
   private statsMonitor: StatsMonitorHandle | null = null;
-
-  // Reconnect state.
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private reconnectAttempts = 0;
-  private connectWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
-  /**
-   * Outstanding offer-ack watchdog. Armed each time we send an offer.
-   * Cleared when signalingState returns to 'stable' (answer applied).
-   * If it fires we resend the same SDP — see OFFER_ACK_TIMEOUT_MS.
-   */
-  private offerAckTimer: ReturnType<typeof setTimeout> | null = null;
-  private offerRetryAttempts = 0;
-
-  /**
-   * Last `sessionId` we observed in any signal from the remote peer.
-   * If a fresh signal arrives with a different sessionId we know the
-   * remote side rebuilt their PeerConnection (e.g. werift SFU restart,
-   * crash, or requestReset response) and our local PC's m-line order /
-   * negotiated codecs no longer match — applying the new offer would fail
-   * with "order of m-lines doesn't match". A session change therefore
-   * triggers a local hard reset so we negotiate fresh.
-   */
-  private remoteSessionId: string | null = null;
-
-  /**
-   * ICE candidates received before `setRemoteDescription` was applied
-   * have nowhere to go — `addIceCandidate` rejects with
-   * "The remote description was null". Buffer them here until the
-   * offer/answer lands, then drain in order.
-   */
-  private pendingIce: RTCIceCandidateInit[] = [];
-  private pendingLocalIce: RTCIceCandidateInit[] = [];
-  private localIceFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(opts: PeerOptions) {
     this.remotePubkey = opts.remotePubkey;
@@ -239,1049 +152,337 @@ export class Peer {
     this.send = opts.send;
     this.events = opts.events;
     this.sessionId = opts.sessionId;
-    this.controlOpts = opts.control;
-    this.bootstrapRecvOnlyMedia = opts.bootstrapRecvOnlyMedia ?? false;
-    this.allowPoliteInitialOffer = opts.allowPoliteInitialOffer ?? false;
+    this.control = opts.control;
     this.iceTransportPolicy = opts.iceTransportPolicy ?? ICE_TRANSPORT_POLICY;
-    this.pc = this.createPc();
-    this.attachControlChannel();
-    this.armConnectWatchdog();
+    this.initiator = !this.polite;
+    this.simple = this.createSimplePeer();
+    this.pc = this.rawPc();
   }
 
-  /** Lazily build the control channel for the current `pc`. Called from
-   *  the constructor and from `performHardReset` when `pc` is replaced. */
-  private attachControlChannel(): void {
-    if (!this.controlOpts) return;
-    if (this.closed) return;
-    // Polite/impolite for the data channel mirrors the SDP polite/impolite
-    // — only one side may call `createDataChannel` to avoid two parallel
-    // channels per peer pair. Our SDP `polite` means "I roll back on
-    // glare"; that side is therefore the one that does NOT create.
-    const impolite = !this.polite;
-    this.controlChannel = new ControlChannel({
-      pc: this.pc,
-      impolite,
-      sessionId: this.sessionId,
-      selfBuild: this.controlOpts.selfBuild,
-      remotePubkey: this.remotePubkey,
-      initialPeers: this.controlOpts.getCurrentPeers,
-      metrics: this.controlOpts.metrics,
-      events: {
-        onHello: (peers, build) => {
-          try { this.events.onTransitivePeers?.(peers, build); }
-          catch (e) { console.warn('[voice] onTransitivePeers threw', e); }
-        },
-        onPeerSnapshot: (peers) => {
-          try { this.events.onControlPeerSnapshot?.(peers); }
-          catch (e) { console.warn('[voice] onControlPeerSnapshot threw', e); }
-        },
-        onPeerAdded: (pubkey) => {
-          try { this.events.onControlPeerAdded?.(pubkey); }
-          catch (e) { console.warn('[voice] onControlPeerAdded threw', e); }
-        },
-        onPeerRemoved: (pubkey) => {
-          try { this.events.onControlPeerRemoved?.(pubkey); }
-          catch (e) { console.warn('[voice] onControlPeerRemoved threw', e); }
-        },
-        onBye: (reason) => {
-          try { this.events.onPeerDead?.(`bye:${reason}`); }
-          catch (e) { console.warn('[voice] onPeerDead threw', e); }
-        },
-        onDead: (reason) => {
-          try { this.events.onPeerDead?.(reason); }
-          catch (e) { console.warn('[voice] onPeerDead threw', e); }
-        },
-        onRtt: () => { /* metrics updated inside ControlChannel */ },
+  private createSimplePeer(): SimplePeerInstance {
+    const simple = new SimplePeer({
+      initiator: this.initiator,
+      trickle: true,
+      wrtc: browserWrtc(),
+      config: {
+        iceServers: ICE_SERVERS,
+        iceTransportPolicy: this.iceTransportPolicy,
+        iceCandidatePoolSize: 4,
       },
+      channelName: CONTROL_CHANNEL_LABEL,
+      channelConfig: { ordered: true },
     });
-  }
+    const pc = (simple as SimplePeerInstance & { _pc: RTCPeerConnection })._pc;
+    const nativeStateHandler = pc.onconnectionstatechange;
+    pc.onconnectionstatechange = (event) => {
+      nativeStateHandler?.call(pc, event);
+      this.handleConnectionState(pc.connectionState);
+    };
 
-  /** Owner broadcasts: tell the remote we just connected to / lost a peer. */
-  broadcastControl(msg: ControlMessage): void {
-    this.controlChannel?.send(msg);
-  }
-
-  /** True iff the control channel is open and ready. Tests + dial loop. */
-  isControlOpen(): boolean {
-    return this.controlChannel?.isOpen() ?? false;
-  }
-
-  private createPc(): RTCPeerConnection {
-    const pc = new RTCPeerConnection({
-      iceServers: ICE_SERVERS,
-      iceTransportPolicy: this.iceTransportPolicy,
-      iceCandidatePoolSize: ICE_CANDIDATE_POOL_SIZE,
+    simple.on('signal', (data) => {
+      void this.sendSignal({ type: 'peer', peerSignal: data }).catch((error) => {
+        console.warn('[voice] simple-peer signal publish failed', error);
+      });
     });
-    if (typeof console !== 'undefined') {
-      console.log('[voice] new PC for', this.remotePubkey.slice(0, 8), 'iceServers=', ICE_SERVERS.map(s => s.urls), 'policy=', this.iceTransportPolicy);
-    }
+    simple.on('track', (track, stream) => this.handleRemoteTrack(track, stream));
+    simple.on('connect', () => {
+      this.handleConnected();
+      this.startControl();
+    });
+    simple.on('data', (data) => this.handleControl(decodeControl(data)));
+    simple.on('error', (error) => {
+      console.warn('[voice] simple-peer error for', this.remotePubkey.slice(0, 8), error);
+    });
+    simple.on('close', () => {
+      if (!this.closed) this.handleConnectionState('closed');
+    });
 
-    pc.onnegotiationneeded = () => {
-      console.log('[voice] negotiationneeded for', this.remotePubkey.slice(0, 8), 'state=', pc.signalingState);
-      if (!this.hasPendingLocalNegotiation()) {
-        console.log('[voice] negotiationneeded ignored — no local change for', this.remotePubkey.slice(0, 8));
-        return;
-      }
-      void this.kickNegotiation();
-    };
-
-    pc.onicecandidate = ({ candidate }) => {
-      if (!candidate) {
-        void this.flushLocalIceCandidates();
-        return;
-      }
-      this.queueLocalIceCandidate(candidate.toJSON());
-    };
-
-    // Once an answer is applied (or the PC otherwise leaves
-    // 'have-local-offer'), our offer reached the remote. Clear the
-    // watchdog so a subsequent renegotiation starts with a fresh
-    // retry counter.
-    pc.onsignalingstatechange = () => {
-      if (pc.signalingState === 'stable') {
-        this.clearOfferAckWatchdog(true);
-        this.flushQueuedNegotiation();
-      }
-    };
-
-    pc.ontrack = (ev) => {
-      const stream = ev.streams[0] ?? new MediaStream([ev.track]);
-      this.remoteStreams.set(ev.track.id, stream);
-      const kind = this.remoteTrackKinds.get(ev.track.id)
-        ?? (ev.track.kind === 'audio' ? 'audio' : 'camera');
-      const origin = this.remoteTrackOrigins.get(ev.track.id);
-      console.log('[voice] ontrack', kind, 'from', this.remotePubkey.slice(0, 8),
-        origin ? `origin=${origin.slice(0, 8)}` : '');
-      ev.track.onended = () => {
-        this.clearRemoteVideoMuteTimer(ev.track.id);
-        this.events.onRemoteTrackEnded(ev.track.id);
-        this.remoteStreams.delete(ev.track.id);
-        this.remoteTrackKinds.delete(ev.track.id);
-        this.remoteTrackOrigins.delete(ev.track.id);
-      };
-      // When the sender calls `pc.removeTrack(...)` (camera off, screen-share
-      // ended, peer dropped without a clean bye), the receiver does NOT get
-      // an `ended` event — only `mute`. Keep short startup mutes attached so
-      // the UI does not blink black during normal decoder warm-up, but drop
-      // the track if the mute persists and the sender is probably gone/off.
-      // Audio mute is intentionally ignored — silent audio is still valid
-      // playback state and the speaking detector handles silence on its own.
-      if (kind === 'camera' || kind === 'screen') {
-        ev.track.onmute = () => {
-          console.log('[voice] remote', kind, 'muted from', this.remotePubkey.slice(0, 8));
-          this.clearRemoteVideoMuteTimer(ev.track.id);
-          const timer = setTimeout(() => {
-            this.remoteVideoMuteTimers.delete(ev.track.id);
-            if (this.closed) return;
-            if (ev.track.readyState === 'ended') return;
-            if ('muted' in ev.track && !ev.track.muted) return;
-            this.events.onRemoteTrackEnded(ev.track.id);
-          }, REMOTE_VIDEO_MUTE_GRACE_MS);
-          this.remoteVideoMuteTimers.set(ev.track.id, timer);
-        };
-        ev.track.onunmute = () => {
-          console.log('[voice] remote', kind, 'unmuted from', this.remotePubkey.slice(0, 8));
-          this.clearRemoteVideoMuteTimer(ev.track.id);
-          // Re-emit the same track + stream — the React layer keys on
-          // trackId, so this is an upsert not a duplicate.
-          this.events.onRemoteTrack(ev.track, stream, kind, origin);
-        };
-      }
-      this.events.onRemoteTrack(ev.track, stream, kind, origin);
-    };
-
-    pc.onconnectionstatechange = () => {
-      console.log('[voice] connectionState', pc.connectionState, 'peer', this.remotePubkey.slice(0, 8));
-      this.events.onConnectionStateChange(pc.connectionState);
-      this.handleConnectionStateChange(pc.connectionState);
-    };
-
-    return pc;
-  }
-
-  // ── Connection state + reconnect ────────────────────────────────────────
-
-  private handleConnectionStateChange(state: RTCPeerConnectionState): void {
-    if (state === 'connected') {
-      // Apply encoder caps now that ICE/DTLS are up. Calling setParameters
-      // during negotiation works on Chrome but throws InvalidStateError on
-      // some Safari/Android builds; deferring to 'connected' is safe.
-      void this.applyAudioSenderParams();
-      void this.applyVideoSenderParams();
-      if (!this.statsMonitor && this.events.onQualitySample) {
-        this.statsMonitor = startStatsMonitor(this.pc, (s) => this.events.onQualitySample?.(s));
-      }
-      this.clearRecoveryTimers();
-      if (!this.wasConnected) {
-        this.wasConnected = true;
-        try { this.events.onConnectionEstablished?.(); } catch (e) { console.warn('[voice] onConnectionEstablished threw', e); }
-      }
-      return;
-    }
-
-    if (state === 'failed' || state === 'disconnected') {
-      if (this.wasConnected) {
-        this.wasConnected = false;
-        try { this.events.onConnectionLost?.(); } catch (e) { console.warn('[voice] onConnectionLost threw', e); }
-      }
-      if (state === 'failed' && this.relaxRelayOnlyIcePolicy()) return;
-      this.scheduleReconnect();
-      return;
-    }
-
-    if (state === 'closed') {
-      if (this.statsMonitor) { this.statsMonitor.stop(); this.statsMonitor = null; }
-      if (this.wasConnected) {
-        this.wasConnected = false;
-        try { this.events.onConnectionLost?.(); } catch (e) { console.warn('[voice] onConnectionLost threw', e); }
-      }
-      // No reconnect on explicit close — owner is tearing down.
-    }
-  }
-
-  private relaxRelayOnlyIcePolicy(): boolean {
-    if (this.iceTransportPolicy !== 'relay') return false;
-    this.iceTransportPolicy = 'all';
-    console.warn('[voice] relay-only ICE failed for', this.remotePubkey.slice(0, 8),
-      '— retrying with policy=all');
-    this.performHardReset();
-    return true;
-  }
-
-  private armConnectWatchdog(): void {
-    if (this.closed) return;
-    if (this.connectWatchdogTimer) clearTimeout(this.connectWatchdogTimer);
-    this.connectWatchdogTimer = setTimeout(() => {
-      this.connectWatchdogTimer = null;
-      if (this.closed) return;
-      if (this.pc.connectionState === 'connected') return;
-      console.warn('[voice] initial connect timeout for', this.remotePubkey.slice(0, 8),
-        '— state:', this.pc.connectionState, 'polite:', this.polite);
-      if (this.polite) {
-        this.requestRemoteReset();
-        this.scheduleReconnect();
-        return;
-      }
-      this.performHardReset();
+    this.connectWatchdog = setTimeout(() => {
+      this.connectWatchdog = null;
+      if (!this.closed && !this.connected) this.events.onPeerDead?.('open-timeout');
     }, INITIAL_CONNECT_TIMEOUT_MS);
+    console.log('[voice] simple-peer PC', this.remotePubkey.slice(0, 8), 'initiator=', this.initiator);
+    return simple;
   }
 
-  private clearRecoveryTimers(): void {
-    this.reconnectAttempts = 0;
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    if (this.connectWatchdogTimer) {
-      clearTimeout(this.connectWatchdogTimer);
-      this.connectWatchdogTimer = null;
-    }
+  private rawPc(): RTCPeerConnection {
+    return (this.simple as SimplePeerInstance & { _pc: RTCPeerConnection })._pc;
   }
 
-  private scheduleReconnect(): void {
+  private async sendSignal(payload: Omit<VoiceSignalPayload, 'sessionId' | 'seq'>): Promise<void> {
     if (this.closed) return;
-    if (this.reconnectTimer) return;
-    if (this.pc.connectionState === 'connected') return;
-
-    const delays = this.polite ? POLITE_RESET_DELAYS_MS : RECONNECT_DELAYS_MS;
-    const delay = delays[Math.min(this.reconnectAttempts, delays.length - 1)];
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      if (this.closed) return;
-      const state = this.pc.connectionState;
-      if (state === 'connected') {
-        this.reconnectAttempts = 0;
-        return;
-      }
-      this.reconnectAttempts += 1;
-      if (this.polite) {
-        this.requestRemoteReset();
-      } else if (this.reconnectAttempts <= ICE_RESTART_LIMIT) {
-        this.performIceRestart();
-      } else {
-        this.performHardReset();
-      }
-      // Schedule the next attempt — if this one doesn't land, try again.
-      this.scheduleReconnect();
-    }, delay);
+    await this.send({ ...payload, sessionId: this.sessionId, seq: ++this.outboundSeq });
   }
 
-  private requestRemoteReset(): void {
-    console.log('[voice] requesting remote reset from', this.remotePubkey.slice(0, 8),
-      'attempt', this.reconnectAttempts);
-    void this.sendSignal({
-      type: 'requestReset',
+  private handleConnectionState(state: RTCPeerConnectionState): void {
+    this.events.onConnectionStateChange(state);
+    if (state === 'connected') this.handleConnected();
+    if (state === 'failed' || state === 'disconnected' || state === 'closed') {
+      if (this.connected) {
+        this.connected = false;
+        this.events.onConnectionLost?.();
+      }
+    }
+  }
+
+  private handleConnected(): void {
+    if (this.closed || this.connected) return;
+    this.connected = true;
+    if (this.connectWatchdog) {
+      clearTimeout(this.connectWatchdog);
+      this.connectWatchdog = null;
+    }
+    this.events.onConnectionEstablished?.();
+    if (this.events.onQualitySample) {
+      this.statsMonitor = startStatsMonitor(this.pc, this.events.onQualitySample);
+    }
+  }
+
+  private startControl(): void {
+    if (!this.control || this.controlStarted || this.closed) return;
+    this.controlStarted = true;
+    this.broadcastControl({
+      type: 'hello',
+      peers: this.control.getCurrentPeers(),
       sessionId: this.sessionId,
-      seq: ++this.outboundSeq,
+      build: this.control.selfBuild,
     });
+    this.armDeadTimer();
+    this.pingTimer = setInterval(
+      () => this.broadcastControl({ type: 'ping', ts: Date.now() }),
+      PING_INTERVAL_MS,
+    );
+    this.snapshotTimer = setInterval(
+      () => this.broadcastControl({
+        type: 'peerSnapshot',
+        peers: this.control?.getCurrentPeers() ?? [],
+        ts: Date.now(),
+      }),
+      PEER_SNAPSHOT_INTERVAL_MS,
+    );
+    this.control.metrics.controlChannel.opened++;
   }
 
-  private performIceRestart(): void {
-    console.log('[voice] ICE restart for', this.remotePubkey.slice(0, 8),
-      'attempt', this.reconnectAttempts);
-    try {
-      this.pc.restartIce();
-      this.markNegotiationNeeded('ice-restart');
-    } catch (err) {
-      console.warn('[voice] restartIce failed:', err);
-    }
-  }
-
-  /**
-   * Close the current PC, build a fresh one, and re-attach every local
-   * track. The new PC's `addTrack` calls fire `onnegotiationneeded`, which
-   * drives a fresh offer through the existing signaling path.
-   */
-  private performHardReset(options: { kickNegotiationAfterReset?: boolean } = {}): void {
-    if (this.closed) return;
-    const kickNegotiationAfterReset = options.kickNegotiationAfterReset ?? true;
-    console.log('[voice] hard reset for', this.remotePubkey.slice(0, 8));
-    if (this.statsMonitor) { this.statsMonitor.stop(); this.statsMonitor = null; }
-    this.clearRemoteVideoMuteTimers();
-    // Detach the old PC's handlers BEFORE closing it. `pc.close()` fires
-    // `onconnectionstatechange('closed')` and the owner (`VoiceClient`)
-    // treats a closed state as "the ladder gave up" and tears the Peer
-    // down — which would orphan the brand-new PC we're about to install.
-    // Nulling the handlers first makes the close silent so the Peer keeps
-    // running with the fresh PC.
-    try {
-      this.pc.onconnectionstatechange = null;
-      this.pc.onicecandidate = null;
-      this.pc.ontrack = null;
-      this.pc.onnegotiationneeded = null;
-    } catch { /* ignore — old browsers may not allow null assignment */ }
-    try { this.pc.close(); } catch { /* already closed */ }
-    this.clearLocalIceBatch();
-    this.clearOfferAckWatchdog(false);
-    // Tear down the control channel attached to the old PC; the new
-    // attachControlChannel() below will install a fresh one on the new pc.
-    if (this.controlChannel) {
-      try { this.controlChannel.close('hard-reset'); } catch { /* ignore */ }
-      this.controlChannel = null;
-    }
-    // localSenders refer to the old PC; clear them so re-add creates new ones.
-    this.localSenders.clear();
-    this.makingOffer = false;
-    this.negotiationQueued = false;
-    this.offeredNegotiationRevision = this.negotiationRevision;
-    this.ignoreOffer = false;
-    this.pendingIce.length = 0;
-    this.pc = this.createPc();
-    this.attachControlChannel();
-    // If this peer was explicitly bootstrapped for muted receive, preserve
-    // those recv-only media sections across a reset. Video first matches the
-    // mesh test peer's sendonly order and keeps m-line ordering stable.
-    if (this.bootstrapRecvOnlyMedia && this.localTracks.size === 0) {
-      try {
-        this.pc.addTransceiver('video', { direction: 'recvonly' });
-        this.pc.addTransceiver('audio', { direction: 'recvonly' });
-      } catch (e) {
-        console.warn('[voice] hardReset addTransceiver recvonly failed', e);
-      }
-    }
-    // Re-attach saved local tracks. addTrack fires onnegotiationneeded, but
-    // we also kickNegotiation explicitly so the first offer reliably ships.
-    for (const [kind, track] of this.localTracks.entries()) {
-      try {
-        const sender = this.pc.addTrack(track);
-        this.localSenders.set(kind, sender);
-      } catch (e) {
-        console.warn('[voice] re-addTrack failed', kind, e);
-      }
-      // Re-announce track kind so the receiver still slots it correctly.
-      void this.sendSignal({
-        type: 'trackinfo',
-        trackInfo: { trackId: track.id, kind },
-        sessionId: this.sessionId,
-        seq: ++this.outboundSeq,
+  private handleRemoteTrack(track: MediaStreamTrack, stream: MediaStream): void {
+    const kind = this.remoteTrackKinds.get(track.id) ?? (track.kind === 'audio' ? 'audio' : 'camera');
+    this.events.onRemoteTrack(track, stream, kind, this.remoteTrackOrigins.get(track.id));
+    const ended = () => {
+      const timer = this.remoteVideoMuteTimers.get(track.id);
+      if (timer) clearTimeout(timer);
+      this.remoteVideoMuteTimers.delete(track.id);
+      this.events.onRemoteTrackEnded(track.id);
+    };
+    track.addEventListener('ended', ended, { once: true });
+    if (kind === 'camera' || kind === 'screen') {
+      track.addEventListener('mute', () => {
+        const previous = this.remoteVideoMuteTimers.get(track.id);
+        if (previous) clearTimeout(previous);
+        this.remoteVideoMuteTimers.set(track.id, setTimeout(ended, REMOTE_VIDEO_MUTE_GRACE_MS));
+      });
+      track.addEventListener('unmute', () => {
+        const timer = this.remoteVideoMuteTimers.get(track.id);
+        if (timer) clearTimeout(timer);
+        this.remoteVideoMuteTimers.delete(track.id);
       });
     }
-    this.armConnectWatchdog();
-    if (kickNegotiationAfterReset) {
-      this.markNegotiationNeeded('hard-reset');
+  }
+
+  broadcastControl(message: ControlMessage): void {
+    if (!this.simple.connected) return;
+    try { this.simple.send(JSON.stringify(message)); } catch { /* best effort */ }
+  }
+
+  isControlOpen(): boolean {
+    return this.simple.connected;
+  }
+
+  private handleControl(message: ControlMessage | null): void {
+    if (!message || typeof message.type !== 'string') return;
+    this.armDeadTimer();
+    switch (message.type) {
+      case 'hello':
+        this.events.onTransitivePeers?.(Array.isArray(message.peers) ? message.peers : [], message.build ?? '');
+        break;
+      case 'peerSnapshot':
+        this.events.onControlPeerSnapshot?.(Array.isArray(message.peers) ? message.peers : []);
+        break;
+      case 'peerAdded':
+        if (typeof message.pubkey === 'string') this.events.onControlPeerAdded?.(message.pubkey);
+        break;
+      case 'peerRemoved':
+        if (typeof message.pubkey === 'string') this.events.onControlPeerRemoved?.(message.pubkey);
+        break;
+      case 'bye':
+        this.events.onPeerDead?.(`bye:${message.reason ?? 'remote-bye'}`);
+        break;
+      case 'ping':
+        this.broadcastControl({ type: 'pong', ts: Date.now(), echoTs: message.ts });
+        break;
+      case 'pong':
+        if (this.control) {
+          this.control.metrics.controlChannel.pongRcvd++;
+          this.control.metrics.controlChannel.lastRttMs = Math.max(0, Date.now() - message.echoTs);
+        }
+        break;
     }
   }
 
-  // ── Signaling ───────────────────────────────────────────────────────────
-
-  /** Drain any ICE candidates that arrived before remoteDescription was set. */
-  private async flushPendingIce(): Promise<void> {
-    if (this.pendingIce.length === 0) return;
-    const drained = this.pendingIce.slice();
-    this.pendingIce.length = 0;
-    for (const cand of drained) {
-      try {
-        await this.pc.addIceCandidate(cand);
-      } catch (err) {
-        if (!this.ignoreOffer) console.warn('[voice] flushPendingIce add failed', err);
-      }
-    }
+  private armDeadTimer(): void {
+    if (!this.control) return;
+    if (this.deadTimer) clearTimeout(this.deadTimer);
+    this.deadTimer = setTimeout(() => {
+      this.deadTimer = null;
+      if (!this.closed) this.events.onPeerDead?.('heartbeat-lost');
+    }, DEAD_PEER_TIMEOUT_MS);
   }
 
-  private async sendSignal(payload: VoiceSignalPayload): Promise<void> {
-    try {
-      await this.send(payload);
-    } catch (e) {
-      console.error('[voice] signal send failed', e);
-    }
-  }
-
-  private queueLocalIceCandidate(candidate: RTCIceCandidateInit): void {
-    if (this.closed) return;
-    this.pendingLocalIce.push(candidate);
-    if (this.localIceFlushTimer) return;
-    this.localIceFlushTimer = setTimeout(() => {
-      this.localIceFlushTimer = null;
-      void this.flushLocalIceCandidates();
-    }, ICE_CANDIDATE_BATCH_MS);
-    (this.localIceFlushTimer as unknown as { unref?: () => void }).unref?.();
-  }
-
-  private async flushLocalIceCandidates(): Promise<void> {
-    if (this.localIceFlushTimer) {
-      clearTimeout(this.localIceFlushTimer);
-      this.localIceFlushTimer = null;
-    }
-    if (this.closed || this.pendingLocalIce.length === 0) return;
-    const candidates = this.pendingLocalIce.splice(0);
-    await this.sendSignal({
-      type: 'ice',
-      candidates,
-      sessionId: this.sessionId,
-      seq: ++this.outboundSeq,
-    });
-  }
-
-  private clearLocalIceBatch(): void {
-    if (this.localIceFlushTimer) {
-      clearTimeout(this.localIceFlushTimer);
-      this.localIceFlushTimer = null;
-    }
-    this.pendingLocalIce.length = 0;
-  }
-
-  private isRemoteOfferMlineOrderError(error: unknown): boolean {
-    const name = typeof error === 'object' && error !== null && 'name' in error
-      ? String((error as { name?: unknown }).name ?? '')
-      : '';
-    const message = error instanceof Error ? error.message : String(error);
-    return name === 'InvalidAccessError'
-      && /m-?lines?/i.test(message)
-      && /order/i.test(message);
-  }
-
-  private async applyRemoteOffer(sdp: string): Promise<void> {
-    try {
-      await this.pc.setRemoteDescription({ type: 'offer', sdp });
-      return;
-    } catch (error) {
-      if (!this.isRemoteOfferMlineOrderError(error)) throw error;
-      console.warn('[voice] remote offer m-line order changed for',
-        this.remotePubkey.slice(0, 8), '— rebuilding PC before applying offer');
-      this.remoteTrackKinds.clear();
-      this.remoteTrackOrigins.clear();
-      this.negotiationSuppressed = true;
-      this.performHardReset({ kickNegotiationAfterReset: false });
-      try {
-        await this.pc.setRemoteDescription({ type: 'offer', sdp });
-      } finally {
-        this.negotiationSuppressed = false;
-      }
-    }
-  }
-
-  /**
-   * Add or replace a local track of a given kind. Returns nothing — the
-   * caller doesn't need the sender; we keep it internally for setParameters
-   * + replaceTrack on the same kind.
-   */
   async setLocalTrack(kind: VoiceTrackKind, track: MediaStreamTrack | null): Promise<void> {
     if (this.closed) return;
-    const existing = this.localSenders.get(kind);
-    if (track === null) {
-      if (existing) {
-        try { this.pc.removeTrack(existing); } catch { /* may already be gone */ }
-        this.localSenders.delete(kind);
-        this.markNegotiationNeeded('local-track-removed:' + kind);
-      }
-      this.localTracks.delete(kind);
-      return;
+    const current = this.localMedia.get(kind);
+    if (current?.track === track) return;
+    if (track) {
+      await this.sendSignal({ type: 'trackinfo', trackInfo: { trackId: track.id, kind } });
     }
-    this.localTracks.set(kind, track);
-    let needsNegotiation = false;
-    // Attach the track to the PC FIRST. The trackinfo announcement is
-    // best-effort metadata for the UI; previously we awaited the relay
-    // round-trip before addTrack, which let a racing remote offer trigger
-    // an answer with no outgoing audio (causing "I see them but they can't
-    // hear me" on the second joiner). The sender carries media — get it
-    // onto the PC immediately, label it asynchronously.
-    if (existing) {
-      try { await existing.replaceTrack(track); } catch (e) { console.warn('[voice] replaceTrack failed', e); }
-    } else {
-      try {
-        const sender = this.pc.addTrack(track);
-        this.localSenders.set(kind, sender);
-        needsNegotiation = true;
-        // Bias the offer SDP toward modern codecs (VP9 → H.264 → VP8) for
-        // the new transceiver. setCodecPreferences must run BEFORE the
-        // first setLocalDescription on this transceiver, which we're
-        // about to do via kickNegotiation/onnegotiationneeded.
-        if (track.kind === 'video') {
-          applyVideoCodecPreference(this.pc, sender);
-        }
-      } catch (e) {
-        console.warn('[voice] addTrack failed', e);
-        return;
-      }
+    if (current && track) {
+      this.simple.replaceTrack(current.track, track, current.stream);
+      this.localMedia.set(kind, { track, stream: current.stream });
+    } else if (current) {
+      this.simple.removeTrack(current.track, current.stream);
+      this.localMedia.delete(kind);
+    } else if (track) {
+      const stream = new MediaStream([track]);
+      this.simple.addTrack(track, stream);
+      this.localMedia.set(kind, { track, stream });
     }
-    // Encoder caps are applied from `handleConnectionStateChange` when state
-    // hits 'connected', and again whenever the user changes quality. Calling
-    // setParameters here can throw on Safari/Android during negotiation.
-
-    // Fire-and-forget: receiver only needs trackinfo to label the tile.
-    void this.sendSignal({
-      type: 'trackinfo',
-      trackInfo: { trackId: track.id, kind },
-      sessionId: this.sessionId,
-      seq: ++this.outboundSeq,
-    });
-    // `addTrack` should fire `onnegotiationneeded` automatically, but the
-    // event is best-effort: some browsers debounce or skip it when called
-    // immediately after PC creation. Kick negotiation explicitly so the
-    // first offer reliably reaches the remote.
-    if (needsNegotiation) {
-      this.markNegotiationNeeded('local-track-added:' + kind);
-    }
+    if (kind === 'audio') await this.applyAudioSenderParams();
+    if (kind === 'camera' || kind === 'screen') await this.applyVideoSenderParams(kind);
   }
 
-  /** Force the current PC to send an offer without adding media sections. */
-  async kickControlOffer(): Promise<void> {
-    this.markNegotiationNeeded('control-offer');
-    await this.kickNegotiation();
+  /** The deterministic simple-peer initiator creates offers automatically. */
+  async kickControlOffer(): Promise<void> { this.bootstrapRecvOnly(); }
+  async kickInitialOffer(): Promise<void> { this.bootstrapRecvOnly(); }
+
+  private bootstrapRecvOnly(): void {
+    if (this.recvOnlyBootstrapped || this.closed) return;
+    this.recvOnlyBootstrapped = true;
+    this.simple.addTransceiver('video', { direction: 'recvonly' });
+    this.simple.addTransceiver('audio', { direction: 'recvonly' });
   }
 
-  /**
-   * Send an initial offer even when no local tracks are attached. Muted mesh
-   * joins still need recv-only media m-lines so remote audio/video can arrive
-   * before the user unmutes.
-   */
-  async kickInitialOffer(): Promise<void> {
-    if (this.closed) return;
-    // Only useful when no senders have been added (otherwise setLocalTrack
-    // already kicked). Add recvonly transceivers so the SDP has m-sections.
-    if (this.localSenders.size === 0) {
-      try {
-        const hasAudio = this.pc.getTransceivers().some((t) => t.receiver?.track?.kind === 'audio');
-        const hasVideo = this.pc.getTransceivers().some((t) => t.receiver?.track?.kind === 'video');
-        // Match the synthetic mesh peer's video/audio order so werift does
-        // not reject the initial muted browser offer on m-line ordering.
-        if (!hasVideo) this.pc.addTransceiver('video', { direction: 'recvonly' });
-        if (!hasAudio) this.pc.addTransceiver('audio', { direction: 'recvonly' });
-      } catch (e) {
-        console.warn('[voice] addTransceiver recvonly failed', e);
-      }
-    }
-    this.markNegotiationNeeded('initial-offer');
-    await this.kickNegotiation();
-  }
-
-  private hasPendingLocalNegotiation(): boolean {
-    return this.negotiationRevision > this.offeredNegotiationRevision;
-  }
-
-  private markNegotiationNeeded(reason: string): void {
-    if (this.closed) return;
-    this.negotiationRevision += 1;
-    console.log('[voice] negotiation requested —', reason, 'peer', this.remotePubkey.slice(0, 8),
-      'rev=', this.negotiationRevision);
-    queueMicrotask(() => { void this.kickNegotiation(); });
-  }
-
-  /**
-   * Remember that negotiation is needed once the PC can legally create
-   * another offer. This is the answering-side media race: a remote peer can
-   * send a data-only offer while we are attaching camera/screen tracks.
-   */
-  private queueNegotiation(reason: string): void {
-    if (this.closed) return;
-    this.negotiationQueued = true;
-    console.log('[voice] negotiation queued —', reason, 'peer', this.remotePubkey.slice(0, 8));
-  }
-
-  private flushQueuedNegotiation(): void {
-    if (this.closed) return;
-    if (!this.negotiationQueued && !this.hasPendingLocalNegotiation()) return;
-    if (this.makingOffer || this.pc.signalingState !== 'stable') return;
-    this.negotiationQueued = false;
-    if (!this.hasPendingLocalNegotiation()) return;
-    queueMicrotask(() => { void this.kickNegotiation(); });
-  }
-
-  /**
-   * Force an SDP offer if the PC is stable. If the PC is currently answering
-   * or waiting for an answer, queue one retry for the next stable transition.
-   */
-  private async kickNegotiation(): Promise<void> {
-    if (this.closed) return;
-    const revisionToOffer = this.negotiationRevision;
-    if (revisionToOffer <= this.offeredNegotiationRevision) {
-      console.log('[voice] kickNegotiation skip — no local change for', this.remotePubkey.slice(0, 8));
-      return;
-    }
-    if (this.negotiationSuppressed) {
-      this.queueNegotiation('remote-offer-reset');
-      return;
-    }
-    if (this.makingOffer) {
-      console.log('[voice] kickNegotiation skip — already making offer for', this.remotePubkey.slice(0, 8));
-      this.queueNegotiation('making-offer');
-      return;
-    }
-    if (this.pc.signalingState !== 'stable') {
-      this.queueNegotiation('state=' + this.pc.signalingState);
-      return;
-    }
-    if (this.polite && !this.wasConnected && !this.allowPoliteInitialOffer) {
-      console.log('[voice] kickNegotiation skip — polite pre-connect peer waits for remote offer from', this.remotePubkey.slice(0, 8));
-      return;
-    }
-    console.log('[voice] kickNegotiation forcing offer to', this.remotePubkey.slice(0, 8));
-    try {
-      this.makingOffer = true;
-      await this.pc.setLocalDescription();
-      if (this.pc.localDescription) {
-        await this.sendSignal({
-          type: 'offer',
-          sdp: this.pc.localDescription.sdp,
-          sessionId: this.sessionId,
-          seq: ++this.outboundSeq,
-        });
-        this.offeredNegotiationRevision = Math.max(this.offeredNegotiationRevision, revisionToOffer);
-        this.armOfferAckWatchdog();
-      }
-    } catch (e) {
-      console.error('[voice] kickNegotiation failed', e);
-    } finally {
-      this.makingOffer = false;
-      this.flushQueuedNegotiation();
-    }
-  }
-
-  /**
-   * Arm the offer-ack watchdog. Only meaningful for renegotiations on a
-   * connected PC — the initial handshake is covered by the connect
-   * watchdog, and arming here on the first offer would race with that
-   * timer's hard-reset path.
-   *
-   * The watchdog fires after `OFFER_ACK_TIMEOUT_MS`; if the answer
-   * hasn't applied by then (signalingState still 'have-local-offer')
-   * we resend the same SDP. After `OFFER_RETRY_LIMIT` resends we stop
-   * resending — the connection itself is still healthy (audio still
-   * flowing), and a hard reset would lose every live track. If the
-   * underlying PC is genuinely wedged, the connection-state recovery
-   * path (failed/disconnected → scheduleReconnect) will catch it.
-   */
-  private armOfferAckWatchdog(): void {
-    if (this.closed) return;
-    if (!this.wasConnected) return;
-    if (this.offerAckTimer) clearTimeout(this.offerAckTimer);
-    this.offerAckTimer = setTimeout(() => {
-      this.offerAckTimer = null;
-      if (this.closed) return;
-      if (this.pc.signalingState !== 'have-local-offer') {
-        // Either we got an answer (back to 'stable') or the PC moved
-        // to a different state (rollback, closed). Either way, no
-        // resend needed.
-        this.offerRetryAttempts = 0;
-        return;
-      }
-      this.offerRetryAttempts += 1;
-      if (this.offerRetryAttempts > OFFER_RETRY_LIMIT) {
-        console.warn('[voice] offer never acked after', OFFER_RETRY_LIMIT,
-          'retries — giving up resends for', this.remotePubkey.slice(0, 8),
-          '(connection-state recovery path will pick up if the PC is wedged)');
-        this.offerRetryAttempts = 0;
-        return;
-      }
-      console.warn('[voice] offer not acked, resending — peer',
-        this.remotePubkey.slice(0, 8), 'attempt', this.offerRetryAttempts);
-      void this.resendCurrentOffer();
-    }, OFFER_ACK_TIMEOUT_MS);
-  }
-
-  /**
-   * Clear the offer-ack watchdog. Pass `success=true` when the answer
-   * was applied (resets the retry counter); pass `success=false` from
-   * teardown paths so the next offer starts with a fresh counter as
-   * well — the previous offer is no longer "in flight".
-   */
-  private clearOfferAckWatchdog(success: boolean): void {
-    if (this.offerAckTimer) {
-      clearTimeout(this.offerAckTimer);
-      this.offerAckTimer = null;
-    }
-    if (success) this.offerRetryAttempts = 0;
-  }
-
-  /**
-   * Re-send the SDP currently stored in `pc.localDescription`. Idempotent
-   * on the receiver — applying the same offer again is fine; the perfect-
-   * negotiation path on the remote will roll back its own pending state
-   * if any and reapply ours.
-   */
-  private async resendCurrentOffer(): Promise<void> {
-    if (this.closed) return;
-    const desc = this.pc.localDescription;
-    if (!desc || desc.type !== 'offer') return;
-    try {
-      await this.sendSignal({
-        type: 'offer',
-        sdp: desc.sdp,
-        sessionId: this.sessionId,
-        seq: ++this.outboundSeq,
-      });
-    } finally {
-      this.armOfferAckWatchdog();
-    }
-  }
-
-  /**
-   * Handle an incoming signaling payload from the remote peer. Implements
-   * the MDN perfect-negotiation pattern: polite side rolls back on glare;
-   * impolite side ignores the conflicting remote offer. Also handles the
-   * polite-side `requestReset` escalation.
-   */
   async handleSignal(payload: VoiceSignalPayload): Promise<void> {
     if (this.closed) return;
-
-    if (payload.sessionId) {
-      if (this.remoteSessionId === null) {
-        this.remoteSessionId = payload.sessionId;
-      } else if (this.remoteSessionId !== payload.sessionId) {
-        // Remote rebuilt — their m-line ordering / codec PTs may differ.
-        // Wipe trackinfo state (origin/kind maps were keyed by the old
-        // session's track ids) and hard-reset our PC before processing.
-        console.log('[voice] remote sessionId changed for', this.remotePubkey.slice(0, 8),
-          'old=', this.remoteSessionId.slice(0, 6), 'new=', payload.sessionId.slice(0, 6),
-          '— hard reset');
-        this.remoteSessionId = payload.sessionId;
-        this.remoteTrackKinds.clear();
-        this.remoteTrackOrigins.clear();
-        this.performHardReset();
-      }
+    if (payload.type === 'bye') {
+      this.events.onPeerDead?.(`bye:${payload.byeReason ?? 'remote-bye'}`);
+      return;
     }
-
-    if (payload.trackInfo) {
+    if (payload.type === 'trackinfo' && payload.trackInfo) {
       this.remoteTrackKinds.set(payload.trackInfo.trackId, payload.trackInfo.kind);
       if (payload.trackInfo.originPubkey) {
         this.remoteTrackOrigins.set(payload.trackInfo.trackId, payload.trackInfo.originPubkey);
       }
+      return;
     }
-
+    if (payload.type === 'qualityhint') {
+      this.inboundCap = payload.qualityHint ?? null;
+      await this.applyVideoSenderParams('camera');
+      await this.applyVideoSenderParams('screen');
+      return;
+    }
+    if (payload.type === 'requestReset') {
+      this.events.onPeerDead?.('reset-requested');
+      return;
+    }
     try {
-      if (payload.type === 'requestReset') {
-        // Only the impolite side actually rebuilds — that's the side that
-        // drives offers. If the polite side got this it would loop.
-        if (!this.polite) {
-          console.log('[voice] received requestReset from', this.remotePubkey.slice(0, 8), '— hard reset');
-          this.performHardReset();
+      if (payload.type === 'peer' && payload.peerSignal) {
+        this.simple.signal(payload.peerSignal as SimplePeerSignal);
+      } else if ((payload.type === 'offer' || payload.type === 'answer') && payload.sdp) {
+        this.simple.signal({ type: payload.type, sdp: payload.sdp });
+      } else if (payload.type === 'ice') {
+        for (const candidate of payload.candidates ?? []) {
+          this.simple.signal({ type: 'candidate', candidate: candidate as RTCIceCandidate });
         }
-        return;
       }
-
-      if (payload.type === 'offer' && payload.sdp) {
-        const offerCollision = this.makingOffer || this.pc.signalingState !== 'stable';
-        const localOfferWasInFlight = this.makingOffer || this.pc.signalingState === 'have-local-offer';
-        const shouldRenegotiateAfterAnswer = offerCollision && localOfferWasInFlight;
-        this.ignoreOffer = !this.polite && offerCollision;
-        console.log('[voice] handleOffer from', this.remotePubkey.slice(0, 8), 'polite=', this.polite, 'collision=', offerCollision, 'ignored=', this.ignoreOffer);
-        if (this.ignoreOffer) return;
-        // Explicit rollback before applying the remote offer when our own
-        // offer is in flight. The spec says setRemoteDescription({offer}) in
-        // 'have-local-offer' state should implicitly roll back, but some
-        // browsers leave the SDP setup attr in a bad state ("Answerer must
-        // use active or passive"). Explicit rollback avoids that.
-        if (offerCollision && this.pc.signalingState === 'have-local-offer') {
-          try { await this.pc.setLocalDescription({ type: 'rollback' }); }
-          catch (e) { console.warn('[voice] explicit rollback failed', e); }
-        }
-        await this.applyRemoteOffer(payload.sdp);
-        await this.flushPendingIce();
-        await this.pc.setLocalDescription();
-        if (this.pc.localDescription) {
-          await this.sendSignal({
-            type: 'answer',
-            sdp: this.pc.localDescription.sdp,
-            sessionId: this.sessionId,
-            seq: ++this.outboundSeq,
-          });
-          if (shouldRenegotiateAfterAnswer) {
-            // We just discarded a local offer that may have contained new
-            // media m-lines. The answer cannot be trusted to advertise that
-            // local change, so make the current revision pending again and
-            // offer once the PC is back to stable.
-            this.offeredNegotiationRevision = Math.min(
-              this.offeredNegotiationRevision,
-              Math.max(0, this.negotiationRevision - 1),
-            );
-            this.queueNegotiation('post-glare-local-change');
-          } else {
-            this.offeredNegotiationRevision = this.negotiationRevision;
-            this.negotiationQueued = false;
-          }
-        }
-      } else if (payload.type === 'answer' && payload.sdp) {
-        if (this.pc.signalingState === 'have-local-offer') {
-          try {
-            await this.pc.setRemoteDescription({ type: 'answer', sdp: payload.sdp });
-            await this.flushPendingIce();
-            console.log('[voice] applied answer from', this.remotePubkey.slice(0, 8));
-          } catch (e) {
-            // Most common cause: race where our own offer was sent late so
-            // the remote actually answered an earlier (rolled-back) offer
-            // and the setup attr no longer matches. Discard and let the
-            // next negotiation cycle recover.
-            console.warn('[voice] answer apply failed — will renegotiate', e);
-            try { await this.pc.setLocalDescription({ type: 'rollback' }); }
-            catch { /* already stable */ }
-          }
-        } else {
-          console.warn('[voice] dropping answer in state', this.pc.signalingState, 'from', this.remotePubkey.slice(0, 8));
-        }
-      } else if (payload.type === 'ice' && payload.candidates?.length) {
-        for (const cand of payload.candidates) {
-          // ICE that arrives before the offer/answer is applied has
-          // nowhere to go — Chrome rejects with "The remote description
-          // was null". Buffer it; flushPendingIce drains the queue right
-          // after setRemoteDescription succeeds.
-          if (!this.pc.remoteDescription) {
-            this.pendingIce.push(cand);
-            continue;
-          }
-          try {
-            await this.pc.addIceCandidate(cand);
-          } catch (err) {
-            if (!this.ignoreOffer) console.warn('[voice] addIceCandidate failed', err);
-          }
-        }
-      } else if (payload.type === 'bye') {
-        // Surface the bye reason so the owner can distinguish a graceful
-        // remote leave from an active capacity rejection. The owner
-        // (VoiceClient) maps `room-full` to a user-facing error +
-        // automatic leave so the joiner doesn't loop the reconnect ladder.
-        if (payload.byeReason) {
-          try { this.events.onPeerDead?.(`bye:${payload.byeReason}`); }
-          catch (e) { console.warn('[voice] onPeerDead threw on bye reason', e); }
-        }
-        this.close();
-      } else if (payload.type === 'qualityhint' && payload.qualityHint) {
-        this.inboundCap = payload.qualityHint;
-        await this.applyVideoSenderParams();
-      }
-    } catch (e) {
-      console.error('[voice] handleSignal error', e);
-    } finally {
-      this.flushQueuedNegotiation();
+    } catch (error) {
+      console.warn('[voice] simple-peer rejected signal', error);
     }
   }
 
-  /** Set the user-chosen outbound video cap (e.g. 720p). null = auto. */
   async setLocalVideoCap(cap: { maxBitrate: number | null; maxFramerate: number } | null): Promise<void> {
     this.localVideoCap = cap;
-    if (this.pc.connectionState === 'connected') {
-      await this.applyVideoSenderParams();
-    }
+    await this.applyVideoSenderParams('camera');
+    await this.applyVideoSenderParams('screen');
   }
 
-  /** Send a hint asking the remote peer to cap their outbound video. */
   async sendQualityHint(hint: VoiceQualityHint): Promise<void> {
-    await this.sendSignal({
-      type: 'qualityhint',
-      qualityHint: hint,
-      sessionId: this.sessionId,
-      seq: ++this.outboundSeq,
-    });
+    await this.sendSignal({ type: 'qualityhint', qualityHint: hint });
   }
 
-  /**
-   * Apply current caps (local pick ∩ remote hint) to the video sender(s).
-   *
-   * We tune camera + screen-share separately because their motion profiles
-   * are opposite: camera content prefers smooth framerate (drop resolution
-   * under congestion), screen-share prefers sharp text (drop framerate
-   * before scaling). Browsers honor `degradationPreference` on the encoder
-   * side when bandwidth or CPU forces a tradeoff.
-   */
-  private async applyVideoSenderParams(): Promise<void> {
-    for (const kind of ['camera', 'screen'] as const) {
-      const sender = this.localSenders.get(kind);
-      if (!sender) continue;
-      await this.applyOneVideoSenderParams(sender, kind);
-    }
-  }
-
-  private async applyOneVideoSenderParams(
-    sender: RTCRtpSender,
-    kind: 'camera' | 'screen',
-  ): Promise<void> {
+  private async applyVideoSenderParams(kind: 'camera' | 'screen'): Promise<void> {
+    const media = this.localMedia.get(kind);
+    if (!media) return;
+    const sender = this.pc.getSenders().find((candidate) => candidate.track === media.track);
+    if (!sender) return;
     const localBitrate = this.localVideoCap?.maxBitrate ?? null;
     const remoteBitrate = this.inboundCap?.maxBitrate ?? null;
-    const bitrate = pickMin(localBitrate, remoteBitrate);
     const localFps = this.localVideoCap?.maxFramerate ?? null;
     const remoteFps = this.inboundCap?.maxFramerate ?? null;
-    const fps = pickMin(localFps, remoteFps);
+    const maxBitrate = localBitrate == null ? remoteBitrate
+      : remoteBitrate == null ? localBitrate
+      : Math.min(localBitrate, remoteBitrate);
+    const maxFramerate = localFps == null ? remoteFps
+      : remoteFps == null ? localFps
+      : Math.min(localFps, remoteFps);
     try {
-      const params = sender.getParameters() as RTCRtpSendParameters & {
-        degradationPreference?: 'maintain-framerate' | 'maintain-resolution' | 'balanced';
-      };
-      if (!params.encodings || params.encodings.length === 0) {
-        params.encodings = [{}];
-      }
-      const enc = params.encodings[0];
-      if (bitrate != null) enc.maxBitrate = bitrate;
-      else delete enc.maxBitrate;
-      if (fps != null) enc.maxFramerate = fps;
-      else delete enc.maxFramerate;
-      // Camera: smooth motion matters more than peak resolution. Browser
-      // is allowed to scale down rather than drop frames under load.
-      // Screen: pixels matter more than smoothness. Drop framerate so
-      // text stays crisp.
-      params.degradationPreference =
-        kind === 'camera' ? 'maintain-framerate' : 'maintain-resolution';
+      const params = sender.getParameters();
+      if (!params.encodings?.length) params.encodings = [{}];
+      if (maxBitrate != null) params.encodings[0].maxBitrate = maxBitrate;
+      else delete params.encodings[0].maxBitrate;
+      if (maxFramerate != null) params.encodings[0].maxFramerate = maxFramerate;
+      else delete params.encodings[0].maxFramerate;
+      params.degradationPreference = kind === 'camera' ? 'maintain-framerate' : 'maintain-resolution';
       await sender.setParameters(params);
-    } catch (e) {
-      console.warn('[voice] setParameters failed', e);
+    } catch (error) {
+      console.warn('[voice] video setParameters failed', error);
     }
   }
 
-  /** Apply the high-quality audio bitrate cap on the audio sender. */
   async applyAudioSenderParams(): Promise<void> {
-    const sender = this.localSenders.get('audio');
+    const media = this.localMedia.get('audio');
+    if (!media) return;
+    const sender = this.pc.getSenders().find((candidate) => candidate.track === media.track);
     if (!sender) return;
     try {
       const params = sender.getParameters();
-      if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+      if (!params.encodings?.length) params.encodings = [{}];
       params.encodings[0].maxBitrate = AUDIO_MAX_BITRATE;
       await sender.setParameters(params);
-    } catch (e) {
-      console.warn('[voice] audio setParameters failed', e);
+    } catch (error) {
+      console.warn('[voice] audio setParameters failed', error);
     }
   }
 
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
-    if (this.connectWatchdogTimer) { clearTimeout(this.connectWatchdogTimer); this.connectWatchdogTimer = null; }
-    this.clearLocalIceBatch();
-    this.clearOfferAckWatchdog(false);
-    this.clearRemoteVideoMuteTimers();
-    if (this.statsMonitor) { this.statsMonitor.stop(); this.statsMonitor = null; }
-    // Send the control-channel bye BEFORE the relay bye and BEFORE
-    // pc.close() so the remote learns instantly even if the relay drops
-    // the kind 25050. close() is idempotent on the control channel side.
-    if (this.controlChannel) {
-      try { this.controlChannel.close('local-leave'); } catch { /* ignore */ }
-      this.controlChannel = null;
-    }
-    void this.sendSignal({
+    this.broadcastControl({ type: 'bye', reason: 'local-leave' });
+    void Promise.resolve(this.send({
       type: 'bye',
       sessionId: this.sessionId,
       seq: ++this.outboundSeq,
-    }).catch(() => {});
-    try { this.pc.close(); } catch { /* ignore */ }
-    if (this.wasConnected) {
-      this.wasConnected = false;
-      try { this.events.onConnectionLost?.(); } catch (e) { console.warn('[voice] onConnectionLost threw', e); }
-    }
-  }
-
-  private clearRemoteVideoMuteTimer(trackId: string): void {
-    const timer = this.remoteVideoMuteTimers.get(trackId);
-    if (!timer) return;
-    clearTimeout(timer);
-    this.remoteVideoMuteTimers.delete(trackId);
-  }
-
-  private clearRemoteVideoMuteTimers(): void {
-    for (const timer of this.remoteVideoMuteTimers.values()) {
-      clearTimeout(timer);
-    }
+      byeReason: 'local-leave',
+    })).catch(() => {});
+    if (this.connectWatchdog) clearTimeout(this.connectWatchdog);
+    if (this.pingTimer) clearInterval(this.pingTimer);
+    if (this.snapshotTimer) clearInterval(this.snapshotTimer);
+    if (this.deadTimer) clearTimeout(this.deadTimer);
+    for (const timer of this.remoteVideoMuteTimers.values()) clearTimeout(timer);
     this.remoteVideoMuteTimers.clear();
-  }
-}
-
-function pickMin(a: number | null, b: number | null): number | null {
-  if (a == null) return b;
-  if (b == null) return a;
-  return Math.min(a, b);
-}
-
-/** Local re-declaration — some TS lib targets ship an older DOM that
- *  doesn't yet include the `RTCRtpCodecCapability` global. Structural
- *  matching is enough for what we use it for. */
-interface CodecCapability {
-  mimeType: string;
-  clockRate?: number;
-  channels?: number;
-  sdpFmtpLine?: string;
-}
-
-/**
- * Bias the video transceiver toward modern codecs.
- *
- * Order: VP9 → H.264 → VP8 → everything else (AV1 etc.).
- *  - VP9 ships ~30–40% better quality than VP8 at the same bitrate; it's
- *    available in every modern Chromium/Firefox build and increasingly
- *    has hardware decode on mobile.
- *  - H.264 is the universal fallback; ubiquitous hardware encode/decode,
- *    works on every Safari + iOS in existence.
- *  - VP8 is the WebRTC default if neither of the above negotiates.
- *  - AV1 isn't promoted ahead of VP9 because software AV1 encode stutters
- *    on mid-range laptops; let it negotiate as a fallback if both peers
- *    advertise hardware support, but don't force it.
- *
- * Must run BEFORE `setLocalDescription` on this transceiver so the offer
- * SDP carries the preferred order. Called from `setLocalTrack` right
- * after `addTrack` returns the sender.
- *
- * Falls through silently when the API isn't available — Safari before 16
- * exposed `setCodecPreferences` but not `getCapabilities`, and headless
- * test envs don't expose either. The negotiation still works without us;
- * we just don't get the codec bias.
- */
-function applyVideoCodecPreference(pc: RTCPeerConnection, sender: RTCRtpSender): void {
-  try {
-    const caps = (RTCRtpSender as unknown as {
-      getCapabilities?: (kind: string) => { codecs: CodecCapability[] } | null;
-    }).getCapabilities?.('video');
-    if (!caps?.codecs?.length) return;
-
-    // Find the transceiver this sender belongs to. Some browsers expose
-    // sender.getTransceiver() but it isn't standard, so we walk the list.
-    const transceiver = pc.getTransceivers().find((t) => t.sender === sender);
-    const setCodecPrefs = (transceiver as unknown as {
-      setCodecPreferences?: (codecs: CodecCapability[]) => void;
-    } | undefined)?.setCodecPreferences;
-    if (!setCodecPrefs || !transceiver) return;
-
-    const preferred = (mime: string) =>
-      caps.codecs.filter((c) => c.mimeType.toLowerCase() === mime);
-    const ordered = [
-      ...preferred('video/vp9'),
-      ...preferred('video/h264'),
-      ...preferred('video/vp8'),
-      // Keep everything else in its original spot at the bottom (AV1, RTX,
-      // ulpfec, red — all required for full negotiation).
-      ...caps.codecs.filter((c) => {
-        const m = c.mimeType.toLowerCase();
-        return m !== 'video/vp9' && m !== 'video/h264' && m !== 'video/vp8';
-      }),
-    ];
-
-    setCodecPrefs.call(transceiver, ordered);
-  } catch (e) {
-    // Older browsers throw on unsupported codec lists; harmless.
-    console.warn('[voice] codec preference apply failed', e);
+    this.statsMonitor?.stop();
+    this.statsMonitor = null;
+    this.simple.destroy();
+    if (this.connected) {
+      this.connected = false;
+      this.events.onConnectionLost?.();
+    }
   }
 }

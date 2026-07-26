@@ -2,9 +2,9 @@
  * Multi-client integration test — relay-level node syncing with mock real
  * accounts.
  *
- * This is the heart of the "5-person mesh that survives flaky relays" claim:
- * five real keypairs (generated via `nostr-tools.generateSecretKey`) drive
- * five `VoiceClient` instances over an in-process FakeRelay. Beacons and
+ * This covers relay-backed mesh discovery with real identities:
+ * real keypairs (generated via `nostr-tools.generateSecretKey`) drive
+ * `VoiceClient` instances over an in-process FakeRelay. Beacons and
  * signaling events flow through the relay between clients exactly the way
  * they would over `wss://lacrypta-relay.obelisk.ar`, and the test asserts that the
  * mesh converges, transitive discovery rescues a peer whose own beacons get
@@ -280,13 +280,12 @@ afterEach(() => {
 
 describe('multi-client mesh formation', () => {
   it('two cold-started clients see each other in their rosters after joining', async () => {
-    // The 5-client variant requires synchronously attributing every signal
+    // The multi-client variant requires synchronously attributing every signal
     // back to the originating VoiceClient, which the relay mock can't do
     // without modifying production code (sendSignal's signature is
     // `(channelId, toPubkey, payload)` — no fromPubkey). Two clients
     // exercise the same beacon-roster path and the same membership-gating
-    // logic without cross-client microtask attribution races. The 5-client
-    // transitive-discovery + connectedTo scenarios live in dedicated tests
+    // logic without cross-client microtask attribution races. The transitive-discovery + connectedTo scenarios live in dedicated tests
     // below.
     const allPubkeys: string[] = [];
     const nodes: Node[] = [];
@@ -311,7 +310,7 @@ describe('multi-client mesh formation', () => {
       expect(n.client.getParticipants()).toContain(others[0]);
     }
 
-    // Cap is 6, well below 2; nothing was trimmed.
+    // Cap is 4, well above 2; nothing was trimmed.
     for (const n of nodes) {
       expect(n.client.getParticipants().length).toBeGreaterThanOrEqual(1);
     }

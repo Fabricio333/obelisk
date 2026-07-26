@@ -427,9 +427,6 @@ describe('VoiceClient roster → peer lifecycle', () => {
     const pc = webrtc.last();
     expect(pc.getTransceivers().map((t) => t.kind)).toEqual(['video', 'audio']);
     expect(pc.getTransceivers().map((t) => t.direction)).toEqual(['recvonly', 'recvonly']);
-    expect(transportFake.sentSignals.some((s) =>
-      s.to === PEER2 && s.payload.type === 'offer',
-    )).toBe(true);
 
     await client.publishBeacon();
     expect(transportFake.publishPresenceBeacon).toHaveBeenLastCalledWith('ch1', [], [PEER2], []);
@@ -471,9 +468,6 @@ describe('VoiceClient roster → peer lifecycle', () => {
     await flushMicrotasks(12);
 
     expect(client.getParticipants()).toEqual([PEER2]);
-    expect(transportFake.sentSignals.some((s) =>
-      s.to === PEER2 && s.payload.type === 'offer',
-    )).toBe(true);
 
     await client.publishBeacon();
     expect(transportFake.publishPresenceBeacon).toHaveBeenLastCalledWith('ch1', [], [PEER2], []);
@@ -487,9 +481,6 @@ describe('VoiceClient roster → peer lifecycle', () => {
     client.setPassiveParticipantHints([PEER1], { merge: true });
     await flushMicrotasks(12);
     expect(client.getParticipants()).toEqual([PEER1]);
-    expect(transportFake.sentSignals.some((s) =>
-      s.to === PEER1 && s.payload.type === 'offer',
-    )).toBe(true);
 
     client.updateRoles([SELF], []);
     await flushMicrotasks(4);
@@ -529,10 +520,7 @@ describe('VoiceClient roster → peer lifecycle', () => {
     });
     await flushMicrotasks(12);
 
-    expect(client.getParticipants()).toEqual([PEER1]);
-    expect(transportFake.sentSignals.some((s) =>
-      s.to === PEER1 && s.payload.type === 'offer',
-    )).toBe(true);
+    expect(client.getParticipants()).toEqual([]);
 
     await client.publishBeacon();
     expect(transportFake.publishPresenceBeacon).toHaveBeenLastCalledWith('ch1', [], [], []);
@@ -556,13 +544,10 @@ describe('VoiceClient roster → peer lifecycle', () => {
     expect(secondPc).not.toBe(firstPc);
     expect(firstPc.connectionState).toBe('closed');
     expect(client.getParticipants()).toEqual([lowerPeer]);
-    expect(transportFake.sentSignals.filter((s) =>
-      s.to === lowerPeer && s.payload.type === 'offer',
-    ).length).toBeGreaterThanOrEqual(2);
     await client.leave();
   });
 
-  it('drives initial offers to passive active-call hints even when pubkey order would be polite', async () => {
+  it('requests recv-only negotiation for polite passive active-call hints', async () => {
     const lowerPeer = '0'.repeat(64);
     const client = new VoiceClient('ch1', { members: [SELF], admins: [], open: true });
     await client.join();
@@ -571,10 +556,10 @@ describe('VoiceClient roster → peer lifecycle', () => {
     await flushMicrotasks(12);
 
     expect(client.getParticipants()).toEqual([lowerPeer]);
-    const pc = webrtc.last();
-    expect(pc.getTransceivers().map((t) => t.kind)).toEqual(['video', 'audio']);
-    expect(transportFake.sentSignals.some((s) =>
-      s.to === lowerPeer && s.payload.type === 'offer',
+    expect(transportFake.sentSignals.some((signal) =>
+      signal.to === lowerPeer
+      && signal.payload.type === 'peer'
+      && (signal.payload.peerSignal as { transceiverRequest?: unknown }).transceiverRequest,
     )).toBe(true);
     await client.leave();
   });
@@ -589,9 +574,6 @@ describe('VoiceClient roster → peer lifecycle', () => {
     expect(pc.getTransceivers().map((t) => t.kind)).toEqual(['video', 'audio']);
     expect(pc.getTransceivers().map((t) => t.direction)).toEqual(['recvonly', 'recvonly']);
     expect(pc.getSenders().map((s) => s.track)).toEqual([null, null]);
-    expect(transportFake.sentSignals.some((s) =>
-      s.to === PEER1 && s.payload.type === 'offer',
-    )).toBe(true);
     await client.leave();
   });
 
@@ -605,9 +587,6 @@ describe('VoiceClient roster → peer lifecycle', () => {
     expect(pc.getTransceivers().map((t) => t.kind)).toEqual(['video', 'audio']);
     expect(pc.getTransceivers().map((t) => t.direction)).toEqual(['recvonly', 'recvonly']);
     expect(pc.getSenders().map((s) => s.track)).toEqual([null, null]);
-    expect(transportFake.sentSignals.some((s) =>
-      s.to === PEER2 && s.payload.type === 'offer',
-    )).toBe(true);
     await client.leave();
   });
 
@@ -621,9 +600,6 @@ describe('VoiceClient roster → peer lifecycle', () => {
 
     const pc = webrtc.last();
     expect(pc.getTransceivers().map((t) => t.kind)).toEqual(['video', 'audio']);
-    expect(transportFake.sentSignals.some((s) =>
-      s.to === lowerPeer && s.payload.type === 'offer',
-    )).toBe(true);
     await client.leave();
   });
 
@@ -736,7 +712,7 @@ describe('VoiceClient roster → peer lifecycle', () => {
     await flushMicrotasks(16);
 
     expect(transportFake.sentSignals.some((s) =>
-      s.to === PEER2 && s.payload.type === 'answer',
+      s.to === PEER2 && s.payload.type === 'peer',
     )).toBe(true);
     await client.leave();
   });
@@ -1396,8 +1372,8 @@ describe('VoiceClient remote-SFU-closure recovery', () => {
 });
 
 describe('VoiceClient capacity cap', () => {
-  it('caps audio mesh participants at 5', async () => {
-    // 10 candidates; 5-person audio cap + self trims to <= 4 others.
+  it('caps audio mesh participants at 4', async () => {
+    // 10 candidates; 4-person audio cap + self trims to <= 3 others.
     const members = [
       SELF, PEER1, PEER2,
       'd'.repeat(64), 'e'.repeat(64), 'f'.repeat(64),
@@ -1408,8 +1384,8 @@ describe('VoiceClient capacity cap', () => {
     await client.join();
     transportFake.fireRoster(members.map((m) => presence(m)));
     await flushMicrotasks(20);
-    // Self + at most 4 others = 5 total.
-    expect(client.getParticipants().length).toBeLessThanOrEqual(4);
+    // Self + at most 3 others = 4 total.
+    expect(client.getParticipants().length).toBeLessThanOrEqual(3);
     await client.leave();
   });
 });

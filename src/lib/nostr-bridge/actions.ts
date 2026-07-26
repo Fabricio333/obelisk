@@ -62,7 +62,8 @@ export const nostrActions = {
   ) => (await getBridge()).editGroupMetadata(opts),
   editUserMetadata: async (
     opts: Parameters<Awaited<ReturnType<typeof getBridge>>['editUserMetadata']>[0],
-  ) => (await getBridge()).editUserMetadata(opts),
+    options?: Parameters<Awaited<ReturnType<typeof getBridge>>['editUserMetadata']>[1],
+  ) => (await getBridge()).editUserMetadata(opts, options),
   putUser: async (
     groupId: string,
     pubkey: string,

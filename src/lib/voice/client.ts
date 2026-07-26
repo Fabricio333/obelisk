@@ -22,8 +22,8 @@ if (typeof globalThis !== 'undefined') {
  *    incoming remote audio track, mirroring transitions into the voice
  *    store so the UI's speaking-orb pulses without round-tripping
  *
- * Pure-Nostr; no `server.ts` dependency. 5-person calls fit comfortably
- * in the 6-participant cap with one slot of headroom.
+ * Pure-Nostr; no `server.ts` dependency. 4-person calls fit comfortably
+ * with three direct peer connections per client.
  */
 import { Peer } from './peer';
 import { SfuClient } from './sfu-client';
@@ -77,33 +77,28 @@ const BEACON_INTERVAL_MS = 10_000;
  */
 const BEACON_BRINGUP_DELAYS_MS = [300, 900, 1800, 3500, 7000, 12_000, 18_000];
 /**
- * Audio-mesh cap. 8 participants × 7 outbound audio streams each = 56 PCs
- * worst-case room-wide; that's still inside what a typical home upstream
- * can carry at Opus 64–128 kbps per stream.
- */
-/**
  * Mesh participant cap. Each peer maintains N-1 outbound audio streams
- * (so an N-person room is N(N-1) PCs total — quadratic). 5 means
- * 5×4 = 20 PCs room-wide, comfortable on a typical home upstream at
+ * (so an N-person room is N(N-1) PCs total — quadratic). Four means
+ * 12 directed streams room-wide, comfortable on a typical home upstream at
  * Opus 64-128 kbps per stream.
  *
  * **Active rejection** — when this cap is reached the existing peers
  * send a `bye { byeReason: 'room-full' }` to any over-cap arrival, so
- * the joiner stops the reconnect ladder immediately and surfaces a
+ * the joiner stops repeated redial attempts immediately and surfaces a
  * clean error in their UI. Lex-deterministic ordering means every
  * existing peer agrees on who's "in" and who's "rejected" without
  * a coordinator. See `isWithinRoomCap`.
  */
-const MAX_PARTICIPANTS = 5;
+const MAX_PARTICIPANTS = 4;
 /**
- * Room-wide cap on simultaneous outbound video tracks across all peers
- * (camera + screen-share counted together — e.g. 2 cameras + 2 screens, or
- * 4 cameras, or 1 camera + 3 screens). Beyond this, mesh uplink becomes
+ * Independent room-wide media caps: four cameras and one screen share.
+ * Beyond this, mesh uplink becomes
  * the binding constraint long before the audio mesh does. Race-overflow
  * resolution is deterministic via `(beaconCreatedAt asc, pubkey asc)` —
  * the holders outside the leading slice locally evict their video.
  */
-const MAX_VIDEO_SLOTS = 4;
+const MAX_CAMERAS = 4;
+const MAX_SCREEN_SHARES = 1;
 /**
  * Debounce for opportunistic beacon refresh after a connection-state change.
  * Coalesces a flurry of `connected` transitions during initial mesh formation
@@ -1190,7 +1185,7 @@ export class VoiceClient {
    * sending. The connected list powers legacy transitive discovery; the
    * known-peer list lets other clients dial participants that we know about
    * but have not directly established yet. The video list lets every peer
-   * compute the room-wide video count for `MAX_VIDEO_SLOTS` enforcement.
+   * compute the room-wide video count for separate camera and screen-share cap enforcement.
    *
    * Public so multi-client integration tests can drive each node's beacon
    * deterministically (the production cadence is timer-driven via
@@ -1628,19 +1623,17 @@ export class VoiceClient {
     if (!this.joined) return;
     if (this.peers.has(remotePubkey) || this.openingPeers.has(remotePubkey)) return;
     // SFU peer is handled by `SfuClient`/mediasoup-client, not by the mesh
-    // perfect-negotiation path. Don't construct a `Peer` for it.
+    // simple-peer path. Don't construct a `Peer` for it.
     if (this.sfuPubkey && remotePubkey === this.sfuPubkey) return;
-    // Lexicographically-greater pubkey is polite (rolls back on glare).
+    // Lexicographic roles give exactly one simple-peer initiator per pair.
     // EXCEPTION — peers that are an SFU are ALWAYS treated as remote-impolite
     // (so we are polite). werift's SFU implementation cannot roll back its
     // own offer; if pubkey ordering happened to put the SFU on the polite
     // side, every renegotiation deadlocks with both sides dropping the
     // other's offer. Forcing the browser to be polite for SFU peers keeps
-    // the perfect-negotiation invariants while accommodating werift.
+    // simple-peer initiator invariants while accommodating werift.
     const isSfuPeer = this.knownSfuPubkeys.has(remotePubkey);
     const isMeshTestPeer = this.knownMeshTestPeerPubkeys.has(remotePubkey);
-    const forceInitialOffer =
-      isSfuPeer || isMeshTestPeer || this.passiveParticipantHints.has(remotePubkey);
     const polite = isSfuPeer ? true : isMeshTestPeer ? false : this.selfPubkey > remotePubkey;
     const shouldKickRecvOnly = this.shouldKickRecvOnlyOffer(remotePubkey, isSfuPeer, polite);
     console.log('[voice] openPeer', remotePubkey.slice(0, 8),
@@ -1653,7 +1646,6 @@ export class VoiceClient {
         polite,
         sessionId: this.sessionId,
         bootstrapRecvOnlyMedia: shouldKickRecvOnly,
-        allowPoliteInitialOffer: forceInitialOffer,
         send: (payload) => withRateLimitBackoff(
           () => this.transport.sendSignal(this.channelId, remotePubkey, payload),
           { metrics: this.metrics },
@@ -1692,7 +1684,7 @@ export class VoiceClient {
           onPeerDead: (reason) => {
             // Active capacity rejection — the remote is telling us the room
             // is full. Surface a clean error and leave; without this, our
-            // reconnect ladder would loop trying to re-dial them.
+            // repeated redial attempts would loop trying to re-dial them.
             if (reason === 'bye:room-full') {
               pushVoiceDebug({
                 kind: 'pc-state',
@@ -1727,6 +1719,7 @@ export class VoiceClient {
             this.scheduleBeaconRefresh();
             this.scheduleControlPeerSnapshot();
             this.tearDownPeer(remotePubkey);
+            if (!reason.startsWith('bye:')) this.scheduleDialFromDiscovery();
           },
           onRemoteTrack: (track, stream, kind, originPubkey) => {
             // Apply current deafen state to brand-new audio arrivals so a peer
@@ -1802,13 +1795,13 @@ export class VoiceClient {
             this.emitPeerConnectionStates();
             if (state === 'closed') {
               // Drop the peer so a future signal/beacon from the same pubkey
-              // can spawn a fresh PC instead of routing into a dead one. The
-              // Peer's reconnect ladder handles 'failed'/'disconnected'
-              // internally — only react to 'closed' here, which means the
-              // ladder has explicitly given up or close() was called.
+              // can spawn a fresh PC instead of routing into a dead one.
+              // simple-peer owns ICE negotiation; a terminal close is the point
+              // where discovery should create a fresh connection.
               const p = this.peers.get(remotePubkey);
               if (p && p === peer) {
                 this.tearDownPeer(remotePubkey);
+                this.scheduleDialFromDiscovery();
               }
             }
           },
@@ -1959,7 +1952,7 @@ export class VoiceClient {
 
   private async routeSignal(fromPubkey: string, payload: VoiceSignalPayload): Promise<void> {
     // SFU traffic flows through `SfuClient` (mediasoup-client + RPC), not
-    // the mesh perfect-negotiation `Peer`. The legacy subscribeSignals
+    // the mesh  adapter`Peer`. The legacy subscribeSignals
     // delivers everything on kind 25050 — including RPC responses /
     // notifications that have no `type` we recognize — so we drop those
     // here. Without this guard `peer.handleSignal(undefined!.handleSignal)`
@@ -1976,7 +1969,7 @@ export class VoiceClient {
       pushVoiceDebug({ kind: 'signal-dropped', reason: 'unknown-payload', peer: fromPubkey });
       return;
     }
-    if (payload.type !== 'offer' && payload.type !== 'answer'
+    if (payload.type !== 'peer' && payload.type !== 'offer' && payload.type !== 'answer'
       && payload.type !== 'ice' && payload.type !== 'bye'
       && payload.type !== 'trackinfo' && payload.type !== 'qualityhint'
       && payload.type !== 'requestReset') {
@@ -2024,8 +2017,8 @@ export class VoiceClient {
    * peer agrees on the same in/out partition without a coordinator.
    *
    * "Currently-known" = effective discovery set ∪ already-open peers ∪
-   * self ∪ the candidate pubkey. Including the candidate matters: a
-   * 6th joiner who happens to be the lex-leading peer should be
+   * self ∪ the candidate pubkey. Including the candidate matters: an
+   * over-cap joiner who happens to be lex-leading should be
    * accepted, displacing the lex-trailing existing peer.
    */
   private isWithinRoomCap(pubkey: string): boolean {
@@ -2100,7 +2093,7 @@ export class VoiceClient {
       // claimed. Race-overflow (two peers claim simultaneously) is
       // resolved by `enforceVideoSlotCap` once beacons round-trip.
       if (!this.canClaimVideoSlot('camera')) {
-        const err = new Error(`Video room is full (${MAX_VIDEO_SLOTS}/${MAX_VIDEO_SLOTS} slots in use). Ask someone to turn off their camera/screen.`);
+        const err = new Error('Camera limit reached (4/4). Ask someone to turn off their camera.');
         try { useVoiceStore.getState().setError(err.message); } catch { /* test envs */ }
         throw err;
       }
@@ -2190,7 +2183,7 @@ export class VoiceClient {
       // Same room-wide video-slot cap as camera; screen-share counts as
       // one slot regardless of whether screen-audio is attached.
       if (!this.canClaimVideoSlot('screen')) {
-        const err = new Error(`Video room is full (${MAX_VIDEO_SLOTS}/${MAX_VIDEO_SLOTS} slots in use). Ask someone to turn off their camera/screen.`);
+        const err = new Error('A screen is already being shared. Only one screen share is allowed.');
         try { useVoiceStore.getState().setError(err.message); } catch { /* test envs */ }
         throw err;
       }
@@ -2305,26 +2298,24 @@ export class VoiceClient {
    * UI exposes this so the camera/screen buttons can disable when full.
    */
   getVideoSlotsInUse(): number {
-    return Math.min(this.buildVideoSlotList().length, MAX_VIDEO_SLOTS);
+    return Math.min(
+      this.buildVideoSlotList().filter((slot) => slot.kind === 'camera').length,
+      MAX_CAMERAS,
+    );
   }
 
   getVideoSlotsAvailable(): number {
-    return Math.max(0, MAX_VIDEO_SLOTS - this.buildVideoSlotList().length);
+    return Math.max(0, MAX_CAMERAS - this.getVideoSlotsInUse());
   }
 
-  /**
-   * Decide whether starting a new local video track would fit the cap.
-   * Counts the existing room-wide load (excluding the kind being started
-   * — caller is the one trying to claim it). Returns true iff the new
-   * track would be inside the leading-MAX_VIDEO_SLOTS slice once claimed.
-   */
-  private canClaimVideoSlot(_kind: VideoSlotKind): boolean {
-    return this.buildVideoSlotList().length < MAX_VIDEO_SLOTS;
+  private canClaimVideoSlot(kind: VideoSlotKind): boolean {
+    const limit = kind === 'camera' ? MAX_CAMERAS : MAX_SCREEN_SHARES;
+    return this.buildVideoSlotList().filter((slot) => slot.kind === kind).length < limit;
   }
 
   /**
    * Re-check the cap against the latest roster. If our local video is
-   * outside the leading-MAX_VIDEO_SLOTS slice, evict it (mirrors the
+   * outside the leading per-kind cap, evict it (mirrors the
    * audio-mesh cap-overflow logic in `handleRoster`). Triggered on every
    * roster update, so a remote claim that landed before ours pushes us
    * out within one beacon hop.
@@ -2332,15 +2323,18 @@ export class VoiceClient {
   private enforceVideoSlotCap(): void {
     if (this.localVideoClaimedAt.size === 0) return;
     const list = this.buildVideoSlotList();
-    if (list.length <= MAX_VIDEO_SLOTS) return;
-    const winners = list.slice(0, MAX_VIDEO_SLOTS);
-    const winnerSet = new Set(winners.map((w) => `${w.pubkey}:${w.kind}`));
+    const winners = [
+      ...list.filter((slot) => slot.kind === 'camera').slice(0, MAX_CAMERAS),
+      ...list.filter((slot) => slot.kind === 'screen').slice(0, MAX_SCREEN_SHARES),
+    ];
+    if (winners.length === list.length) return;
+    const winnerSet = new Set(winners.map((winner) => winner.pubkey + ':' + winner.kind));
     // For each of OUR local tracks, evict the ones that didn't make it
     // into the leading slice. Don't await — the toggle is fire-and-forget;
     // any lingering peers will see the next beacon refresh announcing the
     // dropped track.
     for (const kind of Array.from(this.localVideoClaimedAt.keys())) {
-      const ourKey = `${this.selfPubkey}:${kind}`;
+      const ourKey = this.selfPubkey + ':' + kind;
       if (winnerSet.has(ourKey)) continue;
       console.warn('[voice] video-slot evicted locally:', kind, '— another peer claimed it earlier');
       if (kind === 'camera') {
@@ -2348,7 +2342,9 @@ export class VoiceClient {
       } else {
         void this.setScreenShareEnabled(false);
       }
-      try { useVoiceStore.getState().setError(`Video room is full — your ${kind} was disabled.`); } catch { /* test envs */ }
+      try { useVoiceStore.getState().setError(kind === 'camera'
+        ? 'Camera limit reached — your camera was disabled.'
+        : 'Another screen share won the room slot — your screen share was stopped.'); } catch { /* test envs */ }
     }
   }
 

@@ -71,7 +71,7 @@ test('three peers form full mesh and report control-channel discovery', async ()
     }
 
     const pages = await Promise.all(ctxs.map((c) => c.newPage()));
-    pages.forEach(attachClientCapture);
+    pages.forEach((page) => attachClientCapture(page));
 
     await Promise.all(pages.map((p) =>
       p.goto(`/voice/${channelId}`, { waitUntil: 'domcontentloaded' }),
@@ -99,7 +99,7 @@ test('three peers form full mesh and report control-channel discovery', async ()
     // Each peer must reach connected count of >= 1. Full mesh
     // (connected = 2) is not asserted here because public.obelisk.ar's
     // per-connection 50-sub quota is hit when 3 fresh clients spin up
-    // simultaneously — see docs/voice/diagnosis-2026-05-09.md §H4.
+    // simultaneously to avoid a relay subscription burst.
     // What we ARE proving: transitive discovery and the control channel
     // both fire whenever any pair forms a PC.
     await Promise.all(pages.map((p, i) => waitFor(

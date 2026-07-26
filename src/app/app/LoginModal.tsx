@@ -13,18 +13,21 @@
  *   - import / generate  → bridge.loginWithNsec(skHex, pkHex) using args.nsec
  *   - nip46              → bridge.loginWithBunker(args.bunkerUri)
  *
- * The bridge keeps its own session, so we suppress the SDK's
- * "Stay signed in" toggle to avoid two competing persistence layers.
+ * The bridge receives the final signer only after the generated-key backup,
+ * profile, and public-profile sharing steps are complete.
  */
 
 import {
   LoginModal as SdkLoginModal,
+  Modal,
   type LoginMethodId,
 } from '@nostr-wot/ui';
-import { getPublicKey } from 'nostr-tools/pure';
-import { nsecToBytes, nsecToHex as sdkNsecToHex } from '@nostr-wot/data';
-import { useEffect, type ReactNode, type SVGProps } from 'react';
+import { nip19 } from 'nostr-tools';
+import { finalizeEvent, getPublicKey } from 'nostr-tools/pure';
+import { getPool, nsecToBytes, nsecToHex as sdkNsecToHex } from '@nostr-wot/data';
+import { useCallback, useEffect, useState, type ReactNode, type SVGProps } from 'react';
 import { nostrActions } from '@/lib/nostr-bridge';
+import GeneratedProfileEnhancements from './GeneratedProfileEnhancements';
 
 const iconBase = {
   fill: 'none' as const,
@@ -91,12 +94,6 @@ async function routeToBridge(args: {
     case 'generate': {
       if (!nsec) throw new Error('SDK did not provide an nsec for the bridge');
       const { skHex, pkHex } = nsecToHex(nsec);
-      if (method === 'generate' && typeof window !== 'undefined') {
-        // Hint for the mobile setup gate: a freshly generated key has no
-        // kind:0 to wait for, so PhoneShell can skip its grace period and
-        // show the profile setup screen immediately.
-        try { window.localStorage.setItem(`obelisk-dex/just-generated/${pkHex}`, '1'); } catch { /* ignore */ }
-      }
       await nostrActions.loginWithNsec(skHex, pkHex);
       return;
     }
@@ -217,6 +214,34 @@ interface LoginModalProps {
   headerSlot?: ReactNode;
 }
 
+type LoginArgs = Parameters<typeof routeToBridge>[0];
+type GeneratedProfileDraft = { name?: string; about?: string; picture?: string; banner?: string };
+
+const GENERATED_PROFILE_RELAYS = [
+  'wss://relay.damus.io',
+  'wss://nos.lol',
+  'wss://relay.nostr.band',
+  'wss://purplepag.es',
+];
+
+async function publishGeneratedProfile(nsec: string, profile: GeneratedProfileDraft): Promise<void> {
+  const secretKey = nsecToBytes(nsec);
+  if (!secretKey || !Object.values(profile).some(Boolean)) return;
+  const content = {
+    ...(profile.name ? { name: profile.name, display_name: profile.name } : {}),
+    ...(profile.about ? { about: profile.about } : {}),
+    ...(profile.picture ? { picture: profile.picture } : {}),
+    ...(profile.banner ? { banner: profile.banner } : {}),
+  };
+  const event = finalizeEvent({
+    kind: 0,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [],
+    content: JSON.stringify(content),
+  }, secretKey);
+  try { await Promise.allSettled(getPool().publish(GENERATED_PROFILE_RELAYS, event)); } catch { /* non-fatal */ }
+}
+
 export default function LoginModal({
   onSuccess,
   methods,
@@ -225,17 +250,70 @@ export default function LoginModal({
   subtitle = 'Choose your login method',
   headerSlot,
 }: LoginModalProps = {}) {
+  const [generatedLogin, setGeneratedLogin] = useState<LoginArgs | null>(null);
+  const [finishing, setFinishing] = useState(false);
+  const [finishError, setFinishError] = useState('');
+  const [generatedProfile, setGeneratedProfile] = useState<GeneratedProfileDraft>({});
+  const updateGeneratedProfile = useCallback((patch: GeneratedProfileDraft) => {
+    setGeneratedProfile((current) => ({ ...current, ...patch }));
+  }, []);
+
+  if (generatedLogin) {
+    const npub = nip19.npubEncode(generatedLogin.pubkey);
+    const finish = async () => {
+      setFinishing(true);
+      setFinishError('');
+      try {
+        await routeToBridge(generatedLogin);
+        onSuccess?.();
+      } catch (error) {
+        setFinishError(error instanceof Error ? error.message : String(error));
+        setFinishing(false);
+      }
+    };
+
+    return (
+      <Modal open onClose={() => {}} aria-label="Share your Nostr profile" classes={{ modal: 'obelisk-share-modal' }}>
+        <div className="nui-form obelisk-npub-share" data-testid="generated-npub-step">
+          <div className="nui-form-head">
+            <span className="obelisk-step-done" aria-hidden="true">✓</span>
+            <h3 className="nui-form-title">Your profile is ready</h3>
+            <p className="nui-form-sub">
+              Your npub is your public profile address. Share it so people can find
+              and follow you. It is safe to share — your nsec is the key that stays private.
+            </p>
+          </div>
+          <div className="nui-key-display">{npub}</div>
+          <button
+            type="button"
+            className="nui-back obelisk-copy-npub"
+            onClick={() => navigator.clipboard?.writeText(npub).catch(() => {})}
+          >
+            Copy my npub
+          </button>
+          {finishError && <p className="nui-error" role="alert">{finishError}</p>}
+          <button type="button" className="nui-login-button" disabled={finishing} onClick={() => void finish()}>
+            {finishing ? 'Connecting…' : 'Enter Obelisk'}
+          </button>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <>
       <Nip46SignerDeepLink />
+      <GeneratedProfileEnhancements onDraftChange={updateGeneratedProfile} />
       <SdkLoginModal
         open
         onClose={onClose ?? (() => { /* AppShell only mounts this when logged out — no dismiss */ })}
         title={title}
         subtitle={subtitle}
         flatLayout
-        showRememberToggle={false}
+        showRememberToggle
+        profileSetup
         methods={methods}
+        modalClasses={{ modal: 'obelisk-login-modal' }}
         methodIcons={{
           nip07: <LockIcon />,
           nip46: <ShieldIcon />,
@@ -244,13 +322,19 @@ export default function LoginModal({
         }}
         {...(headerSlot ? { slots: { header: headerSlot } } : {})}
         onLogin={async ({ pubkey, method, nsec, bunkerUri, clientNsec }) => {
-          await routeToBridge({
+          const args: LoginArgs = {
             method,
             pubkey,
             ...(nsec ? { nsec } : {}),
             ...(bunkerUri ? { bunkerUri } : {}),
             ...(clientNsec ? { clientNsec } : {}),
-          });
+          };
+          if (method === 'generate') {
+            if (nsec) await publishGeneratedProfile(nsec, generatedProfile);
+            setGeneratedLogin(args);
+            return;
+          }
+          await routeToBridge(args);
           onSuccess?.();
         }}
       />

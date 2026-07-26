@@ -136,7 +136,7 @@ export default function ProfileEditor({ mode, onComplete, onSkip, embedded = fal
         displayName: name.trim(),
         ...(finalPictureUrl ? { picture: finalPictureUrl } : {}),
         ...(about.trim() ? { about: about.trim() } : {}),
-      });
+      }, mode === 'setup' ? { create: true } : undefined);
 
       onComplete();
     } catch (err) {

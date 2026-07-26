@@ -4596,14 +4596,16 @@
  * ───────────────────────────────────────────────────────────────────── */
 @media (max-width: 767px) {
   .nui-modal-overlay {
+    align-items: flex-start;
+    overflow-y: auto;
     padding: 0;
     background: #0a0a0a;
   }
   .nui-modal {
     max-width: none;
     width: 100%;
-    height: 100dvh;
-    max-height: 100dvh;
+    height: auto;
+    max-height: none;
     border: none;
     border-radius: 0;
     box-shadow: none;
@@ -4613,6 +4615,7 @@
       radial-gradient(720px 460px at -5% 100%, rgba(180, 249, 83, 0.08), transparent 60%),
       #0a0a0a;
   }
+  .obelisk-share-modal { min-height: 100dvh; }
   .nui-modal-close {
     width: 44px;
     height: 44px;

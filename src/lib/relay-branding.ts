@@ -112,7 +112,7 @@ export async function publishBranding(relayUrl: string, branding: RelayBranding)
     kind: KIND_BRANDING,
     content: '',
     tags: toTags(branding, relayUrl),
-  });
+  }, { extraRelays: [relayUrl], mode: 'replace' });
 }
 
 export function useRelayBranding(

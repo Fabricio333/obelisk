@@ -20,7 +20,7 @@ the topology decision. The switch fires when **both**:
 
 When both hold, the client publishes a kind 25052 `start` and instantiates
 `SfuClient` ([src/lib/voice/sfu-client.ts](../src/lib/voice/sfu-client.ts)).
-Otherwise it falls back to the mesh `Peer` engine.
+Ordinary `voice` channels use the four-person mesh. A `voice-sfu` channel without a reachable SFU surfaces an error instead of silently falling back.
 
 ## Client modules
 
@@ -30,7 +30,7 @@ Otherwise it falls back to the mesh `Peer` engine.
 | `src/lib/voice/sfu-control.ts`    | Discovery (kind 31313), `start` publishing, rate-limit, build-time pin override. |
 | `src/lib/voice/sfu-rpc.ts`        | Browser-side RPC envelope client over kind 25050.                                |
 | `src/lib/voice/sfu-client.ts`     | mediasoup-client `Device` + send/recv `Transport`, ICE servers, producer mgmt.   |
-| `src/lib/voice/peer.ts`           | Mesh engine (P2P WebRTC over kind 20078/25050). Untouched by the SFU path.       |
+| `src/lib/voice/peer.ts`           | `simple-peer` mesh adapter (P2P WebRTC over kinds 20078/25050).                  |
 
 ## Build-time SFU pinning
 

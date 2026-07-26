@@ -4,6 +4,10 @@ import { initialNav, urlFor, type NavState, type ScreenName } from './url-state'
 // retreats.
 export const NAV_ORDER: ScreenName[] = ['server', 'dms-list', 'inbox', 'settings-profile'];
 
+export function isAdjacentTabSwitch(from: ScreenName, to: ScreenName): boolean {
+  return Math.abs(NAV_ORDER.indexOf(from) - NAV_ORDER.indexOf(to)) === 1;
+}
+
 // Sub-screens map back to the top-level tab they belong to. This lets us treat
 // a horizontal swipe on a sub-screen as if the user were on its parent — both
 // directions skip the parent and switch tabs (swipe-left → next top-level,

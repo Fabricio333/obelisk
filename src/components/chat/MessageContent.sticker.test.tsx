@@ -3,6 +3,14 @@ import { describe, expect, it } from 'vitest';
 import MessageContent from './MessageContent';
 
 describe('MessageContent stickers', () => {
+  it('uses the waveform player for uploaded audio files', () => {
+    render(<MessageContent content="https://cdn.example/song.mp3" />);
+
+    expect(screen.getByTestId('voice-message')).toBeInTheDocument();
+    expect(screen.getByTestId('voice-waveform')).toBeInTheDocument();
+    expect(screen.queryByTestId('audio-player')).not.toBeInTheDocument();
+  });
+
   it('renders tagged stickers as large media instead of inline custom emoji', () => {
     render(
       <MessageContent

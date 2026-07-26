@@ -46,6 +46,16 @@ describe('channel scroll positions', () => {
     expect(el.scrollTop).toBe(260);
   });
 
+  it('can ignore a stale saved position and restore the latest message', () => {
+    rememberChannelScrollPosition('relay::group-1', scroller(0));
+    const el = scroller(0);
+
+    const result = restoreChannelScrollPosition('relay::group-1', el, undefined, { ignoreSaved: true });
+
+    expect(result.source).toBe('bottom');
+    expect(el.scrollTop).toBe(800);
+  });
+
   it('uses an initial read-cursor anchor when no saved position exists', () => {
     const el = scroller(0);
 

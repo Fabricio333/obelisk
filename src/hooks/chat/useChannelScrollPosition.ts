@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import {
   CHANNEL_SCROLL_NEAR_BOTTOM_PX,
+  getChannelScrollPosition,
   rememberChannelScrollPosition,
   restoreChannelScrollPosition,
 } from '@/lib/channel-scroll-position';
@@ -14,6 +15,7 @@ interface UseChannelScrollPositionOptions {
   readonly disabled?: boolean;
   readonly initialAnchorKey?: string | null;
   readonly getInitialAnchorElement?: () => HTMLElement | null;
+  readonly ignoreSavedOnInitialRestore?: boolean;
   readonly nearBottomPx?: number;
   readonly onNearBottomChange?: (nearBottom: boolean) => void;
 }
@@ -25,6 +27,7 @@ export function useChannelScrollPosition({
   disabled = false,
   initialAnchorKey = null,
   getInitialAnchorElement,
+  ignoreSavedOnInitialRestore = false,
   nearBottomPx = CHANNEL_SCROLL_NEAR_BOTTOM_PX,
   onNearBottomChange,
 }: UseChannelScrollPositionOptions): void {
@@ -56,23 +59,42 @@ export function useChannelScrollPosition({
       return;
     }
 
-    if (itemCount <= 0 || restoredKeyRef.current === scrollKey) return;
+    if (itemCount <= 0) return;
 
     const applyRestore = () => {
       const el = scrollRef.current;
       if (!el) return;
       const result = restoreChannelScrollPosition(scrollKey, el, nearBottomPx, {
         initialAnchorElement: getInitialAnchorElementRef.current?.() ?? null,
+        ignoreSaved: ignoreSavedOnInitialRestore,
       });
       onNearBottomChangeRef.current?.(result.nearBottom);
       if (result.complete) restoredKeyRef.current = scrollKey;
     };
 
-    applyRestore();
+    let frame: number | null = null;
+    if (restoredKeyRef.current !== scrollKey) {
+      applyRestore();
+      frame = requestAnimationFrame(applyRestore);
+    }
 
-    const frame = requestAnimationFrame(applyRestore);
-    return () => cancelAnimationFrame(frame);
-  }, [disabled, initialAnchorKey, itemCount, nearBottomPx, scrollKey, scrollRef]);
+    const el = scrollRef.current;
+    const observer = el && typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(() => {
+          const saved = getChannelScrollPosition(scrollKey);
+          if (!saved || saved.nearBottom) applyRestore();
+        })
+      : null;
+    if (el && observer) {
+      observer.observe(el);
+      for (const child of el.children) observer.observe(child);
+    }
+
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
+  }, [disabled, ignoreSavedOnInitialRestore, initialAnchorKey, itemCount, nearBottomPx, scrollKey, scrollRef]);
 
   useEffect(() => {
     if (!scrollKey) return;

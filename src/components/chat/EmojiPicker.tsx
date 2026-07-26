@@ -3,7 +3,6 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   EMOJI_CATEGORIES,
-  EMOJI_CATEGORY_NAMES,
   SEARCHABLE_EMOJI,
   normalizeEmojiKeyword,
 } from '@/components/chat/emoji-data';
@@ -11,17 +10,21 @@ import { loadRecentEmojis, pushRecentEmoji } from '@/lib/recent-emojis';
 import { normalizeCustomEmojiName, type CustomEmojiMap } from '@/lib/custom-emoji-tags';
 import { useChatStore } from '@/store/chat';
 
-const EMOJI_CATEGORY_META: Record<string, { icon: string; label: string }> = {
-  Smileys: { icon: "😀", label: "Smileys & people" },
-  Gestures: { icon: "👋", label: "People & gestures" },
-  Objects: { icon: "💡", label: "Objects" },
-  Food: { icon: "🍔", label: "Food & drink" },
-  Animals: { icon: "🐻", label: "Animals & nature" },
-  Nature: { icon: "🌿", label: "Plants & weather" },
-  Transport: { icon: "🚗", label: "Cars & transport" },
-  Flags: { icon: "🏳️", label: "Flags" },
-  Activities: { icon: "⚽", label: "Activities" },
-};
+const EMOJI_SECTIONS = [
+  { name: 'Smileys', icon: '😀', label: 'Smileys & people', categories: ['Smileys', 'Gestures'] },
+  { name: 'Nature', icon: '🐝', label: 'Animals & nature', categories: ['Animals', 'Nature'] },
+  { name: 'Food', icon: '☕', label: 'Food & drink', categories: ['Food'] },
+  { name: 'Sports', icon: '🏀', label: 'Sports', categories: ['Activities'] },
+  { name: 'Cars', icon: '🚗', label: 'Cars & travel', categories: ['Transport'] },
+  { name: 'Ideas', icon: '💡', label: 'Ideas & objects', categories: ['Objects'] },
+  { name: 'Symbols', icon: '🎵', label: 'Symbols', categories: ['Symbols'] },
+  { name: 'Flags', icon: '🏳️', label: 'Flags', categories: ['Flags'] },
+] as const;
+
+const EMOJI_NAV = [
+  { name: 'Recent', icon: '◷', label: 'Recent' },
+  ...EMOJI_SECTIONS,
+];
 
 export interface PickedCustomEmoji {
   readonly name: string;
@@ -57,7 +60,17 @@ export interface EmojiPickerProps {
   showClose?: boolean;
   className?: string;
   customEmojis?: CustomEmojiMap;
+  columns?: 7 | 12;
   children?: ReactNode;
+}
+
+export function RecentIcon({ className = 'h-5 w-5' }: { className?: string }) {
+  return (
+    <svg data-testid="recent-icon" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+      <path d="M3 3v5h5M12 7v5l3 2" />
+    </svg>
+  );
 }
 
 export function MediaPickerSearch({
@@ -100,11 +113,12 @@ export default function EmojiPicker({
   showClose = true,
   className,
   customEmojis: customEmojisProp,
+  columns,
   children,
 }: EmojiPickerProps) {
   const [query, setQuery] = useState('');
   const [recents, setRecents] = useState<string[]>(() => loadRecentEmojis());
-  const [activeCategory, setActiveCategory] = useState(EMOJI_CATEGORY_NAMES[0]);
+  const [activeCategory, setActiveCategory] = useState('Recent');
   const scrollRef = useRef<HTMLDivElement>(null);
   const storeCustomEmojis = useChatStore((s) => s.serverEmojis);
   const customEmojis = customEmojisProp ?? storeCustomEmojis;
@@ -165,11 +179,13 @@ export default function EmojiPicker({
   const isSheet = variant === 'sheet';
   const popoverPlacementClass = placement === 'below' ? 'top-full mt-1' : 'bottom-full mb-1';
   const containerClass = isSheet
-    ? 'flex h-full w-full flex-col bg-lc-black p-3 text-lc-white '
+    ? 'flex h-full w-full flex-col bg-lc-black p-2 text-lc-white '
     : `absolute right-0 ${popoverPlacementClass} z-30 flex h-[430px] w-[360px] flex-col overflow-hidden rounded-lg border border-lc-border bg-lc-black text-lc-white shadow-2xl `;
-  const gridClass = isSheet
-    ? 'grid grid-cols-7 gap-1.5'
-    : 'grid grid-cols-8 gap-1 px-3';
+  const gridClass = columns === 12
+    ? 'grid grid-cols-12 gap-0.5'
+    : isSheet
+      ? 'grid grid-cols-7 gap-1.5'
+      : 'grid grid-cols-8 gap-1 px-3';
   const emojiBtnClass = isSheet
     ? 'flex aspect-square items-center justify-center rounded-md text-2xl active:bg-[#3f4147] disabled:cursor-default disabled:opacity-40'
     : 'flex aspect-square items-center justify-center rounded-md text-2xl hover:bg-[#3f4147] disabled:cursor-default disabled:opacity-40';
@@ -177,7 +193,7 @@ export default function EmojiPicker({
     ? 'relative min-h-0 flex-1 overflow-y-auto'
     : 'relative min-h-0 flex-1 overflow-y-auto pb-3';
   const sectionTitleClass = isSheet
-    ? 'mb-2 px-1 text-[11px] font-bold uppercase tracking-wider text-[#b5bac1]'
+    ? 'sticky top-0 z-10 mb-2 border-b border-lc-border bg-lc-black/95 px-1 py-2 text-[11px] font-bold uppercase tracking-wider text-[#b5bac1] backdrop-blur'
     : 'sticky top-0 z-10 mb-2 bg-lc-black/95 px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-[#b5bac1] backdrop-blur';
   const customImageClass = isSheet
     ? 'h-[1.45em] w-[1.45em] object-contain'
@@ -217,9 +233,9 @@ export default function EmojiPicker({
       onClick={(e) => e.stopPropagation()}
     >
       {!filtered && (
-        <nav className="mb-2 flex shrink-0 gap-1 overflow-x-auto border-b border-lc-border px-1 pb-1" aria-label="Emoji categories">
-          {EMOJI_CATEGORY_NAMES.map((category) => {
-            const meta = EMOJI_CATEGORY_META[category] ?? { icon: "•", label: category };
+        <nav className="mb-2 grid shrink-0 grid-cols-9 border-b border-lc-border px-1 pb-1" aria-label="Emoji categories">
+          {EMOJI_NAV.map((meta) => {
+            const category = meta.name;
             return (
               <button
                 type="button"
@@ -228,15 +244,14 @@ export default function EmojiPicker({
                 aria-label={meta.label}
                 aria-pressed={activeCategory === category}
                 title={meta.label}
-                className={`flex h-10 min-w-10 shrink-0 items-center justify-center rounded-lg border-b-2 text-xl ${activeCategory === category ? "border-lc-green bg-lc-green/10" : "border-transparent hover:bg-white/5"}`}
+                className={['flex h-10 min-w-0 items-center justify-center rounded-lg border-b-2 text-xl', activeCategory === category ? 'border-lc-green bg-lc-green/10' : 'border-transparent hover:bg-white/5'].join(' ')}
               >
-                <span aria-hidden="true">{meta.icon}</span>
+                {category === 'Recent' ? <RecentIcon /> : <span aria-hidden="true">{meta.icon}</span>}
               </button>
             );
           })}
         </nav>
       )}
-      {children}
       <div className={isSheet ? 'my-2 flex items-center gap-2' : 'border-b border-black/20 p-3'}>
         {!isSheet && (
           <div className="mb-2 flex items-center justify-between">
@@ -298,9 +313,8 @@ export default function EmojiPicker({
           </>
         ) : (
           <>
-            {recents.length > 0 && (
-              <div className="mb-2">
-                <div className={sectionTitleClass}>Frequently used</div>
+            <div className="mb-2 scroll-mt-1" data-emoji-category="Recent">
+                <div className={sectionTitleClass}>Recent</div>
                 <div className={gridClass}>
                   {recents.map((char) => {
                     const customMatch = /^:([a-z0-9_]{1,64}):$/i.exec(char);
@@ -321,15 +335,15 @@ export default function EmojiPicker({
                     );
                   })}
                 </div>
+                {recents.length === 0 && <div className="px-1 py-3 text-xs text-lc-muted">No recent emojis</div>}
               </div>
-            )}
             {renderCustomSection('Server GIFs', customGifEntries)}
             {renderCustomSection('Server emojis', customEmojiEntries)}
-            {EMOJI_CATEGORY_NAMES.map((cat) => (
-              <div key={cat} className="mb-2 scroll-mt-1" data-emoji-category={cat}>
-                <div className={sectionTitleClass}>{EMOJI_CATEGORY_META[cat]?.label ?? cat}</div>
+            {EMOJI_SECTIONS.map((section) => (
+              <div key={section.name} className="mb-2 scroll-mt-1" data-emoji-category={section.name}>
+                <div className={sectionTitleClass}>{section.label}</div>
                 <div className={gridClass}>
-                  {EMOJI_CATEGORIES[cat].map((e) => {
+                  {section.categories.flatMap((category) => EMOJI_CATEGORIES[category] ?? []).map((e) => {
                     const mine = disabled.has(e.char);
                     return (
                       <button
@@ -349,6 +363,7 @@ export default function EmojiPicker({
           </>
         )}
       </div>
+      {children}
     </div>
   );
 }

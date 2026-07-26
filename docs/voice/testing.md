@@ -53,6 +53,8 @@ reach `relay-access=ok` in 30 s.
 | `two-peer-mesh.spec.ts` | Beacon round-trip, signal round-trip, WebRTC `connectionState=connected`, audio RTP both ways, camera RTP both ways, build-tag check, and fast-hangup detection (<15 s) when one peer leaves |
 | `three-peer-transitive.spec.ts` | Full mesh on 3 peers (each reports `connected=2`), 2 control channels per peer, heartbeat alive, at least one `transitive.discoveredViaControl > 0`, fast-hangup propagation when one peer leaves |
 | `glare.spec.ts` | Two peers join at the exact same await tick → connection still establishes, exactly one control channel per side (no double-create) |
+| `four-peer-media.spec.ts` | Full four-person room plus real audio, camera, and screen media flow |
+| `five-peer-rejection.spec.ts` | Fifth lex-trailing peer receives `room-full`; the existing four remain stable |
 
 ### Media-sync Regression Checklist
 
@@ -63,7 +65,7 @@ The "Media syncing" failure mode can happen after peers are already visible and 
 3. Build and restart the production server on the E2E port.
 4. Run the focused `two-peer-mesh.spec.ts`; it must pass audio and camera RTP byte assertions in both directions.
 
-The main bug class here is offer glare during mid-call media changes: both peers enable mic or camera, the polite side rolls back its local offer to answer the remote offer, then it must send a fresh offer for the rolled-back local media change. If that follow-up offer is skipped, participants remain detected but media stays black or silent. Keep TURN forcing off for normal mesh tests; set `TEST_PEER_FORCE_RELAY=1` or `NEXT_PUBLIC_FORCE_RELAY=1` only for explicit TURN-only debugging.
+The adapter delegates SDP/ICE/media renegotiation to `simple-peer`; regression coverage verifies deterministic initiator roles, opaque Nostr signal forwarding, recv-only transceiver requests, terminal redial, and media flow. Keep TURN forcing off for normal mesh tests; set `TEST_PEER_FORCE_RELAY=1` or `NEXT_PUBLIC_FORCE_RELAY=1` only for explicit TURN-only debugging.
 
 ### Why bypass the VoiceRoom UI?
 

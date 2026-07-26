@@ -818,13 +818,151 @@ button:not(:disabled),
   margin: 1px 0 0;
 }
 
-/* The SDK ships a "Remember on this device" toggle but ignores the
- * `showRememberToggle={false}` prop we pass (the SDK's parameter is stubbed
- * out). Our bridge owns session persistence — having two competing layers
- * causes drift. Hide the unclassed `<label>` that wraps it; the warning
- * acknowledgement (`.nui-warning`) is a sibling label and stays visible. */
-.nui-modal label:not([class]):has(> input[type="checkbox"]) {
-  display: none;
+/* Generated-key confirmation controls should read as full-size choices, not
+ * browser-default checkboxes floating beside a paragraph. */
+.obelisk-login-modal :is(.nui-warning, label:not([class]):has(> input[type="checkbox"])) {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  min-height: 52px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--color-lc-border);
+  border-radius: 12px;
+  background: #0f0f0f;
+  color: var(--color-lc-white);
+  cursor: pointer;
+  font-size: 14px !important;
+  line-height: 1.4;
+}
+.obelisk-login-modal :is(.nui-warning, label:not([class])):has(input:checked) {
+  border-color: color-mix(in oklab, var(--color-lc-green) 48%, transparent);
+  background: color-mix(in oklab, var(--color-lc-green) 8%, #0f0f0f);
+}
+.obelisk-login-modal input[type="checkbox"] { width: 22px; height: 22px; }
+
+/* Backup first: the public npub belongs on the final sharing screen. */
+.obelisk-login-modal h3 + p + div:has(> .nui-key-display) { display: none !important; }
+
+/* The published SDK renders picture last. Reorder the existing fields without
+ * duplicating its profile form: picture, name, description. */
+.obelisk-login-modal div:has(> .nui-profile-fields) > h3 { order: 0; }
+.obelisk-login-modal div:has(> .nui-profile-fields) > p { order: 1; }
+.obelisk-login-modal div:has(> .nui-profile-fields) > .nui-profile-fields:nth-of-type(3) { order: 2; }
+.obelisk-login-modal div:has(> .nui-profile-fields) > .nui-profile-fields:nth-of-type(1) { order: 3; }
+.obelisk-login-modal div:has(> .nui-profile-fields) > .nui-profile-fields:nth-of-type(2) { order: 4; }
+.obelisk-login-modal div:has(> .nui-profile-fields) > button { order: 5; }
+
+.obelisk-npub-share {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  text-align: center;
+}
+.obelisk-npub-share .nui-key-display {
+  padding: 18px;
+  border-color: color-mix(in oklab, var(--color-lc-green) 30%, transparent);
+  background: #0f0f0f;
+}
+.obelisk-npub-share .obelisk-copy-npub {
+  align-self: stretch;
+  justify-content: center;
+  min-height: 44px;
+  margin: 0 !important;
+}
+.obelisk-npub-share .nui-login-button { width: 100%; justify-content: center; }
+.obelisk-step-done {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 4px;
+  border-radius: 50%;
+  background: var(--color-lc-green);
+  color: var(--color-lc-black);
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.nui-profile-fields:has(.obelisk-name-input) { position: relative; }
+.obelisk-name-input { padding-right: 48px !important; }
+.obelisk-random-name {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--color-lc-green) 12%, transparent);
+  color: var(--color-lc-green);
+  cursor: pointer;
+  font-size: 18px;
+}
+.obelisk-hidden-profile-label { display: none; }
+.obelisk-profile-media {
+  position: relative;
+  padding-bottom: 48px;
+}
+.obelisk-media-picker {
+  cursor: pointer;
+  overflow: hidden;
+  border: 1px dashed color-mix(in oklab, var(--color-lc-green) 34%, var(--color-lc-border));
+  background: #0f0f0f;
+  color: var(--color-lc-muted);
+}
+.obelisk-banner-picker {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 132px;
+  border-radius: 14px;
+}
+.obelisk-picture-picker {
+  position: absolute;
+  left: 18px;
+  bottom: 0;
+  display: grid;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  border: 4px solid var(--nui-bg);
+  border-radius: 50%;
+  background: #171717;
+  color: var(--color-lc-green);
+  font-size: 28px;
+}
+.obelisk-media-picker img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.obelisk-media-prompt {
+  position: relative;
+  z-index: 1;
+  padding: 7px 10px;
+  border-radius: 9999px;
+  background: rgba(10, 10, 10, 0.76);
+  color: var(--color-lc-white);
+  font: 600 12px/1 var(--nui-font);
+}
+.obelisk-picture-picker:not(.has-image) .obelisk-media-prompt {
+  padding: 0;
+  background: transparent;
+  color: var(--color-lc-green);
+  font-size: 28px;
+}
+.obelisk-upload-error {
+  display: block;
+  margin-top: 8px;
+  color: #f87171;
+  font-size: 12px;
 }
 
 /* Secondary text actions: Copy / Download / Back. The SDK renders these as

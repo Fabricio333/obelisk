@@ -2,10 +2,8 @@
  * Glare regression spec — Phase 3 of the mesh hardening plan.
  *
  * Two peers join the same channel within milliseconds of each other so
- * both sides race to send the first offer. Perfect negotiation
- * (peer.ts) routes one side to roll back its local offer and apply the
- * remote one; the connection still establishes within the normal
- * connect window. After Phase 3's control-channel additions we want
+ * the deterministic pubkey roles select one simple-peer initiator; the connection still establishes within the normal
+ * connect window. With the control channel we want
  * to be sure the data channel didn't introduce a new glare path
  * (impolite creates the channel; polite waits for ondatachannel —
  * symmetric, no double-create).

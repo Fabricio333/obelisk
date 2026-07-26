@@ -6,7 +6,7 @@ which engine is active; they consume `VoiceClient` events.
 
 | Engine | Topology | When | Code |
 |---|---|---|---|
-| **mesh** | P2P full mesh over WebRTC; signaling on Nostr (kinds 20078 + 25050) | small rooms (≤ 8), no SFU advertised on the channel | `src/lib/voice/{client,peer,transport,control-channel,discovery,failure-handlers}.ts` |
+| **mesh** | P2P full mesh via `simple-peer`; discovery/signaling on Nostr (kinds 20078 + 25050) | rooms of at most 4 people, no SFU advertised on the channel | `src/lib/voice/{client,peer,transport,control-channel,discovery,failure-handlers}.ts` |
 | **SFU** | mediasoup, Nostr-RPC signaling on kind 25050 envelopes | a kind 31313 advertisement is reachable (or pinned via `NEXT_PUBLIC_SFU_PUBKEY`) AND the channel is the `voice-sfu` kind | `src/lib/voice/{sfu-client,sfu-control,sfu-rpc,sfu-pin}.ts` (server lives in [obelisk-app/obelisk-sfu](https://github.com/obelisk-app/obelisk-sfu)) |
 
 This directory documents the **mesh** engine in depth. SFU docs are at
@@ -15,9 +15,9 @@ This directory documents the **mesh** engine in depth. SFU docs are at
 ## When to read what
 
 - **[mesh-protocol.md](mesh-protocol.md)** — the wire protocol: presence
-  beacons (kind 20078), signaling envelopes (kind 25050), perfect
-  negotiation, transitive discovery, control-channel messages, hangup
-  paths. Read this first if you're touching anything that produces or
+  beacons (kind 20078), `simple-peer` signaling envelopes (kind 25050),
+  transitive discovery, control-channel messages, media caps, and hangup
+  paths. Read this first if you are touching anything that produces or
   consumes Nostr events for voice.
 - **[mesh-modules.md](mesh-modules.md)** — code map of
   `src/lib/voice/`. Read this before adding a new file or moving an
@@ -29,8 +29,6 @@ This directory documents the **mesh** engine in depth. SFU docs are at
 - **[testing.md](testing.md)** — Playwright harness usage; how the
   two-peer / three-peer / glare specs run; how to add a new failure
   injection.
-- **[diagnosis-2026-05-09.md](diagnosis-2026-05-09.md)** — Phase 1
-  diagnostic findings. Useful as a pattern for future diagnostics.
 
 ## What "mesh" buys you
 
@@ -49,13 +47,17 @@ This directory documents the **mesh** engine in depth. SFU docs are at
 
 ## What mesh does NOT do
 
-- Rooms larger than 5 participants. The mesh degrades quadratically
-  (each peer maintains 4 outbound audio streams in a 5-person room
-  → 20 PCs total). The 6th joiner is **actively rejected**: every
+- Rooms larger than 4 participants. The mesh degrades quadratically:
+  four people produce six peer pairs and each browser maintains three
+  direct connections. The 5th joiner is **actively rejected**: every
   in-cap peer sends a `bye { byeReason: 'room-full' }` so the joiner
   surfaces a clean "Room is full" error and leaves on its own
-  without looping the reconnect ladder. Anything past 5 needs the
-  SFU engine.
+  without looping.
+- More than four simultaneous cameras or more than one screen share.
+  Camera and screen limits are independent and derived from signed relay
+  beacons; `(createdAt, pubkey)` ordering resolves simultaneous claims
+  consistently on every client.
+- Anything beyond those limits needs the SFU engine.
 - Recording. There's no central party to record. If recording is a
   product requirement, route the room through the SFU.
 - Ad-hoc "anyone can speak". Voice is gated by the channel's NIP-29

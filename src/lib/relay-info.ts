@@ -6,6 +6,8 @@
  * results in localStorage to avoid re-hitting every page load.
  */
 
+import { nip19 } from 'nostr-tools';
+
 export type RelayInfo = {
   name?: string;
   description?: string;
@@ -13,6 +15,7 @@ export type RelayInfo = {
   /** NIP-11 `pubkey` field — relay operator hex pubkey. Used as the
    *  authoritative author for shared metadata like the channel layout. */
   pubkey?: string;
+  contact?: string;
   /** When the entry was fetched (ms epoch). Used for TTL. */
   fetchedAt: number;
 };
@@ -33,7 +36,7 @@ const FETCH_TIMEOUT_MS = 5000;
 
 type Cache = Record<string, RelayInfo>;
 
-const cacheStore = createLocalStore<Cache>('obelisk:relay-info-v2', {});
+const cacheStore = createLocalStore<Cache>('obelisk:relay-info-v3', {});
 
 function toHttpUrl(wsUrl: string): string {
   return wsUrl.replace(/^ws:/, 'http:').replace(/^wss:/, 'https:');
@@ -50,6 +53,18 @@ export function faviconFor(wsUrl: string): string | null {
 }
 
 const inflight = new Map<string, Promise<RelayInfo | null>>();
+
+export function operatorPubkeyFromRelayInfo(info: RelayInfo | null): string | null {
+  if (info?.contact?.startsWith('npub1')) {
+    try {
+      const decoded = nip19.decode(info.contact);
+      if (decoded.type === 'npub' && typeof decoded.data === 'string') return decoded.data;
+    } catch {
+      // Fall through to the relay service pubkey.
+    }
+  }
+  return info?.pubkey ?? null;
+}
 
 export async function fetchRelayInfo(wsUrl: string): Promise<RelayInfo | null> {
   const cache = cacheStore.load();
@@ -68,12 +83,13 @@ export async function fetchRelayInfo(wsUrl: string): Promise<RelayInfo | null> {
         signal: ctl.signal,
       });
       if (!res.ok) return null;
-      const json = (await res.json()) as { name?: string; description?: string; icon?: string; pubkey?: string };
+      const json = (await res.json()) as { name?: string; description?: string; icon?: string; pubkey?: string; contact?: string };
       const info: RelayInfo = {
         name: typeof json.name === 'string' ? json.name : undefined,
         description: typeof json.description === 'string' ? json.description : undefined,
         icon: typeof json.icon === 'string' ? json.icon : undefined,
         pubkey: typeof json.pubkey === 'string' && /^[0-9a-f]{64}$/i.test(json.pubkey) ? json.pubkey.toLowerCase() : undefined,
+        contact: typeof json.contact === 'string' ? json.contact : undefined,
         fetchedAt: Date.now(),
       };
       const next = cacheStore.load();

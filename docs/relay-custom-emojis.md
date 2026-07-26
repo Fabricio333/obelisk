@@ -47,13 +47,12 @@ independent per-relay ownership while making migration/copying easy.
 
 ## Who can edit
 
-The author set is the same model used by relay layout and branding:
+The author is the same operator identity used by relay layout and branding:
 
-- any pubkey in a visible group's NIP-29 admin list (`kind:39001`)
-- the relay's NIP-11 operator pubkey, when advertised
+- the validated NIP-11 `contact` npub, falling back to the NIP-11 `pubkey`
 
-Clients subscribe to `kind:30030` only from that author set, and newest
-`created_at` wins. Events by non-admin pubkeys are ignored by the client.
+Clients subscribe to `kind:30030` only from that pubkey. Events by other
+pubkeys are ignored by the client.
 
 ## Uploads
 

@@ -16,6 +16,7 @@ function Harness({
   scrollHeight = 1000,
   initialAnchorOffset,
   onNearBottomChange,
+  ignoreSavedOnInitialRestore = false,
 }: {
   scrollKey: string;
   itemCount: number;
@@ -23,6 +24,7 @@ function Harness({
   scrollHeight?: number;
   initialAnchorOffset?: number;
   onNearBottomChange?: (nearBottom: boolean) => void;
+  ignoreSavedOnInitialRestore?: boolean;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
@@ -34,6 +36,7 @@ function Harness({
     itemCount,
     disabled,
     initialAnchorKey: initialAnchorOffset == null ? null : `anchor-${initialAnchorOffset}`,
+    ignoreSavedOnInitialRestore,
     getInitialAnchorElement: initialAnchorOffset == null
       ? undefined
       : () => ({ offsetTop: initialAnchorOffset }) as HTMLElement,
@@ -51,6 +54,8 @@ function Harness({
 }
 
 describe('useChannelScrollPosition', () => {
+  let resize: ResizeObserverCallback;
+
   beforeEach(() => {
     clearChannelScrollPositions();
     vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
@@ -58,6 +63,13 @@ describe('useChannelScrollPosition', () => {
       return 1;
     });
     vi.stubGlobal('cancelAnimationFrame', () => {});
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: ResizeObserverCallback) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    });
   });
 
   afterEach(() => {
@@ -86,6 +98,14 @@ describe('useChannelScrollPosition', () => {
     expect(el.scrollTop).toBe(320);
   });
 
+  it('ignores a stale saved position when the channel is already read through latest', () => {
+    rememberChannelScrollPosition('relay::g1', { scrollTop: 0, scrollHeight: 1000, clientHeight: 200 });
+
+    render(<Harness scrollKey="relay::g1" itemCount={5} ignoreSavedOnInitialRestore />);
+
+    expect((screen.getByTestId('scroller') as HTMLDivElement).scrollTop).toBe(800);
+  });
+
   it('uses a read-cursor anchor on first open when no saved position exists', () => {
     render(<Harness scrollKey="relay::g1" itemCount={5} initialAnchorOffset={360} />);
 
@@ -111,6 +131,16 @@ describe('useChannelScrollPosition', () => {
     expect(el.scrollTop).toBe(0);
 
     rerender(<Harness scrollKey="relay::g1" itemCount={8} scrollHeight={1000} />);
+
+    expect(el.scrollTop).toBe(800);
+  });
+
+  it('stays bottom-locked when the PWA message area finishes laying out', () => {
+    render(<Harness scrollKey="relay::g1" itemCount={5} scrollHeight={200} />);
+    const el = screen.getByTestId('scroller') as HTMLDivElement;
+
+    defineScrollMetrics(el, 1000, 200);
+    act(() => resize([], {} as ResizeObserver));
 
     expect(el.scrollTop).toBe(800);
   });

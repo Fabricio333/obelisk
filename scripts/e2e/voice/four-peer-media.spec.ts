@@ -1,10 +1,10 @@
 /**
- * Five-peer mesh with audio + camera + screen share.
+ * Four-peer mesh with audio + camera + screen share.
  *
  * Goals beyond what 3-peer-transitive proves:
- *  - Mesh capacity past 3 nodes — 5 peers means each end maintains 4
- *    outbound audio streams (20 PCs room-wide), close to the
- *    `MAX_PARTICIPANTS = 8` cap.
+ *  - Mesh capacity past 3 nodes — 4 peers means each end maintains 3
+ *    outbound audio streams (12 directed streams room-wide), exactly the
+ *    `MAX_PARTICIPANTS = 4` cap.
  *  - Real media flows. We assert non-zero `bytesReceived` on inbound
  *    RTP for both audio AND video (camera + screen) — the first
  *    end-to-end test that proves media actually arrives, not just
@@ -13,10 +13,10 @@
  *    screen share — we assert other peers receive the new tracks
  *    without a re-join.
  *
- * Joins are STAGGERED (1 s apart) to avoid a 5-way simultaneous
+ * Joins are STAGGERED to avoid a 4-way simultaneous
  * AppShell + voice subscription burst saturating
  * `public.obelisk.ar`'s 50-sub-per-WebSocket quota
- * (see docs/voice/diagnosis-2026-05-09.md §H4). The mesh still ends
+ * The mesh still ends
  * up at full strength because the bring-up beacon burst + control-
  * channel discovery converge whether peers arrive together or strung
  * out over a few seconds.
@@ -48,7 +48,7 @@ import {
 } from './lib-voice';
 
 const RELAY_URL = process.env.OBELISK_E2E_RELAY ?? DEFAULT_RELAY;
-const NUM_PEERS = 5;
+const NUM_PEERS = 4;
 const STAGGER_MS = 1500;
 /**
  * Each peer should reach AT LEAST this many connected peers within the
@@ -60,7 +60,7 @@ const MIN_CONNECTED_PER_PEER = 2;
 const FORMATION_TIMEOUT_MS = 90_000;
 const MEDIA_FLOW_TIMEOUT_MS = 30_000;
 
-test('5 peers with audio + camera + screen-share', async () => {
+test('4 peers with audio + camera + screen-share', async () => {
   test.setTimeout(300_000);
 
   const browser = await chromium.launch({
@@ -91,7 +91,7 @@ test('5 peers with audio + camera + screen-share', async () => {
     }
 
     const pages = await Promise.all(ctxs.map((c) => c.newPage()));
-    pages.forEach(attachClientCapture);
+    pages.forEach((page) => attachClientCapture(page));
 
     // Navigate everyone first, then stagger the joins.
     await Promise.all(pages.map((p) =>

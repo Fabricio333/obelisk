@@ -87,9 +87,12 @@ export function restoreChannelScrollPosition(
   key: string,
   el: ChannelScrollElement,
   nearBottomPx = CHANNEL_SCROLL_NEAR_BOTTOM_PX,
-  opts?: { readonly initialAnchorElement?: ChannelScrollAnchorElement | null },
+  opts?: {
+    readonly initialAnchorElement?: ChannelScrollAnchorElement | null;
+    readonly ignoreSaved?: boolean;
+  },
 ): ChannelScrollRestoreResult {
-  const saved = positions.get(key);
+  const saved = opts?.ignoreSaved ? undefined : positions.get(key);
   const maxTop = maxScrollTop(el);
   const anchor = opts?.initialAnchorElement ?? null;
   const source: ChannelScrollRestoreResult['source'] = saved ? 'saved' : anchor ? 'anchor' : 'bottom';

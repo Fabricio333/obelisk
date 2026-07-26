@@ -16,10 +16,11 @@
 
 ## Mesh internals
 
-- **`peer.ts` → `Peer`** — one per remote pubkey. Owns the
-  RTCPeerConnection, runs perfect negotiation, manages the reconnect
-  ladder, and (since Phase 3) instantiates a `ControlChannel` for
-  fast hangup + transitive discovery.
+- **`peer.ts` → `Peer`** — one per remote pubkey. Adapts the established
+  [`simple-peer`](https://github.com/feross/simple-peer) library to signed
+  Nostr signaling, local media/quality policy, and the ordered control data
+  channel. Lexicographic pubkey roles select exactly one initiator per pair;
+  terminal failures return to `VoiceClient` for discovery-driven redial.
 - **`transport.ts`** — thin Nostr layer on top of the bridge.
   - `publishPresenceBeacon(channelId, connectedTo, videoTracks)`
   - `subscribeRoster(channelId, onChange)`
@@ -27,10 +28,10 @@
   - `subscribeSignals(channelId, selfPubkey, onSignal)`
   - `transitiveParticipants(roster)` — derives the union of beacon
     publishers + their `p`-tag connectedTo lists.
-- **`control-channel.ts` → `ControlChannel`** — the per-pair
-  RTCDataChannel wrapper. Heartbeat (2.5 s ping / 7 s dead-peer
-  timer), open timeout (10 s), `hello`/`peerAdded`/`peerRemoved`/
-  `bye` propagation, RTT measurement.
+- **`control-channel.ts`** — shared control message types and timing
+  constants. `Peer` sends them through `simple-peer`'s ordered data channel:
+  2.5 s ping, 20 s dead-peer timeout, 5 s peer snapshots,
+  `hello`/`peerAdded`/`peerRemoved`/`bye`, and RTT measurement.
 - **`discovery.ts` → `DiscoveryEngine`** — union of relay-derived
   and control-channel-derived peer sets. Keyed by `(pubkey, viaPeer)`
   for control claims; removal-when-no-claimants prevents flicker on
