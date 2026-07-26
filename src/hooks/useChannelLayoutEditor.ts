@@ -70,6 +70,17 @@ export function useChannelLayoutEditor(
     });
   }
 
+  function placeCategory(id: string, targetIndex: number) {
+    setDraft((current) => {
+      const categories = [...current.categories];
+      const from = categories.findIndex((category) => category.id === id);
+      if (from < 0 || targetIndex < 0 || targetIndex >= categories.length) return current;
+      const [category] = categories.splice(from, 1);
+      categories.splice(targetIndex, 0, category);
+      return { ...current, categories: categories.map((item, position) => ({ ...item, position })) };
+    });
+  }
+
   function setChannelCategory(channelId: string, categoryId: string | null) {
     setDraft((current) => {
       const others = current.channels.filter((channel) => channel.id !== channelId);
@@ -96,6 +107,27 @@ export function useChannelLayoutEditor(
           ...order.map((id, position) => ({ id, categoryId, position })),
         ],
       };
+    });
+  }
+
+  function placeChannel(channelId: string, categoryId: string | null, beforeChannelId?: string) {
+    setDraft((current) => {
+      const currentLayout = applyLayout(current, channels.map((channel) => channel.id));
+      const buckets = new Map(currentLayout.categories.map((category) => [category.id, [...category.channelIds]]));
+      const uncategorized = [...currentLayout.uncategorized];
+      for (const bucket of [...buckets.values(), uncategorized]) {
+        const index = bucket.indexOf(channelId);
+        if (index >= 0) bucket.splice(index, 1);
+      }
+      const target = categoryId === null ? uncategorized : buckets.get(categoryId);
+      if (!target) return current;
+      const targetIndex = beforeChannelId ? target.indexOf(beforeChannelId) : -1;
+      target.splice(targetIndex < 0 ? target.length : targetIndex, 0, channelId);
+      const ordered = [
+        ...current.categories.flatMap((category) => (buckets.get(category.id) ?? []).map((id) => ({ id, categoryId: category.id }))),
+        ...uncategorized.map((id) => ({ id, categoryId: null })),
+      ];
+      return { ...current, channels: ordered.map((channel, position) => ({ ...channel, position })) };
     });
   }
 
@@ -126,7 +158,9 @@ export function useChannelLayoutEditor(
     addCategory,
     deleteCategory,
     moveCategory,
+    placeCategory,
     moveChannel,
+    placeChannel,
     renameCategory,
     save,
     setChannelCategory,

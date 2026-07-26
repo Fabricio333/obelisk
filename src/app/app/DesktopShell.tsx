@@ -1083,7 +1083,7 @@ function Sidebar({
   );
 }
 
-function RelaySettingsModal({
+export function RelaySettingsModal({
   onClose,
   onBranding,
   onEmojis,
@@ -1097,10 +1097,10 @@ function RelaySettingsModal({
   onMembers: () => void;
 }) {
   const items = [
-    ['Server profile & banner', 'Name, icon, banner, and description.', onBranding],
-    ['Emojis', 'Custom emoji available across the relay.', onEmojis],
-    ['Channels & categories', 'Category names and channel ordering.', onLayout],
-    ['Members & roles', 'Review and moderate membership across channels.', onMembers],
+    ['profile', 'Server profile & banner', 'Name, icon, banner, and description.', onBranding],
+    ['emoji', 'Emojis', 'Custom emoji available across the relay.', onEmojis],
+    ['channels', 'Channels & categories', 'Category names and channel ordering.', onLayout],
+    ['members', 'Members & roles', 'Review and moderate membership across channels.', onMembers],
   ] as const;
 
   return (
@@ -1115,19 +1115,35 @@ function RelaySettingsModal({
         </button>
       </header>
       <div className="grid gap-2 p-4">
-        {items.map(([title, description, action]) => (
+        {items.map(([icon, title, description, action]) => (
           <button
             key={title}
             onClick={() => { onClose(); action(); }}
-            className="rounded-lg border border-lc-border p-4 text-left hover:border-lc-green/50 hover:bg-lc-card"
+            className="flex items-center gap-4 rounded-lg border border-lc-border p-4 text-left hover:border-lc-green/50 hover:bg-lc-card"
           >
-            <span className="block text-sm font-semibold text-lc-white">{title}</span>
-            <span className="mt-1 block text-xs text-lc-muted">{description}</span>
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-lc-green/10 text-lc-green" data-testid={`server-settings-icon-${icon}`}>
+              <RelaySettingsIcon kind={icon} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-lc-white">{title}</span>
+              <span className="mt-1 block text-xs text-lc-muted">{description}</span>
+            </span>
+            <svg className="shrink-0 text-lc-muted" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
           </button>
         ))}
       </div>
     </ModalShell>
   );
+}
+
+function RelaySettingsIcon({ kind }: { kind: 'profile' | 'emoji' | 'channels' | 'members' }) {
+  const paths = {
+    profile: <><circle cx="12" cy="8" r="3"/><path d="M5 20a7 7 0 0 1 14 0M4 4h16v16H4z"/></>,
+    emoji: <><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></>,
+    channels: <><path d="M5 4v16M19 4v16M4 8h16M4 16h16"/><circle cx="8" cy="8" r="1" fill="currentColor"/><circle cx="16" cy="16" r="1" fill="currentColor"/></>,
+    members: <><circle cx="9" cy="8" r="3"/><circle cx="17" cy="10" r="2"/><path d="M3 20a6 6 0 0 1 12 0M14 16a5 5 0 0 1 7 4"/></>,
+  } as const;
+  return <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[kind]}</svg>;
 }
 
 function CreateGroupSection({ count, onCreated }: { count: number; onCreated: (groupId: string) => void }) {
@@ -1505,7 +1521,7 @@ function RelayBrandingModal({
   );
 }
 
-function ManageLayoutModal({
+export function ManageLayoutModal({
   relayUrl,
   layout,
   channels,
@@ -1526,6 +1542,8 @@ function ManageLayoutModal({
     deleteCategory,
     moveCategory,
     moveChannel,
+    placeCategory,
+    placeChannel,
     renameCategory,
     save,
     setChannelCategory,
@@ -1534,6 +1552,7 @@ function ManageLayoutModal({
     () => Object.fromEntries(channels.map((group) => [group.id, group])),
     [channels],
   );
+  const [dragged, setDragged] = useState<{ type: 'category' | 'channel'; id: string } | null>(null);
 
   return (
     <ModalShell
@@ -1579,15 +1598,43 @@ function ManageLayoutModal({
 
           {/* Categories list */}
           <section className="space-y-3">
-            <div className="text-xs font-bold uppercase tracking-wider text-lc-muted">Categories</div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-xs font-bold uppercase tracking-wider text-lc-muted">Categories</div>
+              <div className="text-[11px] text-lc-muted">Grab ⠿ to arrange</div>
+            </div>
             {laidOut.categories.length === 0 && (
               <div className="rounded-lg border border-dashed border-lc-border p-3 text-center text-xs text-lc-muted">
                 No categories yet. Add one above to start organizing.
               </div>
             )}
             {laidOut.categories.map((cat, idx) => (
-              <div key={cat.id} className="rounded-xl border border-lc-border bg-lc-black/40 p-3">
+              <div
+                key={cat.id}
+                className="rounded-xl border border-lc-border bg-lc-black/40 p-3 transition-colors hover:border-lc-green/30"
+                onDragOver={(event) => { if (dragged) event.preventDefault(); }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  if (dragged?.type === 'category') {
+                    placeCategory(dragged.id, idx);
+                  } else if (dragged?.type === 'channel') {
+                    placeChannel(dragged.id, cat.id);
+                  }
+                  setDragged(null);
+                }}
+                data-testid={`layout-category-${cat.id}`}
+              >
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    draggable
+                    onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; setDragged({ type: 'category', id: cat.id }); }}
+                    onDragEnd={() => setDragged(null)}
+                    className="cursor-grab rounded p-1 text-lc-muted hover:bg-lc-card hover:text-lc-white active:cursor-grabbing"
+                    aria-label={`Grab category ${cat.name}`}
+                    title="Drag category"
+                  >
+                    <DragHandleIcon />
+                  </button>
                   <input
                     value={cat.name}
                     onChange={(e) => renameCategory(cat.id, e.target.value)}
@@ -1623,7 +1670,7 @@ function ManageLayoutModal({
                 <div className="mt-2 space-y-1">
                   {cat.channelIds.length === 0 ? (
                     <div className="rounded border border-dashed border-lc-border px-2 py-2 text-center text-[11px] text-lc-muted">
-                      Drop channels here using the dropdown below
+                      Drop channels here
                     </div>
                   ) : (
                     cat.channelIds.map((id, i) => (
@@ -1636,6 +1683,14 @@ function ManageLayoutModal({
                         categories={laidOut.categories}
                         onMove={(d) => moveChannel(id, d)}
                         onChangeCategory={(catId) => setChannelCategory(id, catId)}
+                        onGrab={() => setDragged({ type: 'channel', id })}
+                        onDragEnd={() => setDragged(null)}
+                        onDropBefore={() => {
+                          if (dragged?.type !== 'channel' || dragged.id === id) return false;
+                          placeChannel(dragged.id, cat.id, id);
+                          setDragged(null);
+                          return true;
+                        }}
                       />
                     ))
                   )}
@@ -1649,7 +1704,17 @@ function ManageLayoutModal({
             <div className="text-xs font-bold uppercase tracking-wider text-lc-muted">
               Uncategorized · {laidOut.uncategorized.length}
             </div>
-            <div className="space-y-1">
+            <div
+              className="space-y-1 rounded-lg"
+              onDragOver={(event) => { if (dragged?.type === 'channel') event.preventDefault(); }}
+              onDrop={(event) => {
+                if (dragged?.type !== 'channel') return;
+                event.preventDefault();
+                placeChannel(dragged.id, null);
+                setDragged(null);
+              }}
+              data-testid="layout-uncategorized"
+            >
               {laidOut.uncategorized.length === 0 ? (
                 <div className="rounded border border-dashed border-lc-border px-2 py-2 text-center text-[11px] text-lc-muted">
                   All channels are placed in categories.
@@ -1665,6 +1730,14 @@ function ManageLayoutModal({
                     categories={laidOut.categories}
                     onMove={(d) => moveChannel(id, d)}
                     onChangeCategory={(catId) => setChannelCategory(id, catId)}
+                    onGrab={() => setDragged({ type: 'channel', id })}
+                    onDragEnd={() => setDragged(null)}
+                    onDropBefore={() => {
+                      if (dragged?.type !== 'channel' || dragged.id === id) return false;
+                      placeChannel(dragged.id, null, id);
+                      setDragged(null);
+                      return true;
+                    }}
                   />
                 ))
               )}
@@ -1707,6 +1780,9 @@ function ChannelOrderRow({
   categories,
   onMove,
   onChangeCategory,
+  onGrab,
+  onDragEnd,
+  onDropBefore,
 }: {
   channel: JsGroup | undefined;
   bucket: string | null;
@@ -1715,10 +1791,33 @@ function ChannelOrderRow({
   categories: ReadonlyArray<{ id: string; name: string }>;
   onMove: (delta: number) => void;
   onChangeCategory: (catId: string | null) => void;
+  onGrab: () => void;
+  onDragEnd: () => void;
+  onDropBefore: () => boolean;
 }) {
   if (!channel) return null;
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-lc-border bg-lc-black px-2 py-1.5">
+    <div
+      className="flex items-center gap-2 rounded-lg border border-lc-border bg-lc-black px-2 py-1.5 hover:border-lc-green/30"
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        if (!onDropBefore()) return;
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+      data-testid={`layout-channel-${channel.id}`}
+    >
+      <button
+        type="button"
+        draggable
+        onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; onGrab(); }}
+        onDragEnd={onDragEnd}
+        className="cursor-grab rounded p-0.5 text-lc-muted hover:text-lc-white active:cursor-grabbing"
+        aria-label={`Grab channel ${channel.name ?? channel.id}`}
+        title="Drag channel"
+      >
+        <DragHandleIcon />
+      </button>
       <span className="text-lc-muted">#</span>
       <span className="flex-1 truncate text-sm text-lc-white">
         {channel.name ?? channel.id.slice(0, 12)}
@@ -1754,6 +1853,16 @@ function ChannelOrderRow({
         ▼
       </button>
     </div>
+  );
+}
+
+function DragHandleIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+      <circle cx="4" cy="3" r="1"/><circle cx="10" cy="3" r="1"/>
+      <circle cx="4" cy="7" r="1"/><circle cx="10" cy="7" r="1"/>
+      <circle cx="4" cy="11" r="1"/><circle cx="10" cy="11" r="1"/>
+    </svg>
   );
 }
 
