@@ -123,7 +123,12 @@ describe('ProfilePopover', () => {
 
   it('shows the npub ending with a copy icon instead of an njump link', () => {
     renderProfile();
-    expect(screen.getByTestId('profile-copy-npub-btn')).toHaveTextContent('…aaaaaaaa');
+    expect(screen.getByTestId('profile-copy-npub-btn')).toHaveTextContent('npub1aaaaaaa…aaaaaa');
+    expect(screen.getByTestId('profile-handle')).toContainElement(screen.getByTestId('profile-copy-npub-btn'));
+    expect(screen.getByTestId('profile-popover')).not.toHaveClass('overflow-y-auto');
     expect(screen.queryByTestId('profile-open-nostr-btn')).not.toBeInTheDocument();
+    expect(screen.getByTestId('profile-name-row')).toContainElement(screen.getByTestId('profile-zap-btn'));
+    expect(screen.getByTestId('profile-compact-actions')).toContainElement(screen.getByTestId('profile-mute-btn'));
+    expect(screen.getByTestId('profile-compact-actions')).toContainElement(screen.getByTestId('profile-block-btn'));
   });
 });

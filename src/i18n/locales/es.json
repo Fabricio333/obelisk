@@ -446,6 +446,8 @@
   "profileFeed.npubCopied": "npub copiado",
   "profileFeed.mute": "Silenciar usuario",
   "profileFeed.unmute": "Quitar silencio",
+  "profileFeed.block": "Bloquear usuario",
+  "profileFeed.unblock": "Desbloquear usuario",
   "profileFeed.shareProfile": "Compartir perfil",
   "profileFeed.profileShared": "Perfil compartido",
   "profileFeed.openMedia": "Abrir multimedia",

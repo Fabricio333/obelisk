@@ -1758,18 +1758,19 @@ function ChannelOrderRow({
 }
 
 
-function SidebarMe() {
+export function SidebarMe() {
   const myPubkey = useMyPubkey();
   const meta = useProfile(myPubkey);
-  const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   if (!myPubkey) return null;
   return (
     <div className="relative flex w-full items-center gap-2">
       <button
-        onClick={() => setOpen((v) => !v)}
+        type="button"
+        onClick={(event) => useChatStore.getState().openProfilePopup(myPubkey, { x: event.clientX, y: event.clientY })}
         className="flex min-w-0 flex-1 items-center gap-2 rounded text-left hover:bg-lc-card/50"
-        title="Account"
+        title="Profile"
+        data-testid="sidebar-profile-button"
       >
         <Avatar pubkey={myPubkey} size={8} picture={meta?.picture ?? null} />
         <div className="min-w-0 flex-1">
@@ -1791,14 +1792,6 @@ function SidebarMe() {
           <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
         </svg>
       </button>
-      {open && (
-        <UserPanel
-          pubkey={myPubkey}
-          isMe
-          onClose={() => setOpen(false)}
-          onLogout={() => { nostrActions.logout(); setOpen(false); }}
-        />
-      )}
       {editing && (
         <UserPanel
           pubkey={myPubkey}

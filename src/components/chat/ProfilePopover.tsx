@@ -140,6 +140,12 @@ export default function ProfilePopover({ pubkey, onClose, onExplore, onMessage }
   const displayName = member?.displayName || safeFallback;
   const npubShort = npub ? shortNpub(pubkey) : pubkey;
   const baseRole = member?.role ? BASE_ROLE_LABEL[member.role] : undefined;
+  const zap = () => {
+    const channelId = useChatStore.getState().activeChannelId;
+    if (!channelId) return;
+    window.dispatchEvent(new CustomEvent('obelisk:zap-prefill', { detail: { pubkey, displayName } }));
+    onClose();
+  };
   return (
     <div
       className={`fixed inset-0 z-[100] flex p-4 ${anchor ? 'items-start justify-start bg-transparent' : 'items-center justify-center bg-black/60'}`}
@@ -149,8 +155,8 @@ export default function ProfilePopover({ pubkey, onClose, onExplore, onMessage }
       <div
         ref={panelRef}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm max-h-[calc(100dvh-2rem)] overflow-y-auto bg-lc-dark border border-lc-border rounded-xl shadow-2xl"
-        style={anchor ? { position: 'fixed', maxHeight: 'calc(100dvh - 24px)' } : undefined}
+        className="w-full max-w-sm bg-lc-dark border border-lc-border rounded-xl shadow-2xl"
+        style={anchor ? { position: 'fixed' } : undefined}
         data-testid="profile-popover"
         role="dialog"
       >
@@ -182,19 +188,46 @@ export default function ProfilePopover({ pubkey, onClose, onExplore, onMessage }
 
         <div className="pt-12 pb-4 px-4 space-y-3">
           {/* Name + handle */}
-          <div>
-            <h3 className="text-lg font-semibold text-lc-white break-words flex items-center gap-2" data-testid="profile-name">
-              <span>{renderWithEmojis(displayName, serverEmojis)}</span>
-              <WotBadge pubkey={pubkey} />
-            </h3>
-            <div className="text-xs text-lc-muted break-all" data-testid="profile-handle">
-              {member?.nip05 || npubShort}
+          <div className="flex items-start justify-between gap-3" data-testid="profile-name-row">
+            <div className="min-w-0">
+              <h3 className="text-lg font-semibold text-lc-white break-words flex items-center gap-2" data-testid="profile-name">
+                <span>{renderWithEmojis(displayName, serverEmojis)}</span>
+                <WotBadge pubkey={pubkey} />
+              </h3>
+              <div className="mt-0.5 space-y-0.5 text-xs text-lc-muted" data-testid="profile-handle">
+                {member?.nip05 && <div className="truncate">{member.nip05}</div>}
+                {npub ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(npub).catch(() => {});
+                      useToastStore.getState().pushToast({ title: t('profileFeed.npubCopied'), body: npubShort });
+                    }}
+                    className="flex max-w-full items-center gap-1.5 font-mono text-[11px] hover:text-lc-white"
+                    title={t('profileFeed.copyNpub')}
+                    data-testid="profile-copy-npub-btn"
+                  >
+                    <span className="truncate">{npubShort}</span>
+                    <svg className="shrink-0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"/></svg>
+                  </button>
+                ) : pubkey}
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={zap}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-lc-green/40 bg-lc-green/10 text-lc-green hover:bg-lc-green/20"
+              aria-label="Zap"
+              title="Zap"
+              data-testid="profile-zap-btn"
+            >
+              ⚡
+            </button>
           </div>
 
           {/* About */}
           {member?.about && (
-            <p className="text-sm text-lc-white/80 whitespace-pre-wrap break-words" data-testid="profile-about">
+            <p className="line-clamp-3 text-sm text-lc-white/80 whitespace-pre-wrap break-words" data-testid="profile-about">
               {renderWithEmojis(member.about, serverEmojis)}
             </p>
           )}
@@ -223,7 +256,7 @@ export default function ProfilePopover({ pubkey, onClose, onExplore, onMessage }
                   href={/^https?:\/\//i.test(member.website) ? member.website : `https://${member.website}`}
                   target="_blank"
                   rel="noopener noreferrer nofollow"
-                  className="flex items-center gap-2 text-xs text-lc-green hover:underline break-all"
+                  className="flex items-center gap-2 truncate text-xs text-lc-green hover:underline"
                   data-testid="profile-website"
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
@@ -246,69 +279,32 @@ export default function ProfilePopover({ pubkey, onClose, onExplore, onMessage }
 
           {/* Actions */}
           <div className="pt-3 border-t border-lc-border space-y-2">
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onExplore(pubkey);
-                }}
-                className="lc-pill-primary flex-1 text-xs"
-                data-testid="profile-explore-btn"
-              >
-                {t('profileFeed.explore')}
-              </button>
-              {onMessage && !isSelf && (
-                <button
-                  type="button"
-                  className="lc-pill-secondary flex-1 text-xs"
-                  onClick={() => {
-                    onClose();
-                    onMessage(pubkey);
-                  }}
-                  data-testid="profile-message-btn"
-                >
-                  {t('mobile.profile.message')}
-                </button>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  const channelId = useChatStore.getState().activeChannelId;
-                  if (!channelId) return;
-                  window.dispatchEvent(new CustomEvent('obelisk:zap-prefill', {
-                    detail: { pubkey, displayName },
-                  }));
-                  onClose();
-                }}
-                className="lc-pill-primary text-xs flex-1"
-                data-testid="profile-zap-btn"
-              >
-                ⚡ Zapear
-              </button>
-              {npub && (
-                <>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard?.writeText(npub).catch(() => {});
-                      useToastStore.getState().pushToast({
-                        title: 'npub copiado',
-                        body: `${npub.slice(0, 12)}…${npub.slice(-6)}`,
-                      });
-                    }}
-                    className="lc-pill-secondary flex items-center gap-1.5 text-xs"
-                    title={t('profileFeed.copyNpub')}
-                    data-testid="profile-copy-npub-btn"
-                  >
-                    <span className="font-mono">…{npub.slice(-8)}</span>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"/></svg>
-                  </button>
-                </>
-              )}
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onExplore(pubkey);
+              }}
+              className="lc-pill-primary w-full text-xs"
+              data-testid="profile-explore-btn"
+            >
+              {t('profileFeed.explore')}
+            </button>
             {!isSelf && (
-              <div className="flex gap-2">
+              <div className={`grid gap-2 ${onMessage ? 'grid-cols-3' : 'grid-cols-2'}`} data-testid="profile-compact-actions">
+                {onMessage && (
+                  <button
+                    type="button"
+                    className="rounded-lg border border-lc-border px-2 py-1.5 text-xs text-lc-white hover:bg-white/5"
+                    onClick={() => {
+                      onClose();
+                      onMessage(pubkey);
+                    }}
+                    data-testid="profile-message-btn"
+                  >
+                    {t('mobile.profile.message')}
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     const nowMuted = toggleMute(pubkey);
@@ -319,7 +315,7 @@ export default function ProfilePopover({ pubkey, onClose, onExplore, onMessage }
                         : `Volverás a recibir notificaciones de ${displayName}`,
                     });
                   }}
-                  className={`text-xs flex-1 px-3 py-1.5 rounded-full border transition-colors ${
+                  className={`rounded-lg border px-2 py-1.5 text-xs transition-colors ${
                     muted
                       ? 'border-lc-green/60 text-lc-green bg-lc-green/10 hover:bg-lc-green/20'
                       : 'border-lc-border text-lc-muted hover:text-lc-white hover:border-lc-white/40'
@@ -343,7 +339,7 @@ export default function ProfilePopover({ pubkey, onClose, onExplore, onMessage }
                     });
                     if (nowBlocked) onClose();
                   }}
-                  className={`text-xs flex-1 px-3 py-1.5 rounded-full border transition-colors ${
+                  className={`rounded-lg border px-2 py-1.5 text-xs transition-colors ${
                     blocked
                       ? 'border-red-500/60 text-red-400 bg-red-500/10 hover:bg-red-500/20'
                       : 'border-lc-border text-lc-muted hover:text-red-400 hover:border-red-500/40'
@@ -354,13 +350,6 @@ export default function ProfilePopover({ pubkey, onClose, onExplore, onMessage }
                   {blocked ? '🚫 Bloqueado' : '🚫 Bloquear'}
                 </button>
               </div>
-            )}
-            {!isSelf && (muted || blocked) && (
-              <p className="text-[10px] text-lc-muted leading-snug">
-                {blocked
-                  ? 'Bloqueo local: oculta los mensajes de este usuario solo en este dispositivo. El usuario no recibe notificación.'
-                  : 'Silencio local: suprime menciones y notificaciones solo en este dispositivo.'}
-              </p>
             )}
           </div>
         </div>

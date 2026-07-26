@@ -165,6 +165,22 @@ describe('NostrProfile', () => {
     expect(screen.getByTestId('profile-follow-button')).toHaveTextContent('Unfollow');
   });
 
+  it('shows copy, share, mute, and block actions in the desktop profile menu', () => {
+    render(
+      <LocaleProvider initialLocale="en">
+        <NostrProfile pubkey={PROFILE} onClose={vi.fn()} />
+      </LocaleProvider>,
+    );
+
+    const trigger = screen.getByTestId('profile-more-button');
+    expect(trigger.parentElement).not.toHaveClass('md:hidden');
+    fireEvent.click(trigger);
+    expect(screen.getByText('Copy npub')).toBeInTheDocument();
+    expect(screen.getByText('Share profile')).toBeInTheDocument();
+    expect(screen.getByText('Mute user')).toBeInTheDocument();
+    expect(screen.getByText('Block user')).toBeInTheDocument();
+  });
+
   it('treats a closed contact subscription with no kind 3 as an empty follow list', async () => {
     render(
       <LocaleProvider initialLocale="en">
@@ -250,6 +266,11 @@ describe('NostrProfile', () => {
     fireEvent.click(screen.getByTestId('profile-explore-close'));
     expect(onClose).toHaveBeenCalledOnce();
     expect(screen.getByTestId('profile-explore-close-sticky')).toHaveClass('sticky', 'top-3');
+    fireEvent.click(screen.getByTestId('profile-more-button'));
+    expect(screen.getByText('Copy npub')).toBeInTheDocument();
+    expect(screen.getByText('Share profile')).toBeInTheDocument();
+    expect(screen.queryByText('Mute user')).not.toBeInTheDocument();
+    expect(screen.queryByText('Block user')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('profile-create-post'));
     fireEvent.change(screen.getByTestId('profile-post-input'), { target: { value: 'My **post** #Nostr' } });
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }));

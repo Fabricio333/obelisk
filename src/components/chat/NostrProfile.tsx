@@ -212,10 +212,10 @@ function NostrProfileSession({
               {t('mobile.profile.message')}
             </button>
           )}
-          <ProfileMoreMenu pubkey={pubkey} displayName={displayName} />
+          <ProfileMoreMenu pubkey={pubkey} displayName={displayName} canModerate />
         </div>
       ) : (
-        <div className="px-5 py-3">
+        <div className="flex gap-2 px-5 py-3">
           <button
             type="button"
             className="lc-pill-primary flex items-center gap-2 px-4 py-2 text-xs"
@@ -226,6 +226,7 @@ function NostrProfileSession({
             <span className="text-lg leading-none" aria-hidden="true">+</span>
             {t('profileFeed.createPost')}
           </button>
+          <ProfileMoreMenu pubkey={pubkey} displayName={displayName} />
         </div>
       )}
       {followError && <p className="px-5 pb-2 text-xs text-red-400">{t('profileFeed.followFailed')}</p>}
@@ -343,13 +344,14 @@ function ProfileMediaLightbox({ url, onClose }: { url: string; onClose: () => vo
   );
 }
 
-function ProfileMoreMenu({ pubkey, displayName }: { pubkey: string; displayName: string }) {
+function ProfileMoreMenu({ pubkey, displayName, canModerate = false }: { pubkey: string; displayName: string; canModerate?: boolean }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const muted = useModerationStore((state) => state.mutedPubkeys.includes(pubkey));
+  const blocked = useModerationStore((state) => state.blockedPubkeys.includes(pubkey));
   const toggleMute = useModerationStore((state) => state.toggleMute);
+  const toggleBlock = useModerationStore((state) => state.toggleBlock);
   const npub = hexToNpub(pubkey);
-  const profileUrl = `https://njump.me/${npub}`;
   const notify = (title: string) => useToastStore.getState().pushToast({ title, body: displayName });
 
   const copyNpub = () => {
@@ -359,8 +361,8 @@ function ProfileMoreMenu({ pubkey, displayName }: { pubkey: string; displayName:
   };
   const shareProfile = async () => {
     try {
-      if (navigator.share) await navigator.share({ title: displayName, url: profileUrl });
-      else await navigator.clipboard?.writeText(profileUrl);
+      if (navigator.share) await navigator.share({ title: displayName, text: npub });
+      else await navigator.clipboard?.writeText(npub);
       notify(t('profileFeed.profileShared'));
     } catch {
       // Native share cancellation needs no error UI.
@@ -369,7 +371,7 @@ function ProfileMoreMenu({ pubkey, displayName }: { pubkey: string; displayName:
   };
 
   return (
-    <div className="relative md:hidden">
+    <div className="relative">
       <button
         type="button"
         className="lc-pill-secondary h-full px-4 text-base leading-none"
@@ -385,16 +387,28 @@ function ProfileMoreMenu({ pubkey, displayName }: { pubkey: string; displayName:
           <button type="button" className="block w-full px-4 py-2 text-left text-xs text-lc-white hover:bg-white/5" onClick={copyNpub}>
             {t('profileFeed.copyNpub')}
           </button>
-          <button
-            type="button"
-            className="block w-full px-4 py-2 text-left text-xs text-lc-white hover:bg-white/5"
-            onClick={() => {
-              toggleMute(pubkey);
-              setOpen(false);
-            }}
-          >
-            {t(muted ? 'profileFeed.unmute' : 'profileFeed.mute')}
-          </button>
+          {canModerate && <>
+            <button
+              type="button"
+              className="block w-full px-4 py-2 text-left text-xs text-lc-white hover:bg-white/5"
+              onClick={() => {
+                toggleMute(pubkey);
+                setOpen(false);
+              }}
+            >
+              {t(muted ? 'profileFeed.unmute' : 'profileFeed.mute')}
+            </button>
+            <button
+              type="button"
+              className="block w-full px-4 py-2 text-left text-xs text-red-400 hover:bg-white/5"
+              onClick={() => {
+                toggleBlock(pubkey);
+                setOpen(false);
+              }}
+            >
+              {t(blocked ? 'profileFeed.unblock' : 'profileFeed.block')}
+            </button>
+          </>}
           <button type="button" className="block w-full px-4 py-2 text-left text-xs text-lc-white hover:bg-white/5" onClick={() => void shareProfile()}>
             {t('profileFeed.shareProfile')}
           </button>
