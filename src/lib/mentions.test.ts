@@ -79,6 +79,16 @@ describe('parseMentions', () => {
     ]);
   });
 
+  it('parses a NIP-19 nprofile as a clickable profile mention', () => {
+    const pubkey = 'c'.repeat(64);
+    const nprofile = nip19.nprofileEncode({ pubkey, relays: ['wss://relay.example'] });
+
+    expect(parseMentions(`see nostr:${nprofile}`, [])).toEqual([
+      { type: 'text', text: 'see ' },
+      { type: 'mention', pubkey, displayName: shortNpub(pubkey) },
+    ]);
+  });
+
   it('parses a bare bech32 npub1 mention (no nostr: prefix)', () => {
     const pk = 'b'.repeat(64);
     const npub = nip19.npubEncode(pk);

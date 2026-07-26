@@ -1,8 +1,22 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import { nip19 } from 'nostr-tools';
 import MessageContent from './MessageContent';
+import { useChatStore } from '@/store/chat';
 
 describe('MessageContent stickers', () => {
+  it('renders nprofile entities with the shared clickable profile chip', () => {
+    useChatStore.setState(useChatStore.getInitialState());
+    const pubkey = 'c'.repeat(64);
+    const nprofile = nip19.nprofileEncode({ pubkey, relays: ['wss://relay.example'] });
+
+    render(<MessageContent content={`nostr:${nprofile}`} />);
+    fireEvent.click(screen.getByTestId('mention-highlight'), { clientX: 80, clientY: 120 });
+
+    expect(screen.queryByText(`nostr:${nprofile}`)).not.toBeInTheDocument();
+    expect(useChatStore.getState().profilePopupPubkey).toBe(pubkey);
+  });
+
   it('renders Nostr hashtags blue and feed media at the available width', () => {
     const { rerender } = render(<MessageContent content="[#Nostr](https://njump.me/t/Nostr)" />);
     expect(screen.getByTestId('nostr-hashtag')).toHaveClass('text-sky-400');

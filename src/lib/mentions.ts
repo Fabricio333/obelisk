@@ -4,6 +4,7 @@ import {
   findNpubMentions,
   hexToNpub,
 } from '@nostr-wot/data';
+import { nip19 } from 'nostr-tools';
 
 // Re-export so existing call sites keep working.
 export { shortNpub, extractMentionPubkeys };
@@ -39,6 +40,20 @@ export type MentionSegment =
   | { type: 'text'; text: string }
   | { type: 'mention'; pubkey: string; displayName: string };
 
+function findNprofileMentions(content: string) {
+  const matches: Array<{ pubkey: string; raw: string; start: number; end: number }> = [];
+  const pattern = /(?:nostr:)?nprofile1[023456789acdefghjklmnpqrstuvwxyz]+/gi;
+  for (const match of content.matchAll(pattern)) {
+    try {
+      const decoded = nip19.decode(match[0].replace(/^nostr:/i, ''));
+      if (decoded.type === 'nprofile') {
+        matches.push({ pubkey: decoded.data.pubkey, raw: match[0], start: match.index, end: match.index + match[0].length });
+      }
+    } catch {}
+  }
+  return matches;
+}
+
 /**
  * Serialize a pubkey into a mention token for storage in message content.
  * Uses the legacy `nostr:npub1<64hex>` form (NOT bech32) so server-side
@@ -54,7 +69,7 @@ export function serializeMention(pubkey: string): string {
 export function parseMentions(content: string, members: MemberInfo[]): MentionSegment[] {
   const memberMap = new Map(members.map(m => [m.pubkey, m]));
   const segments: MentionSegment[] = [];
-  const matches = findNpubMentions(content);
+  const matches = [...findNpubMentions(content), ...findNprofileMentions(content)].sort((a, b) => a.start - b.start);
   let lastIndex = 0;
 
   for (const m of matches) {
