@@ -28,10 +28,22 @@ export interface SfuPin {
   pubkey: string;
   url: string;
   trustedRelays: readonly string[];
+  /** General signaling relays, used only by the legacy RPC fallback. */
+  relays: readonly string[];
   /** Author who published the pin (NIP-29 admin pubkey). */
   setBy: string;
   /** `created_at` of the underlying event — used for newest-wins. */
   createdAt: number;
+}
+
+export interface SfuEndpointInfo {
+  pubkey: string;
+  url: string;
+  relays: readonly string[];
+  trustedRelays: readonly string[];
+  cap: number | null;
+  operator: string | null;
+  region: string | null;
 }
 
 const cache = new Map<string, SfuPin>();
@@ -39,6 +51,64 @@ const subscribed = new Set<string>();
 
 export function dTagFor(channelId: string): string {
   return `obelisk-sfu:${channelId}`;
+}
+
+/**
+ * Resolve and validate the public descriptor for an SFU URL. Channel admins
+ * only enter the URL; the signed pin stores the verified identity and relay
+ * fallback advertised by that server.
+ */
+export async function fetchSfuInfo(rawUrl: string): Promise<SfuEndpointInfo> {
+  let base: URL;
+  try {
+    base = new URL(rawUrl.trim());
+  } catch {
+    throw new Error('SFU URL must be a valid http(s) URL');
+  }
+  if (base.protocol !== 'https:' && base.protocol !== 'http:') {
+    throw new Error('SFU URL must be http(s)://');
+  }
+  const url = base.origin;
+  const response = await fetch(new URL('/info', url), {
+    headers: { accept: 'application/json' },
+    signal: AbortSignal.timeout(5000),
+  });
+  if (!response.ok) throw new Error(`SFU /info returned HTTP ${response.status}`);
+  const info = await response.json() as Record<string, unknown>;
+  if (info.service !== 'obelisk-sfu') throw new Error('URL is not an Obelisk SFU');
+  if (typeof info.pubkey !== 'string' || !/^[0-9a-f]{64}$/i.test(info.pubkey)) {
+    throw new Error('SFU /info returned an invalid pubkey');
+  }
+  if (typeof info.url === 'string') {
+    let advertised: URL;
+    try {
+      advertised = new URL(info.url);
+    } catch {
+      throw new Error('SFU /info returned an invalid URL');
+    }
+    if (advertised.origin !== url) {
+      throw new Error('SFU /info URL does not match the configured origin');
+    }
+  }
+  const relays = Array.isArray(info.relays)
+    ? info.relays.filter((r): r is string => typeof r === 'string' && isImportableRelayUrl(r))
+    : [];
+  const trustedRelays = Array.isArray(info.trustedAuthorRelays)
+    ? info.trustedAuthorRelays.filter(
+        (r): r is string => typeof r === 'string' && isImportableRelayUrl(r),
+      )
+    : [];
+  return {
+    pubkey: info.pubkey.toLowerCase(),
+    url,
+    relays,
+    trustedRelays,
+    cap: typeof info.cap === 'number' && Number.isFinite(info.cap) ? info.cap : null,
+    operator: typeof info.operator === 'string' && /^[0-9a-f]{64}$/i.test(info.operator)
+      ? info.operator.toLowerCase()
+      : null,
+    region: typeof info.region === 'string' ? info.region : null,
+  };
 }
 
 function ingest(channelId: string, ev: NostrEvent): void {
@@ -61,10 +131,16 @@ function ingest(channelId: string, ev: NostrEvent): void {
             typeof r === 'string' && isImportableRelayUrl(r),
         )
       : [];
+    const relays = Array.isArray(parsed.relays)
+      ? parsed.relays.filter(
+          (r): r is string => typeof r === 'string' && isImportableRelayUrl(r),
+        )
+      : trustedRelays;
     const pin: SfuPin = {
       pubkey: parsed.pubkey.toLowerCase(),
       url: parsed.url,
       trustedRelays,
+      relays,
       setBy: ev.pubkey,
       createdAt: ev.created_at,
     };
@@ -120,7 +196,12 @@ export async function resolveSfuPin(channelId: string, coldWaitMs = 1500): Promi
  */
 export async function publishSfuPin(
   channelId: string,
-  pin: { pubkey: string; url: string; trustedRelays: readonly string[] },
+  pin: {
+    pubkey: string;
+    url: string;
+    trustedRelays: readonly string[];
+    relays?: readonly string[];
+  },
 ): Promise<void> {
   await getBridge();
   const impl = getBridgeImpl();
@@ -129,6 +210,7 @@ export async function publishSfuPin(
     pubkey: pin.pubkey.toLowerCase(),
     url: pin.url,
     trustedRelays: [...pin.trustedRelays],
+    relays: [...(pin.relays ?? pin.trustedRelays)],
   });
   await impl.publishEvent({
     kind: KIND_NIP78,

@@ -200,8 +200,10 @@ export class SfuClient {
   constructor(opts: {
     channelId: string;
     sfuPubkey: string;
+    sfuUrl?: string;
     selfPubkey: string;
     events: SfuClientEvents;
+    onRelayFallback?: () => Promise<void>;
     /** Trusted-author relays the SFU listens on. Outbound RPC envelopes
      *  must publish here, not the dex's default relays. */
     trustedRelays?: readonly string[];
@@ -211,7 +213,9 @@ export class SfuClient {
       channelId: opts.channelId,
       sfuPubkey: opts.sfuPubkey,
       selfPubkey: opts.selfPubkey,
+      ...(opts.sfuUrl ? { sfuUrl: opts.sfuUrl } : {}),
       onNotification: (n) => this.handleNotification(n),
+      ...(opts.onRelayFallback ? { onRelayFallback: opts.onRelayFallback } : {}),
       ...(opts.trustedRelays && opts.trustedRelays.length > 0
         ? { publishRelays: opts.trustedRelays }
         : {}),

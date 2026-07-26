@@ -3402,39 +3402,55 @@ function ChannelSettingsModal({ group, onClose }: { group: JsGroup; onClose: () 
   const admins = useAdmins(group.id);
   const adminSet = useMemo(() => new Set(admins), [admins]);
 
-  // Per-channel SFU pin (kind 30078) — only relevant when this channel is
-  // a voice-sfu kind. Prefilled from any existing pin first, falling back
-  // to env-var suggestions so first-time setups have something sensible.
-  const [sfuPubkey, setSfuPubkey] = useState('');
+  // A channel admin only chooses the SFU URL. `/info` supplies the identity
+  // and relay compatibility fallback stored in the signed NIP-78 pin.
   const [sfuUrl, setSfuUrl] = useState('');
-  const [sfuTrusted, setSfuTrusted] = useState('');
+  const [sfuChecking, setSfuChecking] = useState(false);
+  const [sfuVerified, setSfuVerified] = useState<{
+    pubkey: string; cap: number | null; region: string | null;
+  } | null>(null);
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const { resolveSfuPin } = await import('@/lib/voice/sfu-pin');
       const pin = await resolveSfuPin(group.id, 800);
       if (cancelled) return;
-      if (pin) {
-        setSfuPubkey(pin.pubkey);
-        setSfuUrl(pin.url);
-        setSfuTrusted(pin.trustedRelays.join(', '));
-      } else {
-        const envPubkey = process.env.NEXT_PUBLIC_SFU_PUBKEY ?? '';
-        const envUrl = process.env.NEXT_PUBLIC_SFU_URL ?? '';
-        const envTrusted = process.env.NEXT_PUBLIC_SFU_TRUSTED_RELAYS ?? '';
-        setSfuPubkey(envPubkey);
-        setSfuUrl(envUrl);
-        setSfuTrusted(envTrusted);
-      }
+      setSfuUrl(pin?.url ?? process.env.NEXT_PUBLIC_SFU_URL ?? 'https://sfu.obelisk.ar');
+      setSfuVerified(null);
     })();
     return () => { cancelled = true; };
   }, [group.id]);
+
+  async function verifySfu() {
+    const url = sfuUrl.trim();
+    if (!url) throw new Error('SFU URL is required');
+    setSfuChecking(true);
+    setMetaErr(null);
+    try {
+      const { fetchSfuInfo } = await import('@/lib/voice/sfu-pin');
+      const info = await fetchSfuInfo(url);
+      setSfuUrl(info.url);
+      setSfuVerified({ pubkey: info.pubkey, cap: info.cap, region: info.region });
+      return info;
+    } catch (err) {
+      setSfuVerified(null);
+      setMetaErr((err as Error).message);
+      throw err;
+    } finally {
+      setSfuChecking(false);
+    }
+  }
 
   async function saveMeta(e: React.FormEvent) {
     e.preventDefault();
     setSavingMeta(true);
     setMetaErr(null);
     try {
+      // Validate first so a bad SFU URL cannot leave the channel metadata
+      // switched to voice-sfu without a usable pin.
+      const verifiedSfu = channelKind === 'voice-sfu' && sfuUrl.trim()
+        ? await verifySfu()
+        : null;
       await nostrActions.editGroupMetadata({
         groupId: group.id,
         name,
@@ -3452,31 +3468,14 @@ function ChannelSettingsModal({ group, onClose }: { group: JsGroup; onClose: () 
         // dropping admin-curated tags.
         forumTags,
       });
-      // Persist the SFU pin only when this is an SFU channel and the
-      // admin filled in the pubkey + URL. Empty fields => skip publish
-      // (the channel falls through to advertisement / env-var defaults).
-      if (channelKind === 'voice-sfu') {
-        const pkTrim = sfuPubkey.trim().toLowerCase();
-        const urlTrim = sfuUrl.trim();
-        const trustedList = sfuTrusted
-          .split(/[\s,]+/)
-          .map((s) => s.trim())
-          .filter(Boolean);
-        if (pkTrim && urlTrim) {
-          if (!/^[0-9a-f]{64}$/.test(pkTrim)) throw new Error('SFU pubkey must be 64-char hex');
-          if (!/^https?:\/\//.test(urlTrim)) throw new Error('SFU URL must be http(s)://');
-          for (const r of trustedList) {
-            if (!r.startsWith('wss://') && !r.startsWith('ws://')) {
-              throw new Error(`Trusted relay must be ws(s)://: ${r}`);
-            }
-          }
-          const { publishSfuPin } = await import('@/lib/voice/sfu-pin');
-          await publishSfuPin(group.id, {
-            pubkey: pkTrim,
-            url: urlTrim,
-            trustedRelays: trustedList,
-          });
-        }
+      if (verifiedSfu) {
+        const { publishSfuPin } = await import('@/lib/voice/sfu-pin');
+        await publishSfuPin(group.id, {
+          pubkey: verifiedSfu.pubkey,
+          url: verifiedSfu.url,
+          trustedRelays: verifiedSfu.trustedRelays,
+          relays: verifiedSfu.relays,
+        });
       }
       onClose();
     } catch (err) {
@@ -3647,41 +3646,42 @@ function ChannelSettingsModal({ group, onClose }: { group: JsGroup; onClose: () 
                   <div className="space-y-2 rounded-lg border border-lc-border bg-lc-black/40 p-3">
                     <p className="text-[11px] uppercase tracking-wider text-lc-muted">SFU operator (kind 30078 pin)</p>
                     <p className="text-[11px] text-lc-muted">
-                      Publishes a NIP-78 event so anyone joining this channel knows which SFU to talk to.
-                      Defaults to <code className="text-lc-white/80">sfu.obelisk.ar</code> — change the
-                      values to point at your own SFU. Leave blank to skip the pin and let clients fall
-                      back to discovery / build defaults.
+                      Enter one SFU URL. Obelisk verifies its <code className="text-lc-white/80">/info</code>{' '}
+                      descriptor and stores the returned identity automatically. Calls authenticate directly
+                      to the SFU; Nostr relays are only a compatibility fallback.
                     </p>
                     <div>
-                      <label className="text-[11px] text-lc-muted">SFU pubkey (hex)</label>
-                      <input
-                        value={sfuPubkey}
-                        onChange={(e) => setSfuPubkey(e.target.value)}
-                        spellCheck={false}
-                        className={inputClasses + ' w-full font-mono text-xs'}
-                        placeholder="64-char hex"
-                      />
-                    </div>
-                    <div>
                       <label className="text-[11px] text-lc-muted">SFU URL</label>
-                      <input
-                        value={sfuUrl}
-                        onChange={(e) => setSfuUrl(e.target.value)}
-                        spellCheck={false}
-                        className={inputClasses + ' w-full font-mono text-xs'}
-                        placeholder="https://sfu.example.com"
-                      />
+                      <div className="flex gap-2">
+                        <input
+                          value={sfuUrl}
+                          onChange={(e) => { setSfuUrl(e.target.value); setSfuVerified(null); }}
+                          spellCheck={false}
+                          className={inputClasses + ' min-w-0 flex-1 font-mono text-xs'}
+                          placeholder="https://sfu.obelisk.ar"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => { void verifySfu().catch(() => undefined); }}
+                          disabled={sfuChecking}
+                          className="lc-pill-secondary shrink-0 px-3 py-1.5 text-xs disabled:opacity-50"
+                        >
+                          {sfuChecking ? 'Checking…' : 'Verify'}
+                        </button>
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-[11px] text-lc-muted">Trusted-author relays (comma-separated)</label>
-                      <input
-                        value={sfuTrusted}
-                        onChange={(e) => setSfuTrusted(e.target.value)}
-                        spellCheck={false}
-                        className={inputClasses + ' w-full font-mono text-xs'}
-                        placeholder="wss://relay.example.com"
-                      />
-                    </div>
+                    {sfuVerified && (
+                      <div className="rounded-md border border-lc-green/30 bg-lc-green/5 p-2 text-[11px] text-lc-muted">
+                        <span className="text-lc-green">Verified</span>
+                        {sfuVerified.region ? ` · ${sfuVerified.region}` : ''}
+                        {sfuVerified.cap ? ` · up to ${sfuVerified.cap} participants` : ''}
+                        <div className="mt-1 break-all font-mono text-lc-white/70">{sfuVerified.pubkey}</div>
+                      </div>
+                    )}
+                    <p className="text-[10px] text-lc-muted">
+                      The SFU checks your signed Nostr identity and whitelist when you join. The full pubkey
+                      above is available for advanced verification.
+                    </p>
                   </div>
                 </>
               )}

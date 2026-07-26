@@ -153,7 +153,7 @@ const sfuClientFake = vi.hoisted(() => {
     channelId: string;
     sfuPubkey: string;
     selfPubkey: string;
-    directUrl?: string | null;
+    sfuUrl?: string | null;
     events: Events;
     started: boolean;
     closed: boolean;
@@ -168,7 +168,7 @@ const sfuClientFake = vi.hoisted(() => {
   const outcomeQueue: StartOutcome[] = [];
   class StubSfuClient {
     private readonly state: typeof instances[number];
-    constructor(opts: { channelId: string; sfuPubkey: string; selfPubkey: string; directUrl?: string | null; events: Events }) {
+    constructor(opts: { channelId: string; sfuPubkey: string; selfPubkey: string; sfuUrl?: string | null; events: Events }) {
       const outcome: StartOutcome = outcomeQueue.length > 0
         ? outcomeQueue.shift()!
         : (nextStartShouldFail ? 'generic-fail' : 'ok');
@@ -176,7 +176,7 @@ const sfuClientFake = vi.hoisted(() => {
         channelId: opts.channelId,
         sfuPubkey: opts.sfuPubkey,
         selfPubkey: opts.selfPubkey,
-        directUrl: opts.directUrl,
+        sfuUrl: opts.sfuUrl,
         events: opts.events,
         started: false,
         closed: false,
@@ -1148,7 +1148,7 @@ describe('VoiceClient SFU push-roster', () => {
     await client.leave();
   });
 
-  it('keeps Nostr RPC when the advertisement has a public URL', async () => {
+  it('uses direct RPC when the advertisement has a public URL', async () => {
     sfuControlFake.setPick({ pubkey: SFU, url: 'https://sfu.example.test' });
     const client = new VoiceClient('ch1', {
       members: [SELF],
@@ -1156,8 +1156,8 @@ describe('VoiceClient SFU push-roster', () => {
     });
     await client.join();
     await flushMicrotasks(5);
-    expect(sfuClientFake.last()?.directUrl).toBeUndefined();
-    expect(sfuControlFake.publishSfuStart).toHaveBeenCalled();
+    expect(sfuClientFake.last()?.sfuUrl).toBe('https://sfu.example.test');
+    expect(sfuControlFake.publishSfuStart).not.toHaveBeenCalled();
     await client.leave();
   });
 });

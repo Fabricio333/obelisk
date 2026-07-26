@@ -172,7 +172,7 @@ export async function pickSfu(channelId?: string): Promise<SfuAdvertisement | nu
         region: null,
         cap: null,
         trustedRelays: channelPin.trustedRelays,
-        generalRelays: channelPin.trustedRelays,
+        generalRelays: channelPin.relays,
         createdAt: channelPin.createdAt,
       };
     }

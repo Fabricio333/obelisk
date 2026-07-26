@@ -7,7 +7,7 @@ which engine is active; they consume `VoiceClient` events.
 | Engine | Topology | When | Code |
 |---|---|---|---|
 | **mesh** | P2P full mesh via `simple-peer`; discovery/signaling on Nostr (kinds 20078 + 25050) | rooms of at most 4 people, no SFU advertised on the channel | `src/lib/voice/{client,peer,transport,control-channel,discovery,failure-handlers}.ts` |
-| **SFU** | mediasoup, Nostr-RPC signaling on kind 25050 envelopes | a kind 31313 advertisement is reachable (or pinned via `NEXT_PUBLIC_SFU_PUBKEY`) AND the channel is the `voice-sfu` kind | `src/lib/voice/{sfu-client,sfu-control,sfu-rpc,sfu-pin}.ts` (server lives in [obelisk-app/obelisk-sfu](https://github.com/obelisk-app/obelisk-sfu)) |
+| **SFU** | mediasoup, direct signed WebSocket RPC (kind 25050 fallback) | a verified URL pin, build pin, or kind 31313 advertisement resolves AND the channel is the `voice-sfu` kind | `src/lib/voice/{sfu-client,sfu-control,sfu-rpc,sfu-pin}.ts` (server lives in [obelisk-app/obelisk-sfu](https://github.com/obelisk-app/obelisk-sfu)) |
 
 This directory documents the **mesh** engine in depth. SFU docs are at
 [`../sfu-system.md`](../sfu-system.md).

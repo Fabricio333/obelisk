@@ -1,5 +1,5 @@
 /**
- * Browser-side request/response RPC over kind 25050 — peer of
+ * Browser-side request/response RPC over direct WebSocket or kind 25050 — peer of
  * `services/sfu/src/nostr-rpc.ts`. Same envelope schema:
  *
  *   request:      { type:'request',  requestId, method, data? }
@@ -24,7 +24,7 @@ import { getBridge, getBridgeImpl } from '@/lib/nostr-bridge/client';
 // sticky local caches can't pin a stale SfuRpc on the same URL.
 if (typeof globalThis !== 'undefined') {
   (globalThis as { __obeliskSfuRpcBuild?: string }).__obeliskSfuRpcBuild =
-    '2026-05-07T18:30:00Z-clientId-relays-override';
+    '2026-07-26T15:20:00Z-direct-websocket-rpc';
 }
 
 async function bridge() {
@@ -95,6 +95,8 @@ const SFU_RPC_MAX_SUBSCRIBE_ATTEMPTS = 8;
 const DEFAULT_RETRY_ATTEMPTS = 4;
 const DEFAULT_RETRY_TIMEOUT_MS = 1800;
 const DEFAULT_RETRY_DELAY_MS = 75;
+const DIRECT_CONNECT_TIMEOUT_MS = 5000;
+const AUTH_KIND = 22242;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -110,6 +112,12 @@ interface PendingCall {
   timer: ReturnType<typeof setTimeout>;
 }
 
+class DirectRpcError extends Error {
+  constructor(message: string, readonly closeCode = 0) {
+    super(message);
+  }
+}
+
 /**
  * RPC client bound to a single channel + remote (the SFU). Caller owns the
  * lifecycle — `start()` opens the inbound subscription, `close()` tears it
@@ -119,7 +127,9 @@ export class SfuRpc {
   private readonly channelId: string;
   private readonly sfuPubkey: string;
   private readonly selfPubkey: string;
+  private readonly sfuUrl: string | null;
   private readonly onNotification: (n: RpcNotification) => void;
+  private readonly onRelayFallback: (() => Promise<void>) | null;
   /**
    * Relays the RPC envelopes are published to. Defaults to whatever the
    * bridge has, but for SFUs that only listen on a permissioned trusted
@@ -132,6 +142,8 @@ export class SfuRpc {
 
   private pending = new Map<string, PendingCall>();
   private signalUnsub: (() => void) | null = null;
+  private socket: WebSocket | null = null;
+  private transport: 'direct' | 'relay' | null = null;
   private closed = false;
   private nextId = 0;
   /**
@@ -145,20 +157,38 @@ export class SfuRpc {
   constructor(opts: {
     channelId: string;
     sfuPubkey: string;
+    sfuUrl?: string;
     selfPubkey: string;
     onNotification: (n: RpcNotification) => void;
+    onRelayFallback?: () => Promise<void>;
     publishRelays?: readonly string[];
   }) {
     this.channelId = opts.channelId;
     this.sfuPubkey = opts.sfuPubkey;
     this.selfPubkey = opts.selfPubkey;
+    this.sfuUrl = opts.sfuUrl ?? null;
     this.onNotification = opts.onNotification;
+    this.onRelayFallback = opts.onRelayFallback ?? null;
     this.publishRelays = opts.publishRelays ?? [];
     this.clientId = mintClientId();
   }
 
   async start(): Promise<void> {
     if (this.closed) throw new Error('SfuRpc already closed');
+    if (this.sfuUrl && typeof WebSocket !== 'undefined') {
+      try {
+        await this.startDirect();
+        return;
+      } catch (err) {
+        if (err instanceof DirectRpcError && err.closeCode >= 4401) throw err;
+        console.warn('[sfu] direct RPC unavailable; falling back to Nostr relays', err);
+        await this.onRelayFallback?.();
+      }
+    }
+    await this.startRelay();
+  }
+
+  private async startRelay(): Promise<void> {
     const b = await bridge();
     const since = Math.floor(Date.now() / 1000) - 30;
     // Subscribe on the SFU's trusted relays in addition to the dex's
@@ -205,19 +235,95 @@ export class SfuRpc {
     // The bridge does not expose relay subscription readiness. Give AUTH
     // gated relays one tick to attach before the first startup RPC goes out.
     await sleep(SUBSCRIBE_SETTLE_MS);
+    this.transport = 'relay';
+  }
+
+  private async startDirect(): Promise<void> {
+    const endpoint = new URL('/rpc', this.sfuUrl!);
+    endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:';
+    endpoint.searchParams.set('channelId', this.channelId);
+    const socket = new WebSocket(endpoint);
+    this.socket = socket;
+
+    await new Promise<void>((resolve, reject) => {
+      let authenticated = false;
+      let settled = false;
+      const fail = (error: DirectRpcError) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.socket = null;
+        try { socket.close(); } catch { /* ignore */ }
+        reject(error);
+      };
+      const timer = setTimeout(
+        () => fail(new DirectRpcError('SFU WebSocket authentication timed out')),
+        DIRECT_CONNECT_TIMEOUT_MS,
+      );
+      socket.onerror = () => fail(new DirectRpcError('SFU WebSocket unavailable'));
+      socket.onclose = (event) => {
+        const message = event.reason || `SFU WebSocket closed (${event.code})`;
+        const error = new DirectRpcError(
+          event.code === 4403 ? `SFU access denied: ${message}` : message,
+          event.code,
+        );
+        if (!authenticated) return fail(error);
+        this.socket = null;
+        this.failPending(error);
+      };
+      socket.onmessage = (event) => {
+        void (async () => {
+          if (typeof event.data !== 'string') throw new DirectRpcError('Invalid SFU WebSocket message');
+          const message = JSON.parse(event.data) as Record<string, unknown>;
+          if (message.type === 'auth') {
+            if (
+              message.kind !== AUTH_KIND ||
+              message.channelId !== this.channelId ||
+              typeof message.challenge !== 'string' ||
+              typeof message.relay !== 'string'
+            ) {
+              throw new DirectRpcError('Invalid SFU authentication challenge');
+            }
+            const b = await bridge();
+            const event = await b.signEventTemplate({
+              kind: AUTH_KIND,
+              content: '',
+              tags: [
+                ['challenge', message.challenge],
+                ['e', this.channelId],
+                ['relay', message.relay],
+              ],
+            });
+            socket.send(JSON.stringify({ type: 'auth', event, clientId: this.clientId }));
+            return;
+          }
+          if (message.type === 'auth_ok') {
+            authenticated = true;
+            settled = true;
+            clearTimeout(timer);
+            this.transport = 'direct';
+            resolve();
+            return;
+          }
+          if (!authenticated) throw new DirectRpcError('SFU WebSocket authentication required');
+          this.handleInbound(message);
+        })().catch((err) => fail(
+          err instanceof DirectRpcError ? err : new DirectRpcError((err as Error).message),
+        ));
+      };
+    });
   }
 
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.transport = null;
+    const socket = this.socket;
+    this.socket = null;
+    try { socket?.close(); } catch { /* ignore */ }
     this.signalUnsub?.();
     this.signalUnsub = null;
-    const error = new Error('rpc closed');
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
-      pending.reject(error);
-    }
-    this.pending.clear();
+    this.failPending(new Error('rpc closed'));
   }
 
   /**
@@ -242,16 +348,23 @@ export class SfuRpc {
       });
     });
     try {
-      const b = await bridge();
-      await b.publishEvent({
-        kind: KIND_VOICE_SIGNAL,
-        content: JSON.stringify(envelope),
-        tags: [
-          ['p', this.sfuPubkey],
-          ['e', this.channelId],
-          ['t', 'obelisk-voice-signal'],
-        ],
-      }, this.publishRelays.length > 0 ? { extraRelays: [...this.publishRelays] } : undefined);
+      if (this.transport === 'direct') {
+        if (!this.socket || this.socket.readyState !== 1) {
+          throw new Error('SFU WebSocket disconnected');
+        }
+        this.socket.send(JSON.stringify(envelope));
+      } else {
+        const b = await bridge();
+        await b.publishEvent({
+          kind: KIND_VOICE_SIGNAL,
+          content: JSON.stringify(envelope),
+          tags: [
+            ['p', this.sfuPubkey],
+            ['e', this.channelId],
+            ['t', 'obelisk-voice-signal'],
+          ],
+        }, this.publishRelays.length > 0 ? { extraRelays: [...this.publishRelays] } : undefined);
+      }
     } catch (err) {
       const pending = this.pending.get(requestId);
       if (pending) {
@@ -292,6 +405,14 @@ export class SfuRpc {
     throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
   }
 
+  private handleInbound(message: Record<string, unknown>): void {
+    if (message.type === 'response') {
+      this.handleResponse(message as unknown as RpcResponse);
+    } else if (message.type === 'notification') {
+      this.onNotification(message as unknown as RpcNotification);
+    }
+  }
+
   private handleResponse(resp: RpcResponse): void {
     const pending = this.pending.get(resp.requestId);
     if (!pending) return; // late or unknown
@@ -304,5 +425,13 @@ export class SfuRpc {
       if (resp.error.code) (err as Error & { code: string }).code = resp.error.code;
       pending.reject(err);
     }
+  }
+
+  private failPending(error: Error): void {
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.pending.clear();
   }
 }

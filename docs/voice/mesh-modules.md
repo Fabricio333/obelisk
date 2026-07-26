@@ -50,14 +50,14 @@
 ## SFU internals (separate engine)
 
 - **`sfu-client.ts` → `SfuClient`** — mediasoup-client wrapper that
-  speaks the SFU's RPC envelopes (kind 25050 with envelope tag).
+  speaks the SFU's RPC envelopes over direct WebSocket.
 - **`sfu-control.ts`** — `pickSfu()` resolves the SFU pubkey for a
   channel via per-channel pin, env override, or kind 31313
   advertisement.
-- **`sfu-rpc.ts`** — RPC framing (request/response/notification on
-  top of kind 25050).
-- **`sfu-pin.ts`** — per-channel SFU pin storage (kind 30078
-  application data).
+- **`sfu-rpc.ts`** — direct authenticated WebSocket RPC framing with
+  kind 25050 as an older-server fallback.
+- **`sfu-pin.ts`** — validates an SFU URL via `/info` and stores the
+  verified per-channel kind 30078 pin.
 
 ## Shared helpers
 

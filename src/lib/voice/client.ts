@@ -1482,6 +1482,10 @@ export class VoiceClient {
     const makeClient = (): SfuClient => new SfuClient({
       channelId: this.channelId,
       sfuPubkey,
+      ...(picked?.url ? {
+        sfuUrl: picked.url,
+        onRelayFallback: () => this.publishSfuStartOrThrow(sfuPubkey, controlRelays),
+      } : {}),
       selfPubkey: this.selfPubkey,
       ...(rpcRelays.length > 0 ? { trustedRelays: rpcRelays } : {}),
       events: {
@@ -1555,9 +1559,10 @@ export class VoiceClient {
       },
     });
 
-    // Bootstrap loop. The common failure mode is a cold-start race where
-    // the SFU room hasn't finished processing our `start` event before the
-    // first RPC lands; the next-most-common is "SFU process is restarting
+    // Bootstrap loop. Direct RPC authenticates and opens the room itself.
+    // Older SFUs fall back to the Nostr start + kind 25050 path; that path can
+    // race room creation with its first RPC. The next-most-common failure is
+    // "SFU process is restarting
     // after a watchdog auto-heal." Both are recoverable by reissuing
     // `start` (force=true, already inside publishSfuStartOrThrow) with a
     // fresh RPC client. Any non-timeout failure is treated as permanent —
@@ -1573,7 +1578,7 @@ export class VoiceClient {
       client = makeClient();
       this.sfuClient = client;
       try {
-        await this.publishSfuStartOrThrow(sfuPubkey, controlRelays);
+        if (!picked?.url) await this.publishSfuStartOrThrow(sfuPubkey, controlRelays);
         await client.start();
         lastErr = null;
         break;
