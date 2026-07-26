@@ -285,6 +285,7 @@ const KIND_GROUP_METADATA = 39000;
 const KIND_GROUP_JOIN_REQUEST = 9021;
 const KIND_GROUP_LEAVE_REQUEST = 9022;
 const KIND_USER_METADATA = 0;
+const KIND_CONTACT_LIST = 3;
 const KIND_EVENT_DELETION = 5;
 const KIND_REACTION = 7;
 const KIND_DIRECT_MESSAGE = 4;
@@ -945,6 +946,9 @@ export class BridgeImpl {
   groupMetadataEose = new StateStore<boolean>(false);
   messagesByGroup = new StateStore<Record<string, JsMessage[]>>({});
   userMetadata = new StateStore<Record<string, JsUserMetadata>>({});
+  myContactList = new StateStore<NostrEvent | null>(null);
+  myContactListReady = new StateStore(false);
+  private myContactListLatestAt = 0;
   reactionsByGroup = new StateStore<Record<string, Record<string, JsReaction[]>>>({});
   private deletedEventIdsByGroup = new Map<string, Map<string, string>>();
   private moderatedEventIdsByGroup = new Map<string, Set<string>>();
@@ -1641,6 +1645,9 @@ export class BridgeImpl {
     if (previousPubkey && previousPubkey !== this.session?.pubKeyHex) {
       this.dmsByPeer.set({});
       this.pendingDMSends.clear();
+      this.myContactList.set(null);
+      this.myContactListReady.set(false);
+      this.myContactListLatestAt = 0;
     }
     this.persist();
     this.resetPoolForSessionChange();
@@ -1660,6 +1667,7 @@ export class BridgeImpl {
     // first paint that switchRelay does, so "fresh login" and "switch to
     // this relay" produce identical UX.
     this.seedCacheForRelay(sessionRelay);
+    if (this.session) this.seedMyContactListCache(this.session.pubKeyHex);
     await this.connect();
     this.myPubkey.set(this.session?.pubKeyHex ?? null);
     this.myLoginMethod.set(this.session?.loginMethod ?? null);
@@ -1972,6 +1980,9 @@ export class BridgeImpl {
     this.bunkerSignerReady.set(false);
     this.myPubkey.set(null);
     this.myLoginMethod.set(null);
+    this.myContactList.set(null);
+    this.myContactListReady.set(false);
+    this.myContactListLatestAt = 0;
     this.connectionState.set('Disconnected');
     this.groups.set([]);
     this.groupMetadataEose.set(false);
@@ -2117,6 +2128,7 @@ export class BridgeImpl {
       if (this.session) this.ensureUserMetadata(this.session.pubKeyHex);
       queueMicrotask(() => {
         this.subscribeAllAdminMember();
+        this.openMyContactListSubscription();
         this.subscribeMyMuteList();
         this.subscribeMyAuthoredGroups();
         this.subscribeActiveCalls();
@@ -2508,6 +2520,14 @@ export class BridgeImpl {
     this.dmSubscribed = false;
     this.authAllowedRelays.clear();
     this.myDmRelays = [];
+  }
+
+  subscribeMyContactList(cb: (event: NostrEvent | null) => void): Unsubscribe {
+    return this.myContactList.subscribe(cb);
+  }
+
+  subscribeMyContactListReady(cb: (ready: boolean) => void): Unsubscribe {
+    return this.myContactListReady.subscribe(cb);
   }
 
   subscribeMyMutes(cb: (pubkeys: ReadonlyArray<string>) => void): Unsubscribe {
@@ -3385,7 +3405,7 @@ export class BridgeImpl {
     tags: string[][];
     created_at?: number;
   }, opts: PublishOpts = {}): Promise<NostrEvent> {
-    return this.signAndPublish(
+    const event = await this.signAndPublish(
       {
         kind: template.kind,
         content: template.content,
@@ -3394,6 +3414,8 @@ export class BridgeImpl {
       },
       opts,
     );
+    if (event.kind === KIND_CONTACT_LIST) this.ingestMyContactList(event);
+    return event;
   }
 
   /**
@@ -3610,6 +3632,7 @@ export class BridgeImpl {
        */
       immediateAccessDowngrade?: boolean;
       onQuotaOrRateLimitClose?: () => void;
+      bypassWot?: boolean;
     },
     pool: SimplePool = this.pool,
     isPoolSocketAlive: () => boolean = () => this.poolSocketAlive,
@@ -3738,7 +3761,7 @@ export class BridgeImpl {
           // reach ingest, the cache, or `messagesByGroup`. When the engine
           // is disabled the predicate is a constant `true` and this is a
           // no-op. See docs/wot-integration-plan.md.
-          if (!wotEngine.isAllowed(ev.pubkey, ev.kind)) return;
+          if (!options?.bypassWot && !wotEngine.isAllowed(ev.pubkey, ev.kind)) return;
           pushRelayDebug({ kind: "sub-event", relays, filter, eventKind: ev.kind });
           onevent(ev);
         },
@@ -5002,6 +5025,38 @@ export class BridgeImpl {
       prev[groupId] ? prev : { ...prev, [groupId]: true },
     );
     pubkeys.forEach((pk) => this.ensureUserMetadata(pk));
+  }
+
+  private seedMyContactListCache(pubkey: string): void {
+    const cached = cacheGet<NostrEvent>(PROFILE_RELAYS[0], KIND_CONTACT_LIST, pubkey)?.value;
+    if (!cached || cached.kind !== KIND_CONTACT_LIST || cached.pubkey !== pubkey) return;
+    this.ingestMyContactList(cached);
+  }
+
+  private ingestMyContactList(ev: NostrEvent): void {
+    if (!this.session || ev.kind !== KIND_CONTACT_LIST || ev.pubkey !== this.session.pubKeyHex) return;
+    if (ev.created_at <= this.myContactListLatestAt) return;
+    this.myContactListLatestAt = ev.created_at;
+    this.myContactList.set(ev);
+    this.myContactListReady.set(true);
+    cacheSet(PROFILE_RELAYS[0], KIND_CONTACT_LIST, ev.pubkey, ev);
+  }
+
+  private openMyContactListSubscription(): void {
+    if (!this.session) return;
+    const relays = Array.from(new Set([
+      ...this.relays,
+      ...PROFILE_RELAYS,
+      ...getPreferences().profileFeedRelays,
+    ]));
+    const sub = this.subscribeWatched(
+      relays,
+      { kinds: [KIND_CONTACT_LIST], authors: [this.session.pubKeyHex], limit: 1 },
+      (ev) => this.ingestMyContactList(ev),
+      () => this.myContactListReady.set(true),
+      { affectsRelayAccess: false, bypassWot: true },
+    );
+    this.subs.push(sub);
   }
 
   private subscribeMyMuteList(): void {

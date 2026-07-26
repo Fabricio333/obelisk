@@ -6,6 +6,20 @@ describe('MobileSigningIndicator', () => {
     vi.resetModules();
   });
 
+  it('shows green while idle because signing is healthy', async () => {
+    const { default: MobileSigningIndicator } = await import('./MobileSigningIndicator');
+    const { LocaleProvider } = await import('@/i18n/context');
+
+    render(
+      <LocaleProvider initialLocale="en">
+        <MobileSigningIndicator />
+      </LocaleProvider>,
+    );
+
+    expect(screen.getByTestId('mobile-signing-indicator').firstElementChild)
+      .toHaveClass('bg-lc-green');
+  });
+
   it('changes color state and explains the event being signed', async () => {
     const { pushActivity, resolveActivity } = await import('@/lib/activity-log');
     const { default: MobileSigningIndicator } = await import('./MobileSigningIndicator');

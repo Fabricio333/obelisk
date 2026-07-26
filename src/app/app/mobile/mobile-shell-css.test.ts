@@ -134,4 +134,11 @@ describe('mobile shell CSS', () => {
     expect(css).toContain('.obelisk-mobile .reaction:active,');
   });
 
+  it('keeps mobile action glyphs white over their colored squares', () => {
+    for (const action of ['search', 'create', 'menu']) {
+      expect(ruleBody(`.obelisk-mobile .icon-btn.action-${action}`))
+        .toContain('color: var(--app-text)');
+    }
+  });
+
 });

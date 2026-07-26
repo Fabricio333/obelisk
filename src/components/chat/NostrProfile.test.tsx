@@ -20,6 +20,8 @@ const bridgeMocks = vi.hoisted(() => ({
   ensureUserMetadata: vi.fn().mockResolvedValue(undefined),
   publishEvent: vi.fn(),
   myPubkey: 'b'.repeat(64),
+  contactEvent: null as NostrEvent | null,
+  contactsReady: true,
 }));
 
 vi.mock('nostr-tools', async (importOriginal) => {
@@ -48,6 +50,8 @@ vi.mock('@/lib/nostr-bridge', () => ({
   getBridge: async () => ({ publishEvent: bridgeMocks.publishEvent }),
   nostrActions: { ensureUserMetadata: bridgeMocks.ensureUserMetadata },
   useMyPubkey: () => bridgeMocks.myPubkey,
+  useMyContactList: () => bridgeMocks.contactEvent,
+  useMyContactListReady: () => bridgeMocks.contactsReady,
   useUserMetadata: () => ({
     displayName: 'Alice',
     name: 'alice',
@@ -81,11 +85,17 @@ beforeEach(() => {
   poolMocks.destroy.mockReset();
   bridgeMocks.ensureUserMetadata.mockClear();
   bridgeMocks.myPubkey = 'b'.repeat(64);
+  bridgeMocks.contactEvent = null;
+  bridgeMocks.contactsReady = true;
   bridgeMocks.publishEvent.mockReset().mockImplementation(async (template: {
     kind: number;
     content: string;
     tags: string[][];
-  }) => note('contacts-new', template.content, template.tags, 10));
+  }) => {
+    const event = note('contacts-new', template.content, template.tags, 10);
+    bridgeMocks.contactEvent = event;
+    return event;
+  });
 });
 
 describe('NostrProfile', () => {
@@ -97,7 +107,7 @@ describe('NostrProfile', () => {
     );
 
     expect(screen.getByTestId('profile-feed-loading')).toBeInTheDocument();
-    expect(poolMocks.subscriptions).toHaveLength(2);
+    expect(poolMocks.subscriptions).toHaveLength(1);
     expect(poolMocks.subscriptions[0].relays).toEqual([
       'wss://relay.damus.io',
       'wss://nos.lol',
@@ -131,19 +141,13 @@ describe('NostrProfile', () => {
   });
 
   it('publishes follow changes as kind 3 without dropping unrelated tags', async () => {
+    bridgeMocks.contactEvent = note('contacts', 'legacy relay map', [['p', 'existing'], ['relay', 'wss://legacy.example']], 5);
     render(
       <LocaleProvider initialLocale="en">
         <NostrProfile pubkey={PROFILE} onClose={vi.fn()} />
       </LocaleProvider>,
     );
 
-    act(() => {
-      poolMocks.subscriptions[1].handlers.onevent?.(
-        note('contacts', 'legacy relay map', [['p', 'existing'], ['relay', 'wss://legacy.example']], 5),
-      );
-    });
-    expect(screen.getByTestId('profile-follow-button')).toBeDisabled();
-    act(() => poolMocks.subscriptions[1].handlers.oneose?.());
     fireEvent.click(screen.getByTestId('profile-follow-button'));
 
     await waitFor(() => expect(bridgeMocks.publishEvent).toHaveBeenCalledWith(
@@ -188,7 +192,6 @@ describe('NostrProfile', () => {
       </LocaleProvider>,
     );
 
-    act(() => poolMocks.subscriptions[1].handlers.onclose?.());
     expect(screen.queryByText('Could not update your follow list.')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('profile-follow-button'));
 
@@ -215,7 +218,7 @@ describe('NostrProfile', () => {
         <NostrProfile pubkey={PROFILE} onClose={vi.fn()} />
       </LocaleProvider>,
     );
-    act(() => poolMocks.subscriptions.at(-2)?.handlers.oneose?.());
+    act(() => poolMocks.subscriptions.at(-1)?.handlers.oneose?.());
     expect(screen.getByText('Nothing here yet.')).toBeInTheDocument();
   });
 

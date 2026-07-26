@@ -691,6 +691,42 @@ describe('nostr-bridge', () => {
     expect(fake.state.published.find((e) => e.kind === 9002)).toBeTruthy();
   });
 
+  it('caches the newest contact list and updates it immediately after edits', async () => {
+    const { getBridge } = await import('./client');
+    const { skHex, pkHex } = makeKeypair();
+    const first = makeKeypair().pkHex;
+    const second = makeKeypair().pkHex;
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+
+    expect(fake.state.subscriptions.map((sub) => sub.filter)).toContainEqual(
+      expect.objectContaining({ kinds: [3], authors: [pkHex] }),
+    );
+    const seen: Array<NostrEvent | null> = [];
+    const ready: boolean[] = [];
+    bridge.subscribeMyContactList((event) => seen.push(event));
+    bridge.subscribeMyContactListReady((value) => ready.push(value));
+    await bridge.publishEvent({
+      kind: 3,
+      content: 'relay metadata',
+      tags: [['p', first]],
+      created_at: 21,
+    });
+    expect(seen.at(-1)?.tags).toEqual([['p', first]]);
+    expect(ready.at(-1)).toBe(true);
+    expect(Object.keys(localStorage).some((key) => key.endsWith(`/3/${pkHex}`))).toBe(true);
+
+    const secret = Uint8Array.from(skHex.match(/.{2}/g)!.map((hex) => parseInt(hex, 16)));
+    deliver(finalizeEvent({
+      kind: 3,
+      content: 'stale',
+      tags: [['p', second]],
+      created_at: 20,
+    }, secret));
+    await flush();
+    expect(seen.at(-1)?.tags).toEqual([['p', first]]);
+  });
+
   it('subscribeMyMutes parses NIP-51 kind 10000 p-tags for the local user', async () => {
     const { getBridge } = await import('./client');
     const { skHex, pkHex } = makeKeypair();

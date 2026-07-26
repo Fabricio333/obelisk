@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getBridge, getBridgeImpl } from './client';
 import type { NipSigner } from '@/lib/nip-59';
+import type { Event as NostrEvent } from 'nostr-tools';
 import { normalizeRelayUrl } from './relay-url';
 import { usePreferences } from '@/lib/preferences';
 import { wotEngine } from '@/lib/wot/engine';
@@ -156,6 +157,27 @@ export function useNipSigner(): NipSigner | null {
   const pubkey = useMyPubkey();
   const ready = useSignerReady();
   return pubkey && ready ? getBridgeImpl()?.getNipSigner() ?? null : null;
+}
+
+export function useMyContactList(): NostrEvent | null {
+  return useSubscription<NostrEvent | null>((b, cb) => b.subscribeMyContactList(cb), null);
+}
+
+export function useMyContactListReady(): boolean {
+  return useSubscription((b, cb) => b.subscribeMyContactListReady(cb), false);
+}
+
+export function useMyFollows(): ReadonlyArray<string> {
+  const event = useMyContactList();
+  return useMemo(() => {
+    if (!event) return [];
+    const seen = new Set<string>();
+    for (const tag of event.tags) {
+      const pubkey = tag[0] === 'p' ? tag[1]?.toLowerCase() : null;
+      if (pubkey && /^[0-9a-f]{64}$/.test(pubkey)) seen.add(pubkey);
+    }
+    return Array.from(seen);
+  }, [event]);
 }
 
 export function useConfiguredRelays(): ReadonlyArray<string> {

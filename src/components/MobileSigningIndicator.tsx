@@ -18,7 +18,7 @@ export default function MobileSigningIndicator() {
       ? 'bg-lc-green'
       : status === 'error'
         ? 'bg-red-500'
-        : 'bg-lc-muted';
+        : 'bg-lc-green';
 
   return (
     <>

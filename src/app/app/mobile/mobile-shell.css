@@ -800,9 +800,9 @@
 }
 
 .obelisk-mobile .icon-btn.action-sign { background: rgba(180, 249, 83, 0.15); color: #b4f953; }
-.obelisk-mobile .icon-btn.action-search { background: rgba(96, 165, 250, 0.18); color: #93c5fd; }
-.obelisk-mobile .icon-btn.action-create { background: rgba(52, 211, 153, 0.18); color: #6ee7b7; }
-.obelisk-mobile .icon-btn.action-menu { background: rgba(192, 132, 252, 0.18); color: #d8b4fe; }
+.obelisk-mobile .icon-btn.action-search { background: rgba(96, 165, 250, 0.18); color: var(--app-text); }
+.obelisk-mobile .icon-btn.action-create { background: rgba(52, 211, 153, 0.18); color: var(--app-text); }
+.obelisk-mobile .icon-btn.action-menu { background: rgba(192, 132, 252, 0.18); color: var(--app-text); }
 .obelisk-mobile .icon-btn.action-members { background: rgba(251, 146, 60, 0.18); color: #fdba74; }
 
 .obelisk-mobile .server-banner-meta {
@@ -3581,6 +3581,13 @@
   padding: 8px;
   cursor: pointer;
   text-align: center;
+}
+.obelisk-mobile .relay-menu-close {
+  align-self: center;
+  padding: 9px 22px;
+  border: 1px solid var(--app-line);
+  border-radius: 999px;
+  background: var(--app-surface);
 }
 
 /* ===== login screen ===== */

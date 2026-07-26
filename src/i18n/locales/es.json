@@ -315,7 +315,7 @@
   "dm.compose.recent": "Recientes",
   "dm.compose.noRecent": "Sin conversaciones recientes",
   "dm.compose.noRecentDescription": "Pegá un npub arriba y tocá Siguiente.",
-  "dm.compose.placeholder": "npub... o pubkey hex",
+  "dm.compose.placeholder": "Nombre, NIP-05 o npub",
   "dm.emptyMobileDescription": "Tocá + para iniciar un DM encriptado con cualquier persona en Nostr.",
   "dm.pickConversation": "Elegí o iniciá una conversación por DM.",
   "dm.emptyEncrypted": "Todavía no hay mensajes. Mandá el primero (encriptado NIP-04).",

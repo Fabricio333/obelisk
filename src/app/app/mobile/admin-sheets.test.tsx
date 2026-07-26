@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
+import { LocaleProvider } from '@/i18n/context';
 
 // Bridge actions live behind a singleton + IndexedDB-backed cache. The
 // admin-sheet tests only care that:
@@ -11,6 +12,7 @@ const mockCreateGroup = vi.fn();
 const mockEditGroupMetadata = vi.fn();
 const mockSwitchRelay = vi.fn();
 const mockRemoveRelay = vi.fn();
+const mockUserSearch = vi.fn();
 
 vi.mock('@/lib/nostr-bridge', () => ({
   nostrActions: {
@@ -39,6 +41,10 @@ vi.mock('@/lib/nostr-bridge', () => ({
   useConnectionState: () => 'connected',
   useGroupMetadataEose: () => true,
   useActiveCallByChannel: () => ({}),
+}));
+
+vi.mock('@/lib/hooks/useNostrUserSearch', () => ({
+  useNostrUserSearch: (...a: unknown[]) => mockUserSearch(...a),
 }));
 
 vi.mock('@/lib/relay-info', () => ({
@@ -82,13 +88,14 @@ vi.mock('@/components/admin/RelayEmojiAdminModal', () => ({
   ),
 }));
 
-import { ChannelSettingsSheet, CreateChannelSheet, RelayMenuSheet } from './PhoneShell';
+import { ChannelSettingsSheet, ComposeDmScreen, CreateChannelSheet, DmsListScreen, RelayMenuSheet } from './PhoneShell';
 
 afterEach(() => {
   mockCreateGroup.mockReset();
   mockEditGroupMetadata.mockReset();
   mockSwitchRelay.mockReset();
   mockRemoveRelay.mockReset();
+  mockUserSearch.mockReset().mockReturnValue({ directHit: null, nip05Hit: null, nostrResults: [], loading: false });
 });
 
 describe('CreateChannelSheet', () => {
@@ -130,6 +137,7 @@ describe('CreateChannelSheet', () => {
     );
     const submit = screen.getByTestId('mobile-create-channel-submit') as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
+    expect(screen.getByTestId('mobile-create-channel-input')).not.toHaveAttribute('autofocus');
   });
 });
 
@@ -216,6 +224,7 @@ describe('RelayMenuSheet admin gating', () => {
     expect(screen.queryByText('Custom emojis')).toBeNull();
     expect(screen.queryByText('Categories & order')).toBeNull();
     expect(screen.queryByText('Admins & members')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Close' })).toHaveClass('relay-menu-close');
   });
 
   it('renders the relay admin entries for admins', () => {
@@ -268,5 +277,29 @@ describe('RelayMenuSheet admin gating', () => {
     );
     fireEvent.click(screen.getByText('Admins & members'));
     expect(screen.getByTestId('relay-admin-panel-stub')).toBeTruthy();
+  });
+});
+
+describe('mobile DM search', () => {
+  it('opens user search from the DMs search button', () => {
+    const go = vi.fn();
+    render(<LocaleProvider initialLocale="en"><DmsListScreen go={go} selectPeer={() => {}} myFollows={[]} /></LocaleProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(go).toHaveBeenCalledWith('compose-dm');
+  });
+
+  it('searches Nostr profiles and opens the selected DM', () => {
+    const pubkey = 'a'.repeat(64);
+    mockUserSearch.mockReturnValue({
+      directHit: null,
+      nip05Hit: null,
+      nostrResults: [{ pubkey, displayName: 'Alice', picture: null, nip05: 'alice.com' }],
+      loading: false,
+    });
+    const selectPeer = vi.fn();
+    render(<LocaleProvider initialLocale="en"><ComposeDmScreen back={() => {}} selectPeer={selectPeer} /></LocaleProvider>);
+    fireEvent.change(screen.getByPlaceholderText('Name, NIP-05, or npub'), { target: { value: 'alice' } });
+    fireEvent.click(screen.getByTestId('mobile-user-search-result'));
+    expect(selectPeer).toHaveBeenCalledWith(pubkey);
   });
 });

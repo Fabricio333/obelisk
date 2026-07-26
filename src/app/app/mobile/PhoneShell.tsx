@@ -30,6 +30,7 @@ import {
   useMessagesStatus,
   useSignerReady,
   useMyPubkey,
+  useMyFollows,
   useUserMetadata,
   useLoadEarlier,
   useDirectMessages,
@@ -55,7 +56,6 @@ import {
   type JsDirectMessage,
   type JsUserMetadata,
 } from '@/lib/nostr-bridge';
-import { useFollows } from '@nostr-wot/data/react';
 import LoginModal from '../LoginModal';
 import DMOptInGate from '../DMOptInGate';
 import VoiceRoom from '@/components/voice/VoiceRoom';
@@ -136,6 +136,7 @@ import { useKeyboardInset } from './use-keyboard';
 import { channelScrollPositionKey } from '@/lib/channel-scroll-position';
 import { channelCursorHasReadLatest, channelInitialAnchorFromCursor } from '@/lib/channel-scroll-anchor';
 import { useChannelScrollPosition } from '@/hooks/chat/useChannelScrollPosition';
+import { useNostrUserSearch, type UserHit } from '@/lib/hooks/useNostrUserSearch';
 // CSS is hoisted to AppGate.tsx so it lands in the route's eagerly-loaded
 // stylesheet, not in this dynamic chunk's late-arriving sidecar.
 
@@ -614,7 +615,7 @@ export function RelayMenuSheet({
         {toast && (
           <div style={{ marginTop: 10, fontSize: 12, color: 'var(--accent, #b4f953)', textAlign: 'center' }}>{toast}</div>
         )}
-        <button className="btn-cancel" onClick={close}>Close</button>
+        <button className="btn-cancel relay-menu-close" onClick={close}>Close</button>
       </div>
       {adminPanel === 'branding' && branding && (
         <EditBrandingSheet
@@ -906,7 +907,6 @@ export function CreateChannelSheet({
           </label>
           <div className="setup-input-wrap">
             <input
-              autoFocus
               className="setup-input"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -3266,7 +3266,7 @@ function MobileDmOptInScreen({
   );
 }
 
-function DmsListScreen({
+export function DmsListScreen({
   go,
   selectPeer,
   myFollows,
@@ -3311,7 +3311,7 @@ function DmsListScreen({
         <h2>{t('dm.title')}</h2>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <MobileSigningIndicator />
-          <button className="icon-btn action-search" onClick={() => go('search')} aria-label={t('common.search')}>
+          <button className="icon-btn action-search" onClick={() => go('compose-dm')} aria-label={t('common.search')}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
           </button>
           <button className="icon-btn action-create" onClick={() => go('compose-dm')} aria-label={t('dm.newMessage')}>
@@ -3790,14 +3790,20 @@ function MemberRow({ pubkey, role, online, onClick }: { pubkey: string; role?: '
 // ───────────────────────────────────────────────────────────────────────────
 // 11 — compose DM (search + open thread)
 
-function ComposeDmScreen({ back, selectPeer }: { back: () => void; selectPeer: (peer: string) => void }) {
+export function ComposeDmScreen({ back, selectPeer }: { back: () => void; selectPeer: (peer: string) => void }) {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const dms = useDirectMessages();
-
+  const { directHit, nip05Hit, nostrResults, loading } = useNostrUserSearch(query);
   const recent = useMemo(() => Object.keys(dms).slice(0, 20), [dms]);
-
+  const results = useMemo(() => {
+    const seen = new Set<string>();
+    return [directHit, nip05Hit, ...nostrResults].filter((hit): hit is UserHit =>
+      !!hit && !seen.has(hit.pubkey) && !!seen.add(hit.pubkey),
+    );
+  }, [directHit, nip05Hit, nostrResults]);
   const decoded = npubToHex(query);
+  const searching = query.trim().length >= 2;
 
   return (
     <div className="screen compose-dm-screen active" data-screen="compose-dm">
@@ -3821,17 +3827,41 @@ function ComposeDmScreen({ back, selectPeer }: { back: () => void; selectPeer: (
           onChange={(e) => setQuery(e.target.value)}
         />
       </div>
-      <div className="search-section-label">{t('dm.compose.recent')}</div>
+      <div className="search-section-label">
+        {searching ? t('search.users') : t('dm.compose.recent')}
+      </div>
       <div className="compose-dm-body">
-        {recent.length === 0 && (
+        {searching && loading && <div className="empty-state-desc">{t('search.searching')}</div>}
+        {searching && !loading && results.length === 0 && (
+          <div className="empty-state-desc">{t('search.noMatches')}</div>
+        )}
+        {searching && results.map((hit) => (
+          <ComposeUserRow key={hit.pubkey} hit={hit} onClick={() => selectPeer(hit.pubkey)} />
+        ))}
+        {!searching && recent.length === 0 && (
           <div className="empty-state">
             <div className="empty-state-title">{t('dm.compose.noRecent')}</div>
             <div className="empty-state-desc">{t('dm.compose.noRecentDescription')}</div>
           </div>
         )}
-        {recent.map((p) => <ComposeRecentRow key={p} peer={p} onClick={() => selectPeer(p)} />)}
+        {!searching && recent.map((p) => <ComposeRecentRow key={p} peer={p} onClick={() => selectPeer(p)} />)}
       </div>
     </div>
+  );
+}
+
+function ComposeUserRow({ hit, onClick }: { hit: UserHit; onClick: () => void }) {
+  const name = hit.displayName || shortNpub(hit.pubkey);
+  return (
+    <button className="dm-row" onClick={onClick} data-testid="mobile-user-search-result">
+      <div className="dm-ava-list" style={avatarStyle(hit.pubkey)}>
+        {hit.picture ? <img src={hit.picture} alt="" /> : initialsFor(name, shortNpub(hit.pubkey))}
+      </div>
+      <div className="dm-meta">
+        <div className="dm-row-top"><span className="dm-name">{name}</span></div>
+        <div className="dm-preview">{hit.nip05 ?? shortNpub(hit.pubkey)}</div>
+      </div>
+    </button>
   );
 }
 
@@ -5343,8 +5373,7 @@ export default function MobileShell() {
   const dmOptInEnabled = useDmOptInEnabled();
   const myPubkey = useMyPubkey();
   const groups = useGroups();
-  const myFollowsEntry = useFollows(myPubkey);
-  const myFollows = useMemo(() => myFollowsEntry?.follows ?? [], [myFollowsEntry]);
+  const myFollows = useMyFollows();
   const serverEmojis = useChatStore((s) => s.serverEmojis);
   const profilePopupPubkey = useChatStore((s) => s.profilePopupPubkey);
   const closeProfilePopup = useChatStore((s) => s.closeProfilePopup);

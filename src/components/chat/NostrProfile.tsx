@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { SimplePool, type Event as NostrEvent } from 'nostr-tools';
 import { TextCoercingWebSocket, hexToNpub } from '@nostr-wot/data';
-import { getBridge, nostrActions, useMyPubkey, useUserMetadata } from '@/lib/nostr-bridge';
+import { getBridge, nostrActions, useMyContactList, useMyContactListReady, useMyPubkey, useUserMetadata } from '@/lib/nostr-bridge';
 import { usePreferences } from '@/lib/preferences';
 import {
   filterProfileFeed,
@@ -46,13 +46,13 @@ function NostrProfileSession({
   const meta = useUserMetadata(pubkey);
   const myPubkey = useMyPubkey();
   const [notes, setNotes] = useState<NostrEvent[]>([]);
-  const [contactEvent, setContactEvent] = useState<NostrEvent | null>(null);
+  const contactEvent = useMyContactList();
   const [tab, setTab] = useState<ProfileFeedTab>('posts');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [followBusy, setFollowBusy] = useState(false);
   const [followError, setFollowError] = useState(false);
-  const [contactsReady, setContactsReady] = useState(!myPubkey);
+  const contactsReady = useMyContactListReady() || !myPubkey;
   const [composerOpen, setComposerOpen] = useState(false);
   const [expandedMedia, setExpandedMedia] = useState<string | null>(null);
 
@@ -94,20 +94,9 @@ function NostrProfileSession({
         }, 8000);
       },
     });
-    const contactsSub = myPubkey
-      ? pool.subscribe(relays, { kinds: [3], authors: [myPubkey], limit: 1 }, {
-          onevent: (event) => setContactEvent((current) => (
-            !current || event.created_at > current.created_at ? event : current
-          )),
-          oneose: () => setContactsReady(true),
-          onclose: () => setContactsReady(true),
-        })
-      : null;
-
     return () => {
       if (closeTimer) clearTimeout(closeTimer);
       notesSub.close();
-      contactsSub?.close();
       pool.destroy();
     };
   }, [pubkey, myPubkey, relays]);
@@ -127,13 +116,12 @@ function NostrProfileSession({
     setFollowError(false);
     try {
       const bridge = await getBridge();
-      const event = await bridge.publishEvent({
+      await bridge.publishEvent({
         kind: 3,
         content: contactEvent?.content ?? '',
         tags: toggledFollowTags(contactEvent?.tags ?? [], pubkey, !following),
         created_at: Math.max(Math.floor(Date.now() / 1000), (contactEvent?.created_at ?? 0) + 1),
       }, { extraRelays: relays, mode: 'replace' });
-      setContactEvent(event);
     } catch {
       setFollowError(true);
     } finally {

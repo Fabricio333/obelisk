@@ -10,10 +10,10 @@ import { useMemo, useState } from 'react';
 import {
   nostrActions,
   useDirectMessages,
+  useMyFollows,
   type JsDirectMessage,
 } from '@/lib/nostr-bridge';
-import { useFollows } from '@nostr-wot/data/react';
-import { useMyPubkey as usePubkey, useUserMetadata as useProfile } from '@/lib/nostr-bridge';
+import { useUserMetadata as useProfile } from '@/lib/nostr-bridge';
 import { useDMUnreadCount } from '@/lib/read-state/selectors';
 import DMComposer from './DMComposer';
 import UserAvatar from '@/components/UserAvatar';
@@ -30,9 +30,8 @@ export default function DMList({
 }) {
   const { t } = useTranslation();
   const dms = useDirectMessages();
-  const myPk = usePubkey();
-  const followsEntry = useFollows(myPk);
-  const followSet = useMemo(() => new Set(followsEntry?.follows ?? []), [followsEntry]);
+  const follows = useMyFollows();
+  const followSet = useMemo(() => new Set(follows), [follows]);
   const [composing, setComposing] = useState(false);
   const [tab, setTab] = useState<Tab | null>(null);
 
