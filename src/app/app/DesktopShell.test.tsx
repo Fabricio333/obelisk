@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChatStore } from '@/store/chat';
 import type { JsGroup } from '@/lib/nostr-bridge';
 import type { ChannelLayout } from '@/lib/channel-layout';
-import { ManageLayoutModal, RelaySettingsModal, SidebarMe } from './DesktopShell';
+import { ManageLayoutModal, RelayBrandingModal, RelaySettingsModal, SidebarMe } from './DesktopShell';
 
 vi.mock('@/lib/nostr-bridge', () => ({
   useMyPubkey: () => 'a'.repeat(64),
@@ -28,6 +28,24 @@ describe('RelaySettingsModal', () => {
 
     expect(screen.getAllByTestId(/^server-settings-icon-/)).toHaveLength(4);
     expect(screen.getAllByTestId(/^server-settings-icon-/).every((icon) => icon.querySelector('svg'))).toBe(true);
+  });
+});
+
+describe('RelayBrandingModal', () => {
+  it('reuses the channel settings appearance layout for relay basics', () => {
+    render(
+      <RelayBrandingModal
+        relayUrl="wss://relay.test"
+        branding={{ name: 'Obelisk', description: 'A relay', icon: 'https://cdn/icon.png', banner: 'https://cdn/banner.png', updatedAt: 1 }}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('channel-appearance-preview')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Obelisk')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('A relay')).toBeInTheDocument();
+    expect(screen.queryByText('Access')).not.toBeInTheDocument();
+    expect(screen.queryByText('Channel type')).not.toBeInTheDocument();
   });
 });
 

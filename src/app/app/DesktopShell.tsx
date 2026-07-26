@@ -108,7 +108,7 @@ import { channelScrollPositionKey } from '@/lib/channel-scroll-position';
 import { channelInitialAnchorFromCursor } from '@/lib/channel-scroll-anchor';
 import { useChannelScrollPosition } from '@/hooks/chat/useChannelScrollPosition';
 import RelayEmojiAdminModal from '@/components/admin/RelayEmojiAdminModal';
-import BlossomImageInput, { ChannelAppearanceInput } from '@/components/BlossomImageInput';
+import { ChannelAppearanceInput } from '@/components/BlossomImageInput';
 import { extractUrls, isImageUrl } from '@/lib/markdown';
 import { stickerTagsForContent, type MessageSticker } from '@/lib/sticker-tags';
 import { voiceNoteTagForContent, type MessageVoiceNote } from '@/lib/voice-note-tags';
@@ -1423,7 +1423,7 @@ function CategorySection({
   );
 }
 
-function RelayBrandingModal({
+export function RelayBrandingModal({
   relayUrl,
   branding,
   onClose,
@@ -1461,7 +1461,7 @@ function RelayBrandingModal({
   return (
     <ModalShell
       onClose={onClose}
-      panelClassName="lc-card flex max-h-[90vh] w-full max-w-lg mx-4 flex-col overflow-hidden bg-lc-dark"
+      panelClassName="lc-card flex max-h-[90vh] w-full max-w-xl mx-4 flex-col overflow-hidden bg-lc-dark"
     >
         <header className="flex shrink-0 items-center justify-between border-b border-lc-border px-5 py-3">
           <div>
@@ -1472,45 +1472,35 @@ function RelayBrandingModal({
             ✕
           </button>
         </header>
-        <div className="flex-1 overflow-y-auto p-5 space-y-5">
-          <BlossomImageInput
-            label="Icon"
-            value={icon}
-            onChange={setIcon}
-            shape="square"
-            hint="Square logo shown next to the relay name."
-          />
-          <BlossomImageInput
-            label="Banner"
-            value={banner}
-            onChange={setBanner}
-            shape="wide"
-            hint="Wide image shown above the relay name."
-          />
-          <div>
-            <label className="mb-1.5 block text-xs uppercase tracking-wider text-lc-muted">Display name</label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={shortHost(relayUrl)}
-              className={inputClasses}
+        <form
+          id="relay-branding-form"
+          className="flex-1 space-y-7 overflow-y-auto p-5"
+          onSubmit={(event) => { event.preventDefault(); void save(); }}
+        >
+          <section className="space-y-4">
+            <SectionHeader title="Appearance" />
+            <ChannelAppearanceInput
+              picture={icon}
+              banner={banner}
+              onPictureChange={setIcon}
+              onBannerChange={setBanner}
             />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-xs uppercase tracking-wider text-lc-muted">Description</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-              className={inputClasses}
-            />
-          </div>
+          </section>
+          <section className="space-y-3">
+            <Field label="Name">
+              <input value={name} onChange={(event) => setName(event.target.value)} placeholder={shortHost(relayUrl)} className={inputClasses} />
+            </Field>
+            <Field label="Description">
+              <textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={2} className={inputClasses} />
+            </Field>
+          </section>
           {err && <p className="text-xs text-red-400">{err}</p>}
-        </div>
+        </form>
         <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-lc-border px-5 py-3">
           <button onClick={onClose} className="lc-pill lc-pill-secondary text-xs">Cancel</button>
           <button
-            onClick={save}
+            type="submit"
+            form="relay-branding-form"
             disabled={saving}
             className="rounded-lg bg-lc-green px-4 py-1.5 text-sm font-semibold text-lc-black disabled:opacity-50"
           >
