@@ -49,6 +49,30 @@ describe('MessageContent stickers', () => {
     expect(screen.queryByTestId("video-player")).not.toBeInTheDocument();
   });
 
+  it("cycles playback speed over the sender picture only while audio plays", () => {
+    render(
+      <MessageContent
+        content="voice"
+        voiceNote={{ url: "https://cdn.example/voice.webm", durationSeconds: 5 }}
+        voiceAuthorPicture="https://cdn.example/avatar.webp"
+      />,
+    );
+
+    const audio = screen.getByTestId("voice-message").querySelector("audio") as HTMLAudioElement;
+    expect(screen.queryByRole("button", { name: /Playback speed/ })).not.toBeInTheDocument();
+
+    fireEvent.play(audio);
+    fireEvent.click(screen.getByRole("button", { name: "Playback speed 1x" }));
+    expect(audio.playbackRate).toBe(1.5);
+    fireEvent.click(screen.getByRole("button", { name: "Playback speed 1.5x" }));
+    expect(audio.playbackRate).toBe(2);
+    fireEvent.click(screen.getByRole("button", { name: "Playback speed 2x" }));
+    expect(audio.playbackRate).toBe(1);
+
+    fireEvent.pause(audio);
+    expect(screen.queryByRole("button", { name: /Playback speed/ })).not.toBeInTheDocument();
+  });
+
   it("upgrades an untagged audio-only WebM without misclassifying real video", () => {
     const url = "https://cdn.example/legacy.webm";
     render(<MessageContent content={url} voiceAuthorPicture="https://cdn.example/avatar.webp" voiceTimestamp={1_700_000_000} />);

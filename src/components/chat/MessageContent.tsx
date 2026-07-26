@@ -86,6 +86,7 @@ export function VoiceMessage({
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(note.durationSeconds);
   const progress = duration > 0 ? Math.min(current / duration, 1) : 0;
@@ -94,6 +95,11 @@ export function VoiceMessage({
     if (!audio) return;
     if (audio.paused) void audio.play();
     else audio.pause();
+  };
+  const cyclePlaybackRate = () => {
+    const next = playbackRate === 1 ? 1.5 : playbackRate === 1.5 ? 2 : 1;
+    if (audioRef.current) audioRef.current.playbackRate = next;
+    setPlaybackRate(next);
   };
 
   return (
@@ -171,6 +177,17 @@ export function VoiceMessage({
           <span className="absolute -bottom-1 left-1/2 flex h-6 w-6 -translate-x-1/2 items-center justify-center rounded-full bg-[#202c33] text-[#53bdeb]" data-testid="voice-mic-badge">
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3" /></svg>
           </span>
+          {playing && (
+            <button
+              type="button"
+              onClick={cyclePlaybackRate}
+              className="absolute inset-0 z-10 flex items-center justify-center rounded-full bg-black/60 text-sm font-bold text-white backdrop-blur-[1px]"
+              aria-label={`Playback speed ${playbackRate}x`}
+              title="Change playback speed"
+            >
+              {playbackRate}x
+            </button>
+          )}
         </span>
       )}
     </span>
