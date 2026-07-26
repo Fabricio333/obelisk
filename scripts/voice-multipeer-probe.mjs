@@ -1,6 +1,6 @@
 /**
  * Voice transport probe — 4 named peers (Alice, Bob, Charlie, Dave) on
- * wss://relay.obelisk.ar exchanging the exact event shapes Obelisk's voice
+ * wss://lacrypta-relay.obelisk.ar exchanging the exact event shapes Obelisk's voice
  * transport publishes:
  *
  *   - kind 0     — profile metadata (so the relay operator can recognize
@@ -36,7 +36,7 @@ import WebSocket from 'ws';
 
 useWebSocketImplementation(WebSocket);
 
-const RELAY = 'wss://relay.obelisk.ar';
+const RELAY = 'wss://lacrypta-relay.obelisk.ar';
 const KIND_METADATA = 0;
 const KIND_VOICE_PRESENCE = 20078;
 const KIND_VOICE_SIGNAL = 25050;

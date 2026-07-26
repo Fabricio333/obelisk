@@ -286,7 +286,7 @@ For each login method, clear localStorage then:
    info…" then "Loading messages…"; member panel shows "Loading members…".
    No empty-sidebar flash, no layout shift when the banner image arrives.
 5. **Whitelist preflight on a restricted relay** — point a fresh nsec at
-   `wss://relay.obelisk.ar`; assert `RelayAccessBanner` flips to
+   `wss://lacrypta-relay.obelisk.ar`; assert `RelayAccessBanner` flips to
    `data-state="restricted"` within ~1.5s. No 4s soak.
 6. **Connection loss** — disconnect Wi-Fi mid-session;
    `ConnectionBanner` appears within 1s. Reconnect — banner disappears.
@@ -324,7 +324,7 @@ talking to real relays.
 | `paint-order.spec.ts` | channel-menu spinner → channel rows → chat spinner → chat content | `wss://public.obelisk.ar` |
 | `transparent-banner.spec.ts` | `lc-banner-placeholder` before branding, image after | `wss://public.obelisk.ar` |
 | `members-loading.spec.ts` | "Loading members…" until 39002 ingest | `wss://public.obelisk.ar` |
-| `whitelist-rejection.spec.ts` | preflight surfaces `RelayAccessBanner[data-state="restricted"]` within ~3s | `wss://relay.obelisk.ar` (restricted; configurable via `OBELISK_E2E_RESTRICTED_RELAY`) |
+| `whitelist-rejection.spec.ts` | preflight surfaces `RelayAccessBanner[data-state="restricted"]` within ~3s | `wss://lacrypta-relay.obelisk.ar` (restricted; configurable via `OBELISK_E2E_RESTRICTED_RELAY`) |
 | `connection-loss.spec.ts` | banner appears on socket drop, disappears on recovery | `wss://public.obelisk.ar` |
 | `cache-second-load.spec.ts` | reload paints first channel row within 1500ms of `navigationStart` | `wss://public.obelisk.ar` |
 | `clear-cache.spec.ts` | Preferences → Clear cache wipes the right keys, preserves session | `wss://public.obelisk.ar` |

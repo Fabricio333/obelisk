@@ -46,7 +46,7 @@ Useful overrides:
 |---|---|---|
 | `OBELISK_E2E_BASE_URL` | `http://localhost:3001` | Origin under test. |
 | `OBELISK_E2E_RELAY` | `wss://public.obelisk.ar` | Open relay used by every spec except the whitelist-rejection one. |
-| `OBELISK_E2E_RESTRICTED_RELAY` | `wss://relay.obelisk.ar` | Restricted relay used by `whitelist-rejection.spec.ts`. Must reject fresh pubkeys with `auth-required` or `restricted` CLOSED reasons. |
+| `OBELISK_E2E_RESTRICTED_RELAY` | `wss://lacrypta-relay.obelisk.ar` | Restricted relay used by `whitelist-rejection.spec.ts`. Must reject fresh pubkeys with `auth-required` or `restricted` CLOSED reasons. |
 | `OBELISK_E2E_CHANNEL` | `general` | Channel name to open + post into. Falls back to the first visible channel if not found. |
 | `HEADED` | unset | Set to `1` to launch a non-headless browser. |
 

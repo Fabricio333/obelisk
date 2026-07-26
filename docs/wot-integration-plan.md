@@ -148,7 +148,7 @@ What the codebase does today for mutes: subscribe everything, filter in `useMess
 Configure a relay that already enforces a WoT (e.g. `wss://relay.nostr.band` with author allowlists) and rely on the relay to drop untrusted events server-side.
 
 - **Pros:** zero client code; no in-browser computation.
-- **Cons:** every user would have to configure their relay set; doesn't compose with the dex's `wss://relay.obelisk.ar` default; can't enforce per-user WoT (only a relay-operator-chosen set); doesn't help with NIP-29 groups whose canonical relay is fixed; and it just shifts the trust to the relay operator. Useful for *defense in depth* alongside client filtering, not as a replacement.
+- **Cons:** every user would have to configure their relay set; does not compose uniformly across the dex built-in relays; can't enforce per-user WoT (only a relay-operator-chosen set); doesn't help with NIP-29 groups whose canonical relay is fixed; and it just shifts the trust to the relay operator. Useful for *defense in depth* alongside client filtering, not as a replacement.
 - **When to revisit:** once a NIP for "give me events authored by these pubkeys only" lands and major relays implement it, we can pre-filter on the wire to save bandwidth — but the client predicate stays as the source of truth.
 
 ## Out of scope (deliberately punted)

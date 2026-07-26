@@ -38,7 +38,7 @@ tracks on `peerLeft` and on every `participantList` snapshot.
 
 The SFU treats *any* kind 25050 `start` event seen on its trusted-author
 relay(s) as authorized. The relay's write whitelist is the only enforcement.
-This works on `relay.obelisk.ar` but is brittle:
+This works on `lacrypta-relay.obelisk.ar` but is brittle:
 
 - A misconfigured trusted relay (write-open) silently authorizes the world.
 - Multiple operators sharing one SFU lose per-channel control.

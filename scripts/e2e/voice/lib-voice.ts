@@ -238,6 +238,20 @@ export async function getPeerState(page: Page, pubkey: string): Promise<string |
   }, pubkey);
 }
 
+/** Read the media kinds exposed through VoiceClient's UI-facing track API. */
+export async function getRemoteTrackKinds(page: Page, pubkey: string): Promise<string[]> {
+  return await page.evaluate((pk) => {
+    const client = (window as unknown as {
+      __test_voice?: {
+        getRemoteTracks: () => Array<{ pubkey: string; kind: string; stream: MediaStream }>;
+      };
+    }).__test_voice;
+    return client?.getRemoteTracks()
+      .filter((remote) => remote.pubkey === pk && remote.stream.getTracks().some((track) => track.readyState === 'live'))
+      .map((remote) => remote.kind) ?? [];
+  }, pubkey);
+}
+
 /** Read inbound RTP audio bytesReceived to confirm media is flowing. */
 export async function getInboundAudioBytes(page: Page, pubkey: string): Promise<number> {
   return await page.evaluate(async (pk) => {

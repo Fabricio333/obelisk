@@ -3,7 +3,7 @@
  * ~1.5s — well before the 4s deferred soak the rest of the fan-out uses.
  *
  * Seeds a fresh nsec onto the restricted relay (default
- * `wss://relay.obelisk.ar`, overridable via `OBELISK_E2E_RESTRICTED_RELAY`),
+ * `wss://lacrypta-relay.obelisk.ar`, overridable via `OBELISK_E2E_RESTRICTED_RELAY`),
  * then asserts `[data-testid="relay-access-banner"]` flips to
  * `data-state="restricted"` (or `auth-required`) within 3500ms — under
  * the legacy 4000ms soak.

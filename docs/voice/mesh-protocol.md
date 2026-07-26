@@ -40,6 +40,16 @@ Cadence:
   (~250 ms) so the new information shows up in everyone's transitive
   roster within a single hop.
 
+### Relay acknowledgements
+
+Voice events publish only to the room's selected origin relay. The bridge waits
+up to 750 ms for its publish promises to settle. A missing acknowledgement stays
+best-effort because some relays accept ephemeral events without replying.
+An explicit rejection (`restricted`, `auth-required`, or another `OK false`)
+is never swallowed: the initial beacon fails the join, mesh subscriptions are
+closed, and `VoiceRoom` returns to the Join screen with the relay error so the
+user can fix access and retry without a beacon/redial loop.
+
 The receiver dedups by `(pubkey, created_at)` — newer beacons replace
 older ones; expired beacons (`expiration` past, normally 45 s after
 publish) are swept out by `subscribeRoster`'s

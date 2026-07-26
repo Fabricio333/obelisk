@@ -22,6 +22,7 @@ const fake = vi.hoisted(() => {
     }>,
     ensureRelayCalls: [] as string[],
     ensureRelayImpl: null as null | ((url: string, opts?: { connectionTimeout?: number }) => Promise<{ connected: boolean; onclose?: () => void }>),
+    publishImpl: null as null | ((relays: string[], event: NostrEvent) => Promise<string>[]),
     querySyncCalls: [] as Array<{ relays: string[]; filter: Record<string, unknown>; opts?: { maxWait?: number } }>,
     suppressNextEose: false,
     poolSeq: 0,
@@ -60,7 +61,8 @@ const fake = vi.hoisted(() => {
       else queueMicrotask(() => opts.oneose?.());
       return { close: () => { state.subscriptions = state.subscriptions.filter((s) => s !== sub); } };
     }
-    publish(relays: string[], event: any): Promise<string>[] {
+    publish(relays: string[], event: NostrEvent): Promise<string>[] {
+      if (state.publishImpl) return state.publishImpl(relays, event);
       state.published.push({ ...event, relays });
       queueMicrotask(() => {
         for (const sub of state.subscriptions) if (matchesInternal(sub.filter, event)) sub.sink(event);
@@ -141,7 +143,7 @@ function setVisibility(value: DocumentVisibilityState): void {
 }
 
 beforeEach(() => {
-  (() => { fake.state.published = []; fake.state.subscriptions = []; fake.state.ensureRelayCalls = []; fake.state.ensureRelayImpl = null; fake.state.querySyncCalls = []; fake.state.suppressNextEose = false; fake.state.poolSeq = 0; fake.state.poolOptions = []; fake.state.closeCalls = []; fake.state.closeOpenSubscriptionCounts = []; })();
+  (() => { fake.state.published = []; fake.state.subscriptions = []; fake.state.ensureRelayCalls = []; fake.state.ensureRelayImpl = null; fake.state.publishImpl = null; fake.state.querySyncCalls = []; fake.state.suppressNextEose = false; fake.state.poolSeq = 0; fake.state.poolOptions = []; fake.state.closeCalls = []; fake.state.closeOpenSubscriptionCounts = []; })();
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
     ok: false,
     json: vi.fn().mockResolvedValue({}),
@@ -3298,6 +3300,20 @@ describe('nostr-bridge', () => {
     await flush();
     expect(fake.state.published.at(-1)?.relays).toEqual(['wss://origin.example']);
     unsub();
+  });
+
+  it('surfaces explicit relay rejections for ephemeral voice events', async () => {
+    const { getBridge, getBridgeImpl } = await import('./client');
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+    await flush();
+
+    fake.state.publishImpl = () => [Promise.reject(new Error('restricted: Access denied'))];
+    await expect(getBridgeImpl()!.publishEvent(
+      { kind: KIND_VOICE_PRESENCE, content: '', tags: [['e', 'mesh-channel']] },
+      { extraRelays: ['wss://lacrypta-relay.obelisk.ar'], mode: 'replace' },
+    )).rejects.toThrow('restricted: Access denied');
   });
 
   it('marks mesh voice channels live from presence beacons', async () => {
