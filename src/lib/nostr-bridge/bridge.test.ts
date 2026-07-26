@@ -517,6 +517,48 @@ describe('nostr-bridge', () => {
     expect(plaintext).toBe('meet me at the obelisk');
   });
 
+  it('drops plaintext and late decrypts when the active identity changes', async () => {
+    const { getBridge, getBridgeImpl } = await import('./client');
+    const alice = makeKeypair();
+    const bob = makeKeypair();
+    const peer = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(alice.skHex, alice.pkHex);
+    const impl = getBridgeImpl()!;
+    impl.dmsByPeer.set({
+      [peer.pkHex]: [{
+        id: 'alice-message',
+        counterparty: peer.pkHex,
+        outgoing: false,
+        content: 'alice plaintext',
+        createdAt: 1,
+      }],
+    });
+
+    let finishDecrypt!: (plaintext: string) => void;
+    const decrypting = new Promise<string>((resolve) => { finishDecrypt = resolve; });
+    const dmInternals = impl as unknown as {
+      decryptNip04: (pubkey: string, ciphertext: string) => Promise<string>;
+      ingestIncomingDM: (event: NostrEvent) => Promise<void>;
+    };
+    dmInternals.decryptNip04 = vi.fn().mockReturnValue(decrypting);
+    const lateIngest = dmInternals.ingestIncomingDM({
+      id: 'late-message',
+      pubkey: peer.pkHex,
+      kind: 4,
+      content: 'ciphertext',
+      tags: [['p', alice.pkHex]],
+      created_at: 2,
+      sig: 'unused',
+    } as NostrEvent);
+
+    await bridge.loginWithNsec(bob.skHex, bob.pkHex);
+    expect(impl.dmsByPeer.get()).toEqual({});
+    finishDecrypt('late alice plaintext');
+    await lateIngest;
+    expect(impl.dmsByPeer.get()).toEqual({});
+  });
+
   it('does not open DM relay subscriptions until local DM opt-in is enabled', async () => {
     const { getBridge } = await import('./client');
     const { setPreference } = await import('@/lib/preferences');

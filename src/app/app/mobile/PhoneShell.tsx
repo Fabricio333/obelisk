@@ -3399,7 +3399,7 @@ function DmThreadScreen({
   const msgsRef = useRef<HTMLDivElement>(null);
 
   const messages = useMemo(() => {
-    const list = dms[peer] ?? [];
+    const list = (dms[peer] ?? []).filter((message) => message.counterparty === peer);
     return [...list].sort((a, b) => a.createdAt - b.createdAt);
   }, [dms, peer]);
 

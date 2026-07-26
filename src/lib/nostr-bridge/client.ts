@@ -1637,6 +1637,11 @@ export class BridgeImpl {
    */
   private async finalizeLogin(): Promise<void> {
     this.wireBrowserConnectionEvents();
+    const previousPubkey = this.myPubkey.get();
+    if (previousPubkey && previousPubkey !== this.session?.pubKeyHex) {
+      this.dmsByPeer.set({});
+      this.pendingDMSends.clear();
+    }
     this.persist();
     this.resetPoolForSessionChange();
     // Pin `this.relays` to the session's relay before connect(). Without this,
@@ -1972,6 +1977,7 @@ export class BridgeImpl {
     this.groupMetadataEose.set(false);
     this.clearGroupMetadataEmptyRetry();
     this.messagesByGroup.set({});
+    this.dmsByPeer.set({});
     this.pendingGroupSends.clear();
     this.pendingDMSends.clear();
     this.adminsByGroup.set({});
@@ -5687,8 +5693,10 @@ export class BridgeImpl {
   private async ingestIncomingDM(ev: NostrEvent): Promise<void> {
     if (!this.session) return;
     const me = this.session.pubKeyHex;
+    const generation = this.connectGeneration;
     const recipient = getTag(ev, 'p');
     const isOutgoing = ev.pubkey === me;
+    if ((!isOutgoing && recipient !== me) || (isOutgoing && !recipient)) return;
     const counterparty = isOutgoing ? (recipient ?? '') : ev.pubkey;
     if (!counterparty) return;
     let plaintext: string;
@@ -5697,6 +5705,7 @@ export class BridgeImpl {
     } catch {
       return; // can't decrypt → skip silently
     }
+    if (this.session?.pubKeyHex !== me || this.connectGeneration !== generation) return;
     this.ingestDM(ev, plaintext, isOutgoing, counterparty);
   }
 
