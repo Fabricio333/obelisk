@@ -550,5 +550,12 @@
   "search.users": "Users",
   "search.channels": "Channels",
   "search.noMatches": "No matches.",
-  "search.in": "in"
+  "search.in": "in",
+  "mobile.signing.label": "Signature status",
+  "mobile.signing.title": "Nostr signature",
+  "mobile.signing.idle": "Ready",
+  "mobile.signing.pending": "Waiting for approval",
+  "mobile.signing.ok": "Signed",
+  "mobile.signing.error": "Signature failed",
+  "mobile.signing.none": "No signature request is active."
 }

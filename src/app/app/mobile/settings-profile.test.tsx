@@ -237,6 +237,19 @@ describe('SettingsPrefsScreen', () => {
     });
   });
 
+  it('hides duplicate relay switching and opens appearance as a submenu', () => {
+    renderWithLocale(<SettingsPrefsScreen go={vi.fn()} />);
+
+    expect(screen.queryByText('Relays · 1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('appearance-controls')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('mobile-appearance-submenu'));
+    expect(screen.getByTestId('appearance-controls')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Appearance' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.queryByTestId('appearance-controls')).not.toBeInTheDocument();
+    expect(screen.getByTestId('mobile-appearance-submenu')).toBeInTheDocument();
+  });
+
   it('renders preferences from the configured language', () => {
     render(
       <LocaleProvider initialLocale="es">
@@ -245,7 +258,8 @@ describe('SettingsPrefsScreen', () => {
     );
 
     expect(screen.getByRole('heading', { name: 'Vos' })).toBeTruthy();
-    expect(screen.getByText('Relays · 1')).toBeTruthy();
+    expect(screen.queryByText('Relays · 1')).toBeNull();
+    expect(screen.getByText('Apariencia')).toBeTruthy();
     expect(screen.getByText('Mensajes directos')).toBeTruthy();
     expect(screen.getByText(/DMs encriptados de Nostr/i)).toBeTruthy();
   });

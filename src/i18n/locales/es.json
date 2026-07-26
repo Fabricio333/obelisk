@@ -550,5 +550,12 @@
   "search.users": "Usuarios",
   "search.channels": "Canales",
   "search.noMatches": "Sin coincidencias.",
-  "search.in": "en"
+  "search.in": "en",
+  "mobile.signing.label": "Estado de firma",
+  "mobile.signing.title": "Firma Nostr",
+  "mobile.signing.idle": "Listo",
+  "mobile.signing.pending": "Esperando aprobación",
+  "mobile.signing.ok": "Firmado",
+  "mobile.signing.error": "Falló la firma",
+  "mobile.signing.none": "No hay una solicitud de firma activa."
 }

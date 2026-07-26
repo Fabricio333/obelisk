@@ -27,4 +27,15 @@ describe('ActivityIndicator', () => {
     expect(screen.queryByText('Publishing to relays')).toBeNull();
     expect(screen.getByText('relay status')).toBeInTheDocument();
   });
+
+  it('hides signing notifications on mobile', async () => {
+    const { pushActivity } = await import('@/lib/activity-log');
+    const { default: ActivityIndicator } = await import('./ActivityIndicator');
+    pushActivity('Waiting for extension signature', undefined, { operation: 'sign' });
+
+    render(<ActivityIndicator hideSigning />);
+
+    expect(screen.queryByText('Waiting for extension signature')).toBeNull();
+    expect(screen.getByText('relay status')).toBeInTheDocument();
+  });
 });

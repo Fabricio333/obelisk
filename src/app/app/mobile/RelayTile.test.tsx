@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import { LocaleProvider } from '@/i18n/context';
 
 vi.mock('@/lib/relay-info', () => ({
   faviconFor: (url: string) => `https://favicon/${url}`,
@@ -155,15 +156,17 @@ describe('Mobile server layout pieces', () => {
     const onOpenMenu = vi.fn();
 
     render(
-      <MobileServerBanner
-        label="La Crypta relay"
-        relayUrl="wss://lacrypta-relay.obelisk.ar"
-        iconUrl="https://img.example/icon.png"
-        bannerUrl="https://img.example/banner.png"
-        onSearch={onSearch}
-        onCreateChannel={onCreateChannel}
-        onOpenMenu={onOpenMenu}
-      />,
+      <LocaleProvider initialLocale="en">
+        <MobileServerBanner
+          label="La Crypta relay"
+          relayUrl="wss://lacrypta-relay.obelisk.ar"
+          iconUrl="https://img.example/icon.png"
+          bannerUrl="https://img.example/banner.png"
+          onSearch={onSearch}
+          onCreateChannel={onCreateChannel}
+          onOpenMenu={onOpenMenu}
+        />
+      </LocaleProvider>,
     );
 
     const banner = screen.getByTestId('mobile-server-banner');

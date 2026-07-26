@@ -105,6 +105,7 @@ import AppearancePreferenceControls from '@/components/AppearancePreferenceContr
 import ProfileFeedRelaySettings from '@/components/settings/ProfileFeedRelaySettings';
 import NostrProfile from '@/components/chat/NostrProfile';
 import ProfilePopover from '@/components/chat/ProfilePopover';
+import MobileSigningIndicator from '@/components/MobileSigningIndicator';
 import { useTranslation } from '@/i18n/context';
 import { npubToHex } from '@nostr-wot/data';
 import {
@@ -1881,18 +1882,19 @@ export function MobileServerBanner({
       )}
       <div className="server-banner-shade" aria-hidden="true" />
       <div className="server-banner-actions">
-        <button className="icon-btn" aria-label="Search this server" onClick={onSearch}>
+        <MobileSigningIndicator />
+        <button className="icon-btn action-search" aria-label="Search this server" onClick={onSearch}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
         </button>
         <button
-          className="icon-btn"
+          className="icon-btn action-create"
           aria-label="Create channel"
           data-testid="mobile-create-channel-btn"
           onClick={onCreateChannel}
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
         </button>
-        <button className="icon-btn" aria-label="Space menu" onClick={onOpenMenu}>
+        <button className="icon-btn action-menu" aria-label="Space menu" onClick={onOpenMenu}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" /></svg>
         </button>
       </div>
@@ -2768,12 +2770,13 @@ function ChannelScreen({
             <div className="chat-channel"><span className="hash">#</span>{headerLabel}</div>
           </div>
           <div className="chat-actions">
-            <button className="icon-btn" onClick={() => go('search')} aria-label={t('common.search')}>
+            <MobileSigningIndicator />
+            <button className="icon-btn action-search" onClick={() => go('search')} aria-label={t('common.search')}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
             </button>
             {isChannelAdmin && (
               <button
-                className="icon-btn"
+                className="icon-btn action-menu"
                 onClick={() => setSettingsOpen(true)}
                 aria-label={t('desktop.channel.settings')}
                 data-testid="mobile-channel-settings-btn"
@@ -2781,7 +2784,7 @@ function ChannelScreen({
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
               </button>
             )}
-            <button className="icon-btn" onClick={openMembers} aria-label={t('mobile.members.members')}>
+            <button className="icon-btn action-members" onClick={openMembers} aria-label={t('mobile.members.members')}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="7" r="4" /><path d="M3 21a6 6 0 0 1 12 0" /><circle cx="17" cy="9" r="3" /><path d="M23 19a4 4 0 0 0-7-2.65" /></svg>
             </button>
           </div>
@@ -3307,10 +3310,11 @@ function DmsListScreen({
       <div className="app-header">
         <h2>{t('dm.title')}</h2>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <button className="icon-btn" onClick={() => go('search')} aria-label={t('common.search')}>
+          <MobileSigningIndicator />
+          <button className="icon-btn action-search" onClick={() => go('search')} aria-label={t('common.search')}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
           </button>
-          <button className="icon-btn" onClick={() => go('compose-dm')} aria-label={t('dm.newMessage')}>
+          <button className="icon-btn action-create" onClick={() => go('compose-dm')} aria-label={t('dm.newMessage')}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
           </button>
         </div>
@@ -5225,10 +5229,25 @@ export function EditProfileScreen({ go }: { go: (s: ScreenName, dir?: 'forward' 
 
 export function SettingsPrefsScreen({ go }: { go: (s: ScreenName) => void }) {
   const { t } = useTranslation();
-  const relays = useConfiguredRelays();
-  const currentRelay = useCurrentRelayUrl();
   const dmOptInEnabled = useDmOptInEnabled();
   const prefs = usePreferences();
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+
+  if (appearanceOpen) {
+    return (
+      <div className="screen active" data-screen="settings-appearance">
+        <div className="app-header">
+          <button className="back-btn" type="button" onClick={() => setAppearanceOpen(false)} aria-label={t('common.back')}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
+          </button>
+          <h2>{t('preferences.appearance.title')}</h2>
+        </div>
+        <div className="settings-body">
+          <AppearancePreferenceControls variant="mobile" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="screen active" data-screen="settings-prefs">
@@ -5241,26 +5260,17 @@ export function SettingsPrefsScreen({ go }: { go: (s: ScreenName) => void }) {
       </div>
       <div className="settings-body">
         <div className="settings-section">
-          <div className="settings-section-title">{t('mobile.settings.relays')} · {relays.length}</div>
-          {relays.map((url) => {
-            const isCurrent = url.replace(/\/+$/, '').toLowerCase() === currentRelay.replace(/\/+$/, '').toLowerCase();
-            return (
-              <button
-                key={url}
-                className="settings-row action"
-                onClick={() => { if (!isCurrent) void nostrActions.switchRelay(url); }}
-              >
-                <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {shortHost(url)}
-                </span>
-                <span className={`settings-row-meta ${isCurrent ? 'ok' : 'muted'}`}>{isCurrent ? t('preferences.relays.status.active') : t('preferences.relays.status.switch')}</span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="settings-section">
           <div className="settings-section-title">{t('preferences.mobile.app')}</div>
           <LanguagePreference variant="mobile" />
+          <button
+            type="button"
+            className="settings-row action"
+            onClick={() => setAppearanceOpen(true)}
+            data-testid="mobile-appearance-submenu"
+          >
+            <span>{t('preferences.appearance.title')}</span>
+            <span className="settings-row-meta muted" aria-hidden="true">›</span>
+          </button>
           <button
             type="button"
             className="settings-row action"
@@ -5302,7 +5312,6 @@ export function SettingsPrefsScreen({ go }: { go: (s: ScreenName) => void }) {
             <span className="settings-row-meta muted">obelisk · mobile</span>
           </div>
         </div>
-        <AppearancePreferenceControls variant="mobile" />
         <ProfileFeedRelaySettings mobile />
       </div>
     </div>
