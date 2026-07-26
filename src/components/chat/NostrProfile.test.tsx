@@ -165,6 +165,23 @@ describe('NostrProfile', () => {
     expect(screen.getByTestId('profile-follow-button')).toHaveTextContent('Unfollow');
   });
 
+  it('treats a closed contact subscription with no kind 3 as an empty follow list', async () => {
+    render(
+      <LocaleProvider initialLocale="en">
+        <NostrProfile pubkey={PROFILE} onClose={vi.fn()} />
+      </LocaleProvider>,
+    );
+
+    act(() => poolMocks.subscriptions[1].handlers.onclose?.());
+    expect(screen.queryByText('Could not update your follow list.')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('profile-follow-button'));
+
+    await waitFor(() => expect(bridgeMocks.publishEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 3, content: '', tags: [['p', PROFILE]] }),
+      expect.any(Object),
+    ));
+  });
+
   it('does not flash a relay error before late notes and accepts an empty EOSE', () => {
     const { unmount } = render(
       <LocaleProvider initialLocale="en">

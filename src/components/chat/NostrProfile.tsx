@@ -100,7 +100,7 @@ function NostrProfileSession({
             !current || event.created_at > current.created_at ? event : current
           )),
           oneose: () => setContactsReady(true),
-          onclose: () => setFollowError(true),
+          onclose: () => setContactsReady(true),
         })
       : null;
 
