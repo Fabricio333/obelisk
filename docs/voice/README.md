@@ -62,3 +62,19 @@ This directory documents the **mesh** engine in depth. SFU docs are at
   product requirement, route the room through the SFU.
 - Ad-hoc "anyone can speak". Voice is gated by the channel's NIP-29
   member list — same trust gate as text chat.
+
+## Production NAT traversal
+
+Presence and signaling use Nostr, but media still needs a WebRTC network
+path. Production deployments must configure authenticated TURN so devices
+behind symmetric or carrier-grade NAT do not remain at **Media syncing**:
+
+```dotenv
+NEXT_PUBLIC_TURN_URLS=turn:turn.example.com:3478?transport=udp,turn:turn.example.com:3478?transport=tcp
+NEXT_PUBLIC_TURN_USERNAME=<username>
+NEXT_PUBLIC_TURN_CREDENTIAL=<credential>
+```
+
+These `NEXT_PUBLIC_*` values are embedded in the browser bundle, so rebuild
+after changing them. Keep `NEXT_PUBLIC_FORCE_RELAY=0`; set it to `1` only
+for a relay-only connectivity test.
