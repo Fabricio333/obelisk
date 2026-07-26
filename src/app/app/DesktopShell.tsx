@@ -107,7 +107,7 @@ import { channelScrollPositionKey } from '@/lib/channel-scroll-position';
 import { channelInitialAnchorFromCursor } from '@/lib/channel-scroll-anchor';
 import { useChannelScrollPosition } from '@/hooks/chat/useChannelScrollPosition';
 import RelayEmojiAdminModal from '@/components/admin/RelayEmojiAdminModal';
-import BlossomImageInput from '@/components/BlossomImageInput';
+import BlossomImageInput, { ChannelAppearanceInput } from '@/components/BlossomImageInput';
 import { extractUrls, isImageUrl } from '@/lib/markdown';
 import { stickerTagsForContent, type MessageSticker } from '@/lib/sticker-tags';
 import { voiceNoteTagForContent, type MessageVoiceNote } from '@/lib/voice-note-tags';
@@ -3376,24 +3376,6 @@ function ChannelSettingsModal({ group, onClose }: { group: JsGroup; onClose: () 
   const [forumTags, setForumTags] = useState<ReadonlyArray<JsForumTag>>(group.forumTags);
   const [savingMeta, setSavingMeta] = useState(false);
   const [metaErr, setMetaErr] = useState<string | null>(null);
-  const [uploading, setUploading] = useState<null | 'icon' | 'banner'>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-
-  const uploadImage = async (file: File, kind: 'icon' | 'banner') => {
-    setUploading(kind);
-    setUploadError(null);
-    try {
-      const { uploadToBlossom } = await import('@/lib/blossom');
-      const url = await uploadToBlossom(file);
-      if (kind === 'icon') setPicture(url);
-      else setBanner(url);
-    } catch (err) {
-      setUploadError((err as Error).message || 'Upload failed');
-    } finally {
-      setUploading(null);
-    }
-  };
-
   const [newMember, setNewMember] = useState('');
   const [makeAdmin, setMakeAdmin] = useState(false);
   const [memberBusy, setMemberBusy] = useState(false);
@@ -3517,7 +3499,7 @@ function ChannelSettingsModal({ group, onClose }: { group: JsGroup; onClose: () 
   return (
     <ModalShell
       onClose={onClose}
-      panelClassName="lc-card flex max-h-[90vh] w-full max-w-2xl mx-4 flex-col overflow-hidden bg-lc-dark"
+      panelClassName="lc-card flex max-h-[90vh] w-full max-w-xl mx-4 flex-col overflow-hidden bg-lc-dark"
     >
         <header className="flex shrink-0 items-center justify-between border-b border-lc-border px-5 py-3">
           <div className="text-base font-bold text-lc-white">Channel settings · #{group.name ?? group.id.slice(0, 8)}</div>
@@ -3527,13 +3509,23 @@ function ChannelSettingsModal({ group, onClose }: { group: JsGroup; onClose: () 
         </header>
         <div className="flex-1 overflow-y-auto">
           <form onSubmit={saveMeta} id="channel-meta-form" className="space-y-7 p-5">
+            {/* Appearance ----------------------------------------------- */}
+            <section className="space-y-4">
+              <SectionHeader title="Appearance" />
+              <ChannelAppearanceInput
+                picture={picture}
+                banner={banner}
+                onPictureChange={setPicture}
+                onBannerChange={setBanner}
+              />
+            </section>
+
             {/* Basics --------------------------------------------------- */}
             <section className="space-y-3">
-              <SectionHeader title="Basics" />
               <Field label="Name">
                 <input value={name} onChange={(e) => setName(e.target.value)} className={inputClasses} />
               </Field>
-              <Field label="About">
+              <Field label="Description">
                 <textarea
                   value={about}
                   onChange={(e) => setAbout(e.target.value)}
@@ -3542,30 +3534,6 @@ function ChannelSettingsModal({ group, onClose }: { group: JsGroup; onClose: () 
                   className={inputClasses}
                 />
               </Field>
-            </section>
-
-            {/* Appearance ----------------------------------------------- */}
-            <section className="space-y-4">
-              <SectionHeader title="Appearance" />
-              <ImageUploadRow
-                label="Icon"
-                value={picture}
-                onChange={setPicture}
-                onUpload={(f) => uploadImage(f, 'icon')}
-                uploading={uploading === 'icon'}
-                previewClass="w-14 h-14 rounded-xl"
-                placeholder="https://… or upload"
-              />
-              <ImageUploadRow
-                label="Banner"
-                value={banner}
-                onChange={setBanner}
-                onUpload={(f) => uploadImage(f, 'banner')}
-                uploading={uploading === 'banner'}
-                previewClass="w-28 h-14 rounded-lg"
-                placeholder="https://… or upload (gif / png / jpg)"
-              />
-              {uploadError && <p className="text-xs text-red-400">{uploadError}</p>}
             </section>
 
             {/* Access --------------------------------------------------- */}
@@ -3717,9 +3685,9 @@ function ChannelSettingsModal({ group, onClose }: { group: JsGroup; onClose: () 
           <div className="border-t border-lc-border" />
 
           <section className="space-y-3 p-5">
-            <div className="flex items-center justify-between">
+            <div className="flex min-w-0 items-center gap-3">
               <SectionHeader title="Members" hint="NIP-29 kind 9000 / 9001" />
-              <span className="rounded-full bg-lc-card px-2 py-0.5 text-[11px] font-semibold text-lc-muted">
+              <span className="shrink-0 rounded-full bg-lc-card px-2 py-0.5 text-[11px] font-semibold text-lc-muted">
                 {members.length}
               </span>
             </div>
@@ -3784,9 +3752,9 @@ function ChannelSettingsModal({ group, onClose }: { group: JsGroup; onClose: () 
 
 function SectionHeader({ title, hint }: { title: string; hint?: string }) {
   return (
-    <div className="flex items-baseline justify-between">
-      <h3 className="text-sm font-bold text-lc-white">{title}</h3>
-      {hint && <span className="text-[11px] text-lc-muted">{hint}</span>}
+    <div className="flex min-w-0 flex-1 flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+      <h3 className="shrink-0 text-sm font-bold text-lc-white">{title}</h3>
+      {hint && <span className="break-words text-right text-[11px] text-lc-muted">{hint}</span>}
     </div>
   );
 }
@@ -3827,62 +3795,6 @@ function ToggleCard({
         }
       />
     </button>
-  );
-}
-
-function ImageUploadRow({
-  label,
-  value,
-  onChange,
-  onUpload,
-  uploading,
-  previewClass,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  onUpload: (f: File) => void;
-  uploading: boolean;
-  previewClass: string;
-  placeholder: string;
-}) {
-  return (
-    <div>
-      <label className="mb-1.5 block text-xs uppercase tracking-wider text-lc-muted">{label}</label>
-      <div className="flex items-center gap-3">
-        {value ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={value}
-            alt={`${label} preview`}
-            className={`${previewClass} object-cover bg-lc-black border border-lc-border`}
-          />
-        ) : (
-          <div className={`${previewClass} bg-lc-black border border-lc-border`} />
-        )}
-        <input
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          className="flex-1 rounded-lg border border-lc-border bg-lc-black px-3 py-2 text-sm text-lc-white outline-none focus:border-lc-green"
-        />
-        <label className="lc-pill lc-pill-secondary cursor-pointer whitespace-nowrap text-xs">
-          {uploading ? 'Uploading…' : 'Upload'}
-          <input
-            type="file"
-            accept="image/*"
-            className="hidden"
-            disabled={uploading}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) onUpload(f);
-              e.target.value = '';
-            }}
-          />
-        </label>
-      </div>
-    </div>
   );
 }
 

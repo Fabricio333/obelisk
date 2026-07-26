@@ -37,7 +37,7 @@ export default function ServerRail({
   const [adding, setAdding] = useState(false);
 
   return (
-    <div className="flex w-[72px] shrink-0 flex-col items-center gap-2 bg-lc-black py-3">
+    <div className="flex w-[72px] shrink-0 flex-col items-center gap-2 py-3">
       <RailTile
         active={mode.kind === 'dm'}
         title="Direct messages"

@@ -25,6 +25,79 @@ interface Props {
   accept?: string;
 }
 
+export function ChannelAppearanceInput({
+  picture,
+  banner,
+  onPictureChange,
+  onBannerChange,
+}: {
+  picture: string;
+  banner: string;
+  onPictureChange: (url: string) => void;
+  onBannerChange: (url: string) => void;
+}) {
+  const [uploading, setUploading] = useState<'picture' | 'banner' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const onPick = async (file: File, kind: 'picture' | 'banner') => {
+    setUploading(kind);
+    setError(null);
+    try {
+      const { uploadToBlossom } = await import('@/lib/blossom');
+      const url = await uploadToBlossom(file);
+      if (kind === 'picture') onPictureChange(url);
+      else onBannerChange(url);
+    } catch (err) {
+      setError((err as Error).message || 'Upload failed');
+    } finally {
+      setUploading(null);
+    }
+  };
+
+  return (
+    <div>
+      <div
+        className="relative mb-14 aspect-[4/1] overflow-visible rounded-xl border border-lc-border bg-lc-black"
+        data-testid="channel-appearance-preview"
+      >
+        {banner && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={banner} alt="Channel banner preview" className="h-full w-full rounded-xl object-cover" />
+        )}
+        <div className="absolute -bottom-11 left-5 h-24 w-24 overflow-hidden rounded-full border-4 border-lc-dark bg-lc-card">
+          {picture && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={picture} alt="Channel profile picture preview" className="h-full w-full object-cover" />
+          )}
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {([
+          ['picture', 'Upload profile picture'],
+          ['banner', 'Upload banner'],
+        ] as const).map(([kind, label]) => (
+          <label key={kind} className="lc-pill lc-pill-secondary cursor-pointer whitespace-nowrap text-xs">
+            {uploading === kind ? 'Uploading…' : label}
+            <input
+              type="file"
+              accept="image/*"
+              aria-label={label}
+              className="hidden"
+              disabled={uploading !== null}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void onPick(file, kind);
+                e.target.value = '';
+              }}
+            />
+          </label>
+        ))}
+      </div>
+      {error && <p className="mt-1.5 text-xs text-red-400">{error}</p>}
+    </div>
+  );
+}
+
 export default function BlossomImageInput({
   label,
   value,

@@ -67,6 +67,7 @@ vi.mock('@/lib/channel-layout', () => ({
 
 vi.mock('@/components/BlossomImageInput', () => ({
   default: ({ label }: { label: string }) => <div data-testid={`blossom-${label.toLowerCase()}`}>{label}</div>,
+  ChannelAppearanceInput: () => <div data-testid="channel-appearance-preview" />,
 }));
 
 vi.mock('@/components/admin/RelayAdminPanel', () => ({
@@ -129,6 +130,37 @@ describe('CreateChannelSheet', () => {
     );
     const submit = screen.getByTestId('mobile-create-channel-submit') as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
+  });
+});
+
+describe('ChannelSettingsSheet layout', () => {
+  it('shows appearance before name and description', () => {
+    render(
+      <ChannelSettingsSheet
+        close={() => {}}
+        group={{
+          id: 'channel-1',
+          name: 'General',
+          about: 'Chat',
+          picture: null,
+          banner: null,
+          isPublic: true,
+          isHidden: false,
+          isRestricted: false,
+          isOpen: true,
+          parent: null,
+          kind: 'text',
+          forumTags: [],
+          topics: [],
+        }}
+      />,
+    );
+
+    const preview = screen.getByTestId('channel-appearance-preview');
+    const name = screen.getByTestId('mobile-channel-settings-name');
+    const description = screen.getByText('Description');
+    expect(preview.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(name.compareDocumentPosition(description) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 

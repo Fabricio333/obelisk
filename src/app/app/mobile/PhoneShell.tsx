@@ -97,7 +97,7 @@ import {
   type CustomEmojiMap,
 } from '@/lib/custom-emoji-tags';
 import { groupReactions, resolveReactionEmoji } from '@/lib/emoji-shortcodes';
-import BlossomImageInput from '@/components/BlossomImageInput';
+import BlossomImageInput, { ChannelAppearanceInput } from '@/components/BlossomImageInput';
 import RelayAdminPanel from '@/components/admin/RelayAdminPanel';
 import RelayEmojiAdminModal from '@/components/admin/RelayEmojiAdminModal';
 import LanguagePreference from '@/components/LanguagePreference';
@@ -1484,6 +1484,16 @@ export function ChannelSettingsSheet({
           Channel settings · #{group.name ?? group.id.slice(0, 8)}
         </div>
 
+        {/* Appearance */}
+        <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <ChannelAppearanceInput
+            picture={picture}
+            banner={banner}
+            onPictureChange={setPicture}
+            onBannerChange={setBanner}
+          />
+        </section>
+
         {/* Basics */}
         <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <label style={{ fontSize: 10, color: 'var(--app-text-dim)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Name</label>
@@ -1495,7 +1505,7 @@ export function ChannelSettingsSheet({
               data-testid="mobile-channel-settings-name"
             />
           </div>
-          <label style={{ fontSize: 10, color: 'var(--app-text-dim)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.12em' }}>About</label>
+          <label style={{ fontSize: 10, color: 'var(--app-text-dim)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Description</label>
           <div className="setup-input-wrap">
             <textarea
               className="setup-textarea"
@@ -1507,21 +1517,6 @@ export function ChannelSettingsSheet({
           </div>
         </section>
 
-        {/* Appearance */}
-        <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <BlossomImageInput
-            label="Icon"
-            value={picture}
-            onChange={setPicture}
-            shape="square"
-          />
-          <BlossomImageInput
-            label="Banner"
-            value={banner}
-            onChange={setBanner}
-            shape="wide"
-          />
-        </section>
 
         {/* Access */}
         <section style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
