@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import EmojiPicker from './EmojiPicker';
 
@@ -46,18 +46,31 @@ describe('EmojiPicker', () => {
     expect(screen.getByRole("navigation", { name: "Emoji categories" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Smileys & people" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Animals & nature" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Symbols" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Flags" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Emoji categories" }).querySelectorAll('button')).toHaveLength(9);
 
-    const transport = container.querySelector<HTMLElement>("[data-emoji-category=\"Transport\"]")!;
-    expect(transport).toHaveTextContent("🚗");
+    const cars = container.querySelector<HTMLElement>('[data-emoji-category="Cars"]')!;
+    expect(cars).toHaveTextContent("🚗");
     expect(container.querySelector<HTMLElement>("[data-emoji-category=\"Flags\"]")).toHaveTextContent("🇦🇷");
-    const scroller = transport.parentElement!;
+    const scroller = cars.parentElement!;
     scroller.scrollTo = vi.fn();
-    Object.defineProperty(transport, "offsetTop", { configurable: true, value: 320 });
-    fireEvent.click(screen.getByRole("button", { name: "Cars & transport" }));
+    Object.defineProperty(cars, "offsetTop", { configurable: true, value: 320 });
+    fireEvent.click(screen.getByRole("button", { name: "Cars & travel" }));
 
     expect(scroller.scrollTo).toHaveBeenCalledWith({ top: 320, behavior: "smooth" });
-    expect(screen.getByRole("button", { name: "Cars & transport" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Cars & travel" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it('uses a standard history icon and keeps recent emojis available', () => {
+    const { container } = render(<EmojiPicker onPick={() => {}} onClose={() => {}} customEmojis={{}} />);
+    const recentButton = screen.getByRole('button', { name: 'Recent' });
+    expect(within(recentButton).getByTestId('recent-icon')).toBeInTheDocument();
+    const recentSection = container.querySelector<HTMLElement>('[data-emoji-category="Recent"]')!;
+    expect(recentSection).toHaveTextContent('No recent emojis');
+
+    fireEvent.click(screen.getByTitle('grinning'));
+    expect(within(recentSection).getByTitle('Recent')).toHaveTextContent('😀');
   });
 
   it('positions popovers above or below the trigger', () => {

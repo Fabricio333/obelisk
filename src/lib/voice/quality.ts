@@ -6,9 +6,8 @@
  * and the encoder's `maxBitrate`/`maxFramerate` via `setParameters`.
  *
  * Bitrate caps are tuned for a mesh where each peer sends N-1 outbound
- * streams. At the 8-participant cap with `MAX_VIDEO_SLOTS = 4`, a peer
- * sending 1080p60 at 8 Mbps ships ~24 Mbps worst-case to the other three
- * video viewers — fits gigabit fiber comfortably and most modern home
+ * streams. At the four-person cap, a peer sending 1080p60 at 8 Mbps ships
+ * about 24 Mbps worst-case to the other three viewers — fits gigabit fiber comfortably and most modern home
  * upstream. The 60 fps tier is opt-in for users with the bandwidth budget.
  */
 

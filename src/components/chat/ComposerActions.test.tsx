@@ -1,10 +1,27 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AttachmentMenu, VoiceNoteButton, VoiceNoteDraft } from './ComposerActions';
+import { AttachmentMenu, FileDropZone, VoiceNoteButton, VoiceNoteDraft } from './ComposerActions';
 
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+describe('FileDropZone', () => {
+  it('shows the overlay while files are dragged and forwards dropped files', () => {
+    const onFiles = vi.fn();
+    const file = new File(['audio'], 'song.mp3', { type: 'audio/mpeg' });
+    render(<FileDropZone onFiles={onFiles}><span>Chat</span></FileDropZone>);
+    const zone = screen.getByText('Chat').parentElement!;
+    const dataTransfer = { types: ['Files'], files: [file], dropEffect: 'none' };
+
+    fireEvent.dragEnter(zone, { dataTransfer });
+    expect(screen.getByTestId('file-drop-overlay')).toBeInTheDocument();
+
+    fireEvent.drop(zone, { dataTransfer });
+    expect(screen.queryByTestId('file-drop-overlay')).not.toBeInTheDocument();
+    expect(onFiles).toHaveBeenCalledWith([file]);
+  });
 });
 
 describe('AttachmentMenu', () => {

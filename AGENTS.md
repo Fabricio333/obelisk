@@ -134,6 +134,14 @@ This is what makes "groups where I am admin" resolve on first paint without the 
 
 `src/lib/nostr-bridge/cache.ts` is a tiny `localStorage` cache for relay-derived state. Currently wired through admin/member lists (kinds 39001/39002); group metadata, profiles, layout, and branding are TODOs at the call sites. See [docs/data-system.md §8](docs/data-system.md) for the full contract.
 
+## Relay-wide settings authority
+
+- The server-settings gear and relay-wide branding, layout, emoji, and bulk member controls are **operator-only** on desktop and mobile.
+- Resolve the human operator through `operatorPubkeyFromRelayInfo()`: prefer a valid NIP-11 `contact` npub, then fall back to the NIP-11 `pubkey`.
+- Obelisk relays advertise a service key in `pubkey` and the human operator in `contact`; never gate the human operator UI on `pubkey` alone.
+- Do not broaden relay-wide authority to the union of NIP-29 group admins. A channel admin must not gain control of the entire relay.
+- Client-side visibility is defense in depth. The relay remains the final authorization boundary for signed NIP-29 moderation commands.
+
 ## Voice & video
 
 Two engines, one client surface:
@@ -244,7 +252,7 @@ await bridge.editUserMetadata({ name: 'Alice', displayName: 'Alice' });
 - [docs/sfu-system.md](docs/sfu-system.md) — SFU architecture (mediasoup engine, Nostr-RPC signaling)
 - [obelisk-app/obelisk-sfu](https://github.com/obelisk-app/obelisk-sfu) — SFU server repo (protocol spec, operator guide, deploy)
 - [scripts/sfu-test-peers/README.md](scripts/sfu-test-peers/README.md) — synthetic test peers
-- [docs/relay-layout-and-branding.md](docs/relay-layout-and-branding.md) — shared NIP-78 layout & branding; multi-author latest-wins, gated on group-admin union
+- [docs/relay-layout-and-branding.md](docs/relay-layout-and-branding.md) — operator-only shared NIP-78 layout, branding, emojis, and server-settings authorization
 - [docs/uploads.md](docs/uploads.md) — Blossom storage + URL format
 - [docs/cloudflare-tunnel.md](docs/cloudflare-tunnel.md) — `npm run dev:tunnel` exposes localhost:3000 at https://obelisk.fabri.lat
 - [docs/known-bugs.md](docs/known-bugs.md) — open bugs & tech debt

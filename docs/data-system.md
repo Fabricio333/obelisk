@@ -252,7 +252,7 @@ The Preferences panel exposes a "Clear local cache" button backed by
 
 **Wiped** (prefix scans):
 - `obelisk-cache-v3/*`, `obelisk-cache-v2/*`, `obelisk-cache/*`
-- `obelisk:relay-info-v2` (NIP-11 cache singleton)
+- `obelisk:relay-info-v3` and legacy `v2` (NIP-11 cache singleton)
 - `obelisk-read-state:*`, `obelisk-dm-store:*`, `obelisk-forum-follow:*`
 - `obelisk-dex/forum-collapsed/*`, `obelisk-dex/mobile-setup-seen/*`,
   `obelisk-dex/just-generated/*`

@@ -1,10 +1,72 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ComponentPropsWithoutRef } from 'react';
 import { VoiceMessage } from './MessageContent';
 import type { MessageVoiceNote } from '@/lib/voice-note-tags';
 
 const iconClass = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lc-muted hover:bg-white/5 hover:text-lc-white disabled:opacity-40';
+
+type FileDropZoneProps = Omit<
+  ComponentPropsWithoutRef<'div'>,
+  'onDragEnter' | 'onDragLeave' | 'onDragOver' | 'onDrop'
+> & {
+  disabled?: boolean;
+  onFiles: (files: File[]) => void;
+};
+
+export function FileDropZone({ children, className = '', disabled, onFiles, ...props }: FileDropZoneProps) {
+  const [active, setActive] = useState(false);
+  const dragDepth = useRef(0);
+  const hasFiles = (event: React.DragEvent<HTMLDivElement>) =>
+    Array.from(event.dataTransfer.types).includes('Files');
+
+  return (
+    <div
+      {...props}
+      className={['relative', className].join(' ')}
+      onDragEnter={(event) => {
+        if (!hasFiles(event)) return;
+        event.preventDefault();
+        dragDepth.current += 1;
+        if (!disabled) setActive(true);
+      }}
+      onDragOver={(event) => {
+        if (!hasFiles(event)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+      }}
+      onDragLeave={(event) => {
+        if (!hasFiles(event)) return;
+        event.preventDefault();
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (dragDepth.current === 0) setActive(false);
+      }}
+      onDrop={(event) => {
+        if (!hasFiles(event)) return;
+        event.preventDefault();
+        dragDepth.current = 0;
+        setActive(false);
+        const files = Array.from(event.dataTransfer.files);
+        if (!disabled && files.length) onFiles(files);
+      }}
+    >
+      {children}
+      {active && !disabled && (
+        <div
+          className="pointer-events-none absolute inset-0 z-[80] flex items-center justify-center bg-zinc-700/85 backdrop-blur-sm"
+          role="status"
+          aria-label="Drop files to attach"
+          data-testid="file-drop-overlay"
+        >
+          <span aria-hidden="true" className="flex h-32 w-32 items-center justify-center rounded-full border-4 border-white/80 text-8xl font-light text-white">
+            +
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 export function AttachmentMenu({
   disabled,

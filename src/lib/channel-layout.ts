@@ -18,7 +18,7 @@ import { useEffect, useState } from 'react';
 import type { Event as NostrEvent, Filter } from 'nostr-tools';
 import { getBridge, getBridgeImpl } from '@/lib/nostr-bridge/client';
 import { cacheGet, cacheSet } from '@/lib/nostr-bridge/cache';
-import { fetchRelayInfo } from '@/lib/relay-info';
+import { fetchRelayInfo, operatorPubkeyFromRelayInfo } from '@/lib/relay-info';
 import { KIND_NIP78_APP_DATA as KIND_LAYOUT } from '@/lib/nip-kinds';
 
 export interface ChannelLayoutCategory {
@@ -135,7 +135,7 @@ export async function publishLayout(relayUrl: string, layout: ChannelLayout): Pr
     kind: KIND_LAYOUT,
     content: '',
     tags: toTags(layout, relayUrl),
-  });
+  }, { extraRelays: [relayUrl], mode: 'replace' });
 }
 
 export function useChannelLayout(
@@ -159,9 +159,9 @@ export function useChannelLayout(
 }
 
 /**
- * Resolve the relay operator pubkey from the NIP-11 document. Returns
+ * Resolve the human operator from NIP-11 contact, falling back to pubkey. Returns
  * `null` until the fetch completes (or if the relay doesn't advertise a
- * pubkey).
+ * usable operator identity).
  */
 export function useRelayOperatorPubkey(relayUrl: string | null): string | null {
   const [pk, setPk] = useState<string | null>(null);
@@ -171,13 +171,17 @@ export function useRelayOperatorPubkey(relayUrl: string | null): string | null {
     let cancelled = false;
     void fetchRelayInfo(relayUrl).then((info) => {
       if (cancelled) return;
-      setPk(info?.pubkey ?? null);
+      setPk(operatorPubkeyFromRelayInfo(info));
     });
     return () => {
       cancelled = true;
     };
   }, [relayUrl]);
   return pk;
+}
+
+export function relayOperatorAuthors(operatorPubkey: string | null): string[] {
+  return operatorPubkey ? [operatorPubkey] : [];
 }
 
 // -- Pure helpers used by the UI ---------------------------------------------

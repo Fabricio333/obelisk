@@ -130,8 +130,7 @@ async function bridge() {
  *   before every direct connection is established.
  * @param videoTracks - Outbound video tracks the publisher is currently
  *   sending (any of `camera`, `screen`). Emitted as `v` tags so every
- *   participant can compute the room-wide video count and enforce the
- *   `MAX_VIDEO_SLOTS` cap (see `client.ts`). Empty for audio-only joiners.
+ *   participant can compute the independent four-camera and one-screen caps (see `client.ts`). Empty for audio-only joiners.
  *
  * Caller is responsible for the cadence (every ~10s while in the channel)
  * and for opportunistic re-publishes when `connectedTo`, `knownPeers`,

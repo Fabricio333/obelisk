@@ -68,7 +68,7 @@ import MentionNavigator from '@/components/chat/MentionNavigator';
 import HistoryPaginationStatus from '@/components/chat/HistoryPaginationStatus';
 import EmojiPicker, { type PickedCustomEmoji } from '@/components/chat/EmojiPicker';
 import MessageMediaPicker, { type MediaPickerTab } from '@/components/chat/MessageMediaPicker';
-import { AttachmentMenu, StickerIcon, VoiceNoteButton, VoiceNoteDraft } from '@/components/chat/ComposerActions';
+import { AttachmentMenu, FileDropZone, StickerIcon, VoiceNoteButton, VoiceNoteDraft } from '@/components/chat/ComposerActions';
 import { uploadToBlossom } from '@/lib/blossom';
 import { stickerTagsForContent, type MessageSticker } from '@/lib/sticker-tags';
 import { voiceNoteTagForContent, type MessageVoiceNote } from '@/lib/voice-note-tags';
@@ -127,10 +127,10 @@ import { useMessageZapStore } from '@/store/messageZap';
 import { useNostrPresence, PRESENCE_WINDOW_MS } from '@/hooks/chat/useNostrPresence';
 import MessageZapModal from '@/components/chat/MessageZapModal';
 import { type ScreenName, type NavState, initialNav, urlFor, parseUrl } from './url-state';
-import { buildSeedHistory, decideSnap, decideSwipeNav, decideTabPress, neighborsFor, NAV_ORDER, resolveParent } from './swipe-nav';
+import { buildSeedHistory, decideSnap, decideSwipeNav, decideTabPress, isAdjacentTabSwitch, neighborsFor, NAV_ORDER, resolveParent } from './swipe-nav';
 import { useKeyboardInset } from './use-keyboard';
 import { channelScrollPositionKey } from '@/lib/channel-scroll-position';
-import { channelInitialAnchorFromCursor } from '@/lib/channel-scroll-anchor';
+import { channelCursorHasReadLatest, channelInitialAnchorFromCursor } from '@/lib/channel-scroll-anchor';
 import { useChannelScrollPosition } from '@/hooks/chat/useChannelScrollPosition';
 // CSS is hoisted to AppGate.tsx so it lands in the route's eagerly-loaded
 // stylesheet, not in this dynamic chunk's late-arriving sidecar.
@@ -1973,7 +1973,7 @@ function ChannelRow({
     if (expandable && onToggleExpand) {
       cls.push('ch-row-split');
       return (
-        <div className={cls.join(' ')}>
+        <div className={cls.join(String.fromCharCode(10))}>
           <button className="ch-row-body" onClick={onClick}>
             <span className="ch-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 5h18M3 12h18M3 19h18" /></svg>
@@ -2000,7 +2000,7 @@ function ChannelRow({
       );
     }
     return (
-      <button className={cls.join(' ')} onClick={onClick}>
+      <button className={cls.join(String.fromCharCode(10))} onClick={onClick}>
         <span className="ch-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 5h18M3 12h18M3 19h18" /></svg>
         </span>
@@ -2018,7 +2018,7 @@ function ChannelRow({
     );
   }
   return (
-    <button className={cls.join(' ')} onClick={onClick}>
+    <button className={cls.join(String.fromCharCode(10))} onClick={onClick}>
       <span className="ch-icon">#</span>
       <span className="ch-name">{name}</span>
       {unread > 0 && <span className="ch-meta">{unread > 99 ? '99+' : unread}</span>}
@@ -2166,7 +2166,6 @@ function ServerScreen({
   const relays = useConfiguredRelays();
   const myPubkey = useMyPubkey();
   const calls = useActiveCallByChannel();
-  const adminsByGroup = useAdminsByGroup();
   const operatorPubkey = useRelayOperatorPubkey(relay || null);
   const [addRelayOpen, setAddRelayOpen] = useState(false);
   const [relayMenuFor, setRelayMenuFor] = useState<{ url: string; label: string; iconUrl: string | null } | null>(null);
@@ -2229,16 +2228,8 @@ function ServerScreen({
   );
   const childrenByParent = useChildrenByParent();
 
-  // Build the same author-set the desktop uses to scope shared layout (admins
-  // of any visible group + the relay operator from NIP-11).
-  const relayAuthors = useMemo(() => {
-    const set = new Set<string>();
-    for (const g of groups) {
-      for (const pk of adminsByGroup[g.id] ?? []) set.add(pk);
-    }
-    if (operatorPubkey) set.add(operatorPubkey);
-    return Array.from(set);
-  }, [groups, adminsByGroup, operatorPubkey]);
+  // Relay-wide settings trust the validated human operator identity only.
+  const relayAuthors = useMemo(() => operatorPubkey ? [operatorPubkey] : [], [operatorPubkey]);
   const layout = useChannelLayout(relay || null, relayAuthors);
   const laidOut = useMemo(
     () => applyLayout(layout, roots.map((g) => g.id)),
@@ -2533,6 +2524,10 @@ function ChannelScreen({
     [messages, myPubkey, readCursorMs],
   );
   const initialAnchorMessageId = initialAnchor.kind === 'message' ? initialAnchor.messageId : null;
+  const readThroughLatest = useMemo(
+    () => channelCursorHasReadLatest(messages, readCursorMs, myPubkey),
+    [messages, myPubkey, readCursorMs],
+  );
   const getInitialAnchorElement = useCallback(() => {
     if (!initialAnchorMessageId) return null;
     const scroller = messagesRef.current;
@@ -2633,14 +2628,14 @@ function ChannelScreen({
     return () => window.removeEventListener('obelisk-mobile:reply', handler);
   }, [messages]);
 
-  const handleAttach = async (file: File) => {
-    if (!file || uploading) return;
+  const handleAttach = async (files: File[]) => {
+    if (!files.length || uploading) return;
     setDraftSticker(null);
     setDraftVoiceNote(null);
     setUploading(true);
     try {
-      const url = await uploadToBlossom(file);
-      setDraft((d) => d.length ? `${d} ${url}` : url);
+      const urls = await Promise.all(files.slice(0, 4).map(uploadToBlossom));
+      setDraft((current) => current.trim() ? [current.trim(), ...urls].join(String.fromCharCode(10)) : urls.join(String.fromCharCode(10)));
     } catch (err) {
       console.warn('[mobile] blossom upload failed', err);
     } finally {
@@ -2669,6 +2664,7 @@ function ChannelScreen({
     itemCount: messages.length,
     initialAnchorKey: initialAnchorMessageId,
     getInitialAnchorElement,
+    ignoreSavedOnInitialRestore: readThroughLatest,
     nearBottomPx: 200,
     onNearBottomChange: (near) => {
       const cur = useChatStore.getState().isNearBottom;
@@ -2759,7 +2755,12 @@ function ChannelScreen({
   }, [messages]);
 
   return (
-    <div className="screen active" data-screen="channel">
+    <FileDropZone
+      className="screen active"
+      data-screen="channel"
+      disabled={uploading}
+      onFiles={(files) => void handleAttach(files)}
+    >
       <div className="chat-header chat-header-compact">
         <div className="chat-row">
           <div className="chat-title-block">
@@ -2882,7 +2883,7 @@ function ChannelScreen({
           {!draftVoiceNote && (<>
           <AttachmentMenu
             disabled={uploading}
-            onFiles={(files) => { if (files[0]) void handleAttach(files[0]); }}
+            onFiles={(files) => void handleAttach(files)}
             onContact={(value) => {
               setDraftSticker(null);
               setDraftVoiceNote(null);
@@ -2964,6 +2965,7 @@ function ChannelScreen({
                 customEmojis={mergeCustomEmojiMaps(serverEmojis, draftCustomEmojis)}
                 onPick={(emoji, custom, kind) => {
                   if (kind === 'sticker') setDraft(emoji);
+                  else if (kind === 'gif') setDraft((current) => current.trim() ? [current.trim(), emoji].join(String.fromCharCode(10)) : emoji);
                   else setDraft((current) => current + emoji);
                   setDraftSticker(kind === 'sticker' && custom ? custom : null);
                   setDraftVoiceNote(null);
@@ -2982,7 +2984,7 @@ function ChannelScreen({
           close={() => setSettingsOpen(false)}
         />
       )}
-    </div>
+    </FileDropZone>
   );
 }
 
@@ -5946,6 +5948,17 @@ export default function MobileShell() {
   // tapping their active tab, but cross-tab switches never restore a hidden
   // thread/channel/voice-room.
   const commitCarouselTransition = useCallback((target: ScreenName, dir: 'forward' | 'back') => {
+    const current = NAV_ORDER.includes(navRef.current.screen)
+      ? navRef.current.screen
+      : resolveParent(navRef.current) ?? 'server';
+    if (!isAdjacentTabSwitch(current, target)) {
+      suppressSlideRef.current = true;
+      useChatStore.setState({ activeChannelId: null });
+      useDMStore.setState({ activeDMPubkey: null });
+      pushNav(() => ({ ...initialNav, screen: target }), dir);
+      return;
+    }
+
     const layer = dragLayerRef.current;
     const width = screensHostRef.current?.clientWidth ?? (typeof window !== 'undefined' ? window.innerWidth : 0);
     const TRANSITION = 'transform 180ms cubic-bezier(0.2, 0.85, 0.25, 1)';

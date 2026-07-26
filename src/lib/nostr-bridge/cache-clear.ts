@@ -15,7 +15,7 @@
  * Wiped (prefix scans, account-agnostic):
  *   - `obelisk-cache-v4/*`             — `bridgeCache` namespace (every kind on every relay).
  *   - `obelisk-cache/*`, `obelisk-cache-v2/*`, `obelisk-cache-v3/*` — legacy bridgeCache prefixes (defensive).
- *   - `obelisk:relay-info-v2`          — NIP-11 relay-info cache (singleton key).
+ *   - `obelisk:relay-info-v2/v3`       — NIP-11 relay-info caches (singleton keys).
  *   - `obelisk-read-state:*`           — per-account read cursors + inbox events.
  *   - `obelisk-dm-store:*`             — per-account DM store.
  *   - `obelisk-forum-follow:*`         — per-account forum-follow store.
@@ -53,6 +53,7 @@ const WIPED_PREFIXES = [
 ];
 
 const WIPED_EXACT = new Set<string>([
+  'obelisk:relay-info-v3',
   'obelisk:relay-info-v2',
   'obelisk:voice-chat-width',
 ]);

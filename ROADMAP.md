@@ -81,7 +81,7 @@ mirror the pieces each repo owns.
 - Message search (Discord-style) — see [docs/search.md](docs/search.md).
 
 ### Voice
-- Audio, video, screen sharing via Socket.io relay; mesh (P2P) and LiveKit SFU backends. Force disconnect. See [docs/voice-system.md](docs/voice-system.md).
+- Audio, video, and screen sharing over Nostr-signaled WebRTC: `simple-peer` full mesh (4 people, 4 cameras, 1 screen share) plus the mediasoup SFU engine. See [docs/voice/](docs/voice/README.md) and [docs/sfu-system.md](docs/sfu-system.md).
 
 ### Uploads & media
 - Multi-file upload (paste + drag-and-drop), dynamic image gallery, lightbox with zoom / pan, videos, audio, documents.
@@ -125,9 +125,9 @@ mirror the pieces each repo owns.
 - [ ] **DMs over Nostr (NIP-17 + legacy NIP-04)** — architecture is built (schema, signer integration, lazy relay-AUTH, rumor fields) but **not shipped**: gated by `DM_FEATURE_ENABLED` in `src/lib/feature-flags.ts` pending NIP-17 signer-lifecycle fixes.
 - [ ] **Multi-server onboarding** — screen for users with no servers: join via invite, browse public servers, create new. Creation by any authenticated user (today instance-owner only).
 - [ ] **DMs 1-a-1 server-scoped (alternative path)** — if the NIP-17 direction hits a dead end: `DirectConversation` + `DirectMessage` models, REST + `dm:<id>` Socket rooms, inbox in ServerBar, anti-spam via shared-server constraint.
-- [ ] **Llamadas directas 1-a-1** — audio / video P2P with signaling via Socket.io.
+- [ ] **Llamadas directas 1-a-1** — audio / video P2P with signaling via Nostr kind 25050.
 - [ ] **Voice — text chat within a voice channel**.
-- [ ] **Voice — E2EE over SFU** — LiveKit insertable streams, WebCrypto frame encryption, passphrase or NIP-44 key exchange per channel.
+- [ ] **Voice — E2EE over SFU** — mediasoup insertable streams, WebCrypto frame encryption, passphrase or NIP-44 key exchange per channel.
 - [ ] **Voice — town hall / moderated mode** — raise-hand queue, grant / revoke speak, concurrent-speakers cap.
 - [ ] **Relative links `#{nombre}`** — channel / post / thread autocomplete mirroring mentions; stable placeholders, permission-gated, rename-safe.
 - [ ] **Idioma canónico del servidor** — `Server.language` for system messages (independent of per-user UI language).
@@ -141,6 +141,7 @@ mirror the pieces each repo owns.
 - [ ] **Export conversations** (JSON / plain text).
 - [ ] **Discord-compatible bot API** — subset of REST v10 + Gateway WebSocket + `BotAccount` + snowflake-style ID translation.
 - [ ] **Stickers per server** — `ServerSticker` model + `StickerPicker` + admin tab.
+- [ ] **Private personal sticker packs over Nostr** — replace the current `localStorage`-only created-sticker list with a user-owned NIP-78 kind `30078` event (`d=obelisk:private-stickers:v1`) whose content is NIP-44 encrypted to the same user pubkey; publish to configured user relays, restore across devices with newest-wins semantics, support deletions and tombstones, validate names and URLs, retain a local cache fallback, and migrate existing personal stickers on first publish.
 - [ ] **PDF thumbnails** — deferred, needs `pdfjs-dist` + native canvas in the Docker image.
 - [ ] **Compression / transcoding** — deferred, needs `sharp` for images and `ffmpeg-static` for video.
 

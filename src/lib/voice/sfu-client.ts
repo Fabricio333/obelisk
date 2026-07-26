@@ -93,9 +93,7 @@ export interface SfuClientEvents {
 
 /**
  * Backoff ladder for `consume` / `resumeConsumer` retries. 4 attempts
- * spread over ~16 s (500 ms, 1.5 s, 4 s, 10 s). Mirrors the shape of
- * `peer.ts:RECONNECT_DELAYS_MS` so steady-state recovery has a similar
- * envelope across mesh and SFU modes. Pre-fix every transient failure
+ * spread over ~16 s (500 ms, 1.5 s, 4 s, 10 s). Keeps transient SFU recovery bounded without coupling it to mesh internals. Pre-fix every transient failure
  * was logged-and-forgotten — a single dropped `consume` RPC would
  * silently strand a remote track until the user left and rejoined.
  */

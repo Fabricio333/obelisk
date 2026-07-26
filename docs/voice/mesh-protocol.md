@@ -82,44 +82,38 @@ Variants:
 
 | `type` | Carries |
 |---|---|
-| `offer` | `sdp`, `sessionId`, `seq` |
-| `answer` | `sdp`, `sessionId`, `seq` |
-| `ice` | `candidates: RTCIceCandidateInit[]`, `sessionId`, `seq` |
+| `peer` | opaque `peerSignal: SimplePeer.SignalData`, `sessionId`, `seq`; carries SDP, ICE, renegotiation, and transceiver requests |
 | `trackinfo` | `trackInfo: { trackId, kind }`, `sessionId`, `seq` |
 | `qualityhint` | `qualityHint: { maxBitrate, maxFramerate }`, `sessionId`, `seq` |
-| `bye` | `sessionId`, `seq`, optional `byeReason: 'local-leave' \| 'room-full' \| string`. `'room-full'` is sent by every in-cap peer to a 6th arrival so the joiner learns immediately. |
-| `requestReset` | `sessionId`, `seq` (polite-side asks impolite to hard-reset) |
+| `bye` | `sessionId`, `seq`, optional `byeReason: 'local-leave' \| 'room-full' \| string`. `'room-full'` is sent by every in-cap peer to a 5th arrival. |
+| `offer`, `answer`, `ice`, `requestReset` | accepted on receive for rolling compatibility with the former custom negotiator; new clients publish `peer` |
 
-`sessionId` lets the receiver detect remote PC restarts; `seq` lets
-the receiver dedup retransmits within a session.
+The relay transport treats `peerSignal` as opaque JSON. Nostr pubkeys remain
+the identity/admission boundary; `simple-peer` never chooses participant IDs.
 
-### Perfect negotiation
+### `simple-peer` negotiation
 
 Polite/impolite is decided by lexicographic pubkey comparison
-(`selfPubkey > remotePubkey` ⇒ polite). The polite peer rolls back its
-offer on glare, applies the remote, answers it, and then re-offers any rolled-back local media revision once stable. That follow-up offer is required when both sides enable mic, camera, or screen at the same time; without it the mesh can be connected while media stays black or silent. Impolite never
-rolls back — its offer always wins. SFU peers are forced
-remote-impolite (we're polite for them) because werift can't roll back.
+(`selfPubkey > remotePubkey` ⇒ polite/non-initiator). Therefore every pair has
+exactly one initiator. The library emits `signal`; `Peer` wraps it as a
+kind-25050 `type: 'peer'` event, and the recipient passes `peerSignal` to
+`simplePeer.signal()`. Non-initiators use the library's `renegotiate` and
+`transceiverRequest` signals rather than creating colliding offers.
 
-### Reconnect ladder
+### Recovery
 
-`peer.ts` runs three escalating recovery paths:
-
-1. `requestReset` → polite asks impolite to perform a hard reset.
-2. `restartIce` → impolite tries an ICE restart up to `ICE_RESTART_LIMIT` times.
-3. `performHardReset` → close the PC, build a fresh one, re-attach
-   tracks, kick a fresh negotiation.
-
-Delays: `RECONNECT_DELAYS_MS = [750, 1500, 3000, 6000, 10000]` for
-impolite; `POLITE_RESET_DELAYS_MS = [2500, 5000, 10000]` for polite.
+`simple-peer` owns browser SDP, ICE, and media renegotiation. A 9 s initial
+connection watchdog tears down peers that never open. Terminal library/PC
+closure and heartbeat loss converge on `VoiceClient.tearDownPeer`; if the
+pubkey remains present in relay or control discovery, the debounced dial loop
+creates a fresh library peer and reattaches local tracks.
 
 ## Control channel (`obelisk-control`)
 
-A single ordered RTCDataChannel per peer pair, opened immediately
-after PC construction. **Only the impolite side calls
-`createDataChannel`**; the polite side adopts via `pc.ondatachannel`.
-Symmetry matters — both sides creating would produce two channels per
-pair, doubling heartbeat and hello traffic.
+A single ordered RTCDataChannel per peer pair, labeled `obelisk-control`.
+`simple-peer` creates it on the deterministic initiator and adopts it on the
+non-initiator. This preserves exactly one control plane per pair while leaving
+the existing Obelisk control messages unchanged.
 
 ```ts
 type ControlMessage =
@@ -132,11 +126,9 @@ type ControlMessage =
   | { type: 'pong'; ts: number; echoTs: number };
 ```
 
-Lifecycle (constants in `src/lib/voice/control-channel.ts`):
+Lifecycle (timing constants in `src/lib/voice/control-channel.ts`):
 
-- **Open timeout**: 15 s. If `dc.readyState` doesn't reach `'open'`,
-  fire `onDead('open-timeout')` so the owner tears the peer down
-  rather than waiting forever for a dead PC.
+- **Connection timeout**: 9 s from peer construction to connection.
 - **Heartbeat**: ping every 2.5 s. Pong response carries `echoTs` →
   RTT measurement.
 - **Peer snapshot**: every 5 s, send `peerSnapshot { peers }` with the
@@ -174,12 +166,34 @@ neighbor so stale transitive hints age out without requiring relay beacons.
    crashes / network blackouts where bye was never sent.
 3. **Relay `bye` (kind 25050 type=bye)** — backup. Used when the data
    channel hadn't opened yet.
-4. **`pc.connectionState='failed' | 'closed'`** — last resort.
-   ICE-failure detection takes ~30 s in Chromium; only happens when
-   the first three paths all missed.
+4. **Library/PC terminal close** — last resort. The owner tears down and
+   redials while relay/control discovery still considers the pubkey active.
 
 All four converge on the same `tearDownPeer(pubkey)` (idempotent — see
 `client.ts`).
+
+## Capacity and full-mesh convergence
+
+- **People:** `MAX_PARTICIPANTS = 4`, including self. Every client sorts the
+  same known pubkey set and keeps the lexicographic leading four. An over-cap
+  signal is answered with relay `bye { byeReason: 'room-full' }`; the rejected
+  client surfaces the error and leaves instead of retrying indefinitely.
+- **Full mesh:** `DiscoveryEngine` unions relay beacon publishers, beacon `p`
+  and `peer` tags, active-call hints, and attributed control-channel claims.
+  `VoiceClient.runDialLoop()` opens one `Peer` to every admitted pubkey. Thus,
+  when A is connected to B and C, A's beacon/control snapshot teaches B about
+  C and C about B; both run the same dial loop until all three pairwise links
+  exist. Periodic full snapshots remove stale claims, while `peerAdded` gives
+  a fast path for new links.
+- **Recovery:** a terminal close removes the dead `Peer` and schedules the
+  dial loop. If relay/control discovery still says that pubkey is active, a
+  fresh `simple-peer` instance is created and local tracks are reattached.
+- **Cameras:** `MAX_CAMERAS = 4`. Camera claims are `v=camera` beacon tags.
+- **Screen:** `MAX_SCREEN_SHARES = 1`, independent of the camera count.
+  Screen claims are `v=screen` tags.
+- **Simultaneous media claims:** every client sorts each media kind by
+  `(beaconCreatedAt, pubkey)` and keeps the leading slice. A losing local
+  camera or screen track is stopped and the updated beacon is published.
 
 ## Membership + WoT
 

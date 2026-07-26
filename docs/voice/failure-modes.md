@@ -28,21 +28,20 @@ expected)**.
 
 | Failure | Handler | Counter |
 |---|---|---|
-| Peer's PC reaches `'failed'` or `'disconnected'` | Reconnect ladder: requestReset (polite) → ICE restart up to 3× (impolite) → hard reset | `peers.iceExhausted` increments only when the ladder gives up |
-| Peer crashed / network blackout (no traffic for 7 s) | Control-channel `onDead('heartbeat-lost')` → `tearDownPeer` | `peers.tornDown` |
+| Peer's PC reaches a terminal close | `simple-peer` owns SDP/ICE negotiation; `VoiceClient` tears down and redials from relay/control discovery | `peers.tornDown` |
+| Peer crashed / network blackout (no traffic for 20 s) | Control-channel `onDead('heartbeat-lost')` → `tearDownPeer` | `peers.tornDown` |
 | Peer cleanly leaves | Control-channel `bye` (sub-100 ms) → `tearDownPeer` | `peers.tornDown`, `signals.byeViaControl` |
-| Peer's data channel never opens (10 s timeout) | `onDead('open-timeout')` → `tearDownPeer` | `peers.tornDown` |
+| Peer never opens (9 s timeout) | `onPeerDead('open-timeout')` → teardown + discovery-driven redial | `peers.tornDown` |
 | Local tab close / refresh | `beforeunload` / `pagehide` → control-channel `bye` to all peers, then `pc.close()` | `peers.tornDownByUnload` (on the leaver), `signals.byeViaControl` (on the receivers) |
-| Multi-tab same pubkey reset | `sessionId` mismatch detected → local hard reset | `peers.sessionMismatchResets` |
-| Glare (simultaneous offers) | Perfect negotiation: polite rolls back, impolite proceeds. Tested by `scripts/e2e/voice/glare.spec.ts` | (assertion-only, no counter) |
-| Mid-call media glare leaves peers stuck on `Media syncing` | After a polite peer rolls back its local offer to answer a colliding remote offer, it keeps the rolled-back local media revision pending and sends a follow-up offer once stable | Assertion in `scripts/e2e/voice/two-peer-mesh.spec.ts`: audio and camera RTP bytes must flow both ways |
+| Both browsers try to negotiate | Deterministic pubkey ordering makes exactly one `simple-peer` instance the initiator; the other sends library `renegotiate`/`transceiverRequest` signals | Covered by `peer.test.ts` and `client.test.ts` |
 
 ## Topology
 
 | Failure | Handler | Counter |
 |---|---|---|
-| Capacity overflow (>5 mesh participants) | Lex-deterministic eviction (everyone agrees on who's in), AND active rejection: every in-cap peer sends `bye { byeReason: 'room-full' }` to the over-cap arrival → joiner surfaces "Room is full" error and leaves on its own | (no counter; verified by `scripts/e2e/voice/six-peer-rejection.spec.ts`) |
-| ICE candidate arrives before remoteDescription | Buffer in `pendingIce[]`; drain after `setRemoteDescription` succeeds | (silent — no more `"The remote description was null"` warnings) |
+| Capacity overflow (>4 mesh participants) | Lex-deterministic eviction plus active `bye { byeReason: 'room-full' }` rejection keeps every client on the same four-person set | Verified by `client.test.ts` and `scripts/e2e/voice/five-peer-rejection.spec.ts` |
+| Camera overflow (>4) | Per-kind `(createdAt, pubkey)` winners; a losing local camera is stopped | Verified by `video-slot-cap.test.ts` |
+| Screen-share overflow (>1) | Same deterministic winner rule, independent of camera slots | Verified by `video-slot-cap.test.ts` |
 | SFU advertised on the channel but transport fails | `SfuClient.start` rejects → `enterMeshMode()` (mesh fallback) — except for `voice-sfu` channels which surface the error instead | `signalsDropped.sfuRouted` |
 
 ## What the `?debug=voice` overlay shows

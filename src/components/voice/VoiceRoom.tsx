@@ -974,14 +974,14 @@ function SfuStatusPill({ status }: {
     },
     unavailable: {
       label: 'SFU unavailable',
-      detail: 'No big-room SFU is advertising. Falling back to peer-to-peer mesh (max 8 participants).',
+      detail: 'No big-room SFU is advertising. Falling back to peer-to-peer mesh (max 4 participants).',
       tone: 'bg-amber-500/15 border-amber-400/40 text-amber-100',
       dot: 'bg-amber-300',
       pulse: false,
     },
     unauthorized: {
       label: 'SFU rejected',
-      detail: 'Big-room start was rejected. Your account may not be whitelisted on the SFU’s trusted relay. Call is on peer-to-peer mesh (max 8 participants).',
+      detail: 'Big-room start was rejected. Your account may not be whitelisted on the SFU’s trusted relay. Call is on peer-to-peer mesh (max 4 participants).',
       tone: 'bg-rose-500/15 border-rose-400/40 text-rose-100',
       dot: 'bg-rose-300',
       pulse: false,

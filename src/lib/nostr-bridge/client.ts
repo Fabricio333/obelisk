@@ -580,6 +580,7 @@ export class BridgeImpl {
    * keeps the bottom-right indicator in sync.
    */
   private authActivityIds = new Map<string, number>();
+  private authSignatures = new Map<string, Promise<VerifiedEvent>>();
 
   /**
    * True if `url` is the relay the user is currently viewing — the only
@@ -900,22 +901,7 @@ export class BridgeImpl {
         // (managed by setRelayAccess) keeps the bottom-right indicator
         // visible until the relay accepts/rejects us.
         this.setRelayAccess(relayUrl, 'authenticating');
-        return async (evt: EventTemplate): Promise<VerifiedEvent> => {
-          if (this.session?.loginMethod === 'nsec' && this.session.privKeyHex) {
-            const sk = hexToBytes(this.session.privKeyHex);
-            return finalizeEvent(evt, sk) as VerifiedEvent;
-          }
-          if (this.session?.loginMethod === 'nip07') {
-            const win = (window as any).nostr;
-            if (!win) throw new Error('NIP-07 extension unavailable');
-            return (await win.signEvent(evt)) as VerifiedEvent;
-          }
-          if (this.session?.loginMethod === 'bunker') {
-            const b = await this.ensureBunkerSigner();
-            return (await b.signEvent(evt as unknown as EventTemplate & { pubkey: string })) as VerifiedEvent;
-          }
-          throw new Error('Cannot sign auth event with current login method');
-        };
+        return (evt: EventTemplate) => this.signAuthEvent(evt);
       },
     } as ConstructorParameters<typeof SimplePool>[0]);
   }
@@ -1375,6 +1361,7 @@ export class BridgeImpl {
 
   dispose(): void {
     this.unwireBrowserConnectionEvents();
+    this.authSignatures.clear();
     this.cancelReconnectTimer();
     this.reconnectInFlight = false;
     this.connectGeneration++;
@@ -1686,6 +1673,7 @@ export class BridgeImpl {
    */
   private resetPoolForSessionChange(): void {
     this.closeVoicePool();
+    this.authSignatures.clear();
     const previousPool = this.pool;
     const previousRelays = [...this.relays];
     const shouldClosePool = this.poolSocketAlive;
@@ -3139,21 +3127,26 @@ export class BridgeImpl {
     nip05?: string;
     website?: string;
     lud16?: string;
-  }): Promise<void> {
+  }, options: { create?: boolean } = {}): Promise<void> {
     if (!this.session) throw new Error('Not logged in');
     const me = this.session.pubKeyHex;
     const profileRelays = Array.from(new Set([...this.relays, ...DEFAULT_PROFILE_LOOKUP_RELAYS]));
 
-    const profileQuery = await this.queryRelaysWithConfidence(
-      profileRelays,
-      { kinds: [KIND_USER_METADATA], authors: [me], limit: 5 },
-      PROFILE_LOOKUP_MAX_WAIT_MS,
-    );
-    const existingEvent = newestEvent(
-      profileQuery.events.filter((e) => e.kind === KIND_USER_METADATA && e.pubkey === me),
-    );
-    if (!existingEvent && !profileQuery.complete) {
-      throw new Error('Could not load your current profile. Try again.');
+    const cachedEvent = options.create ? null : getCachedKind0(me);
+    let existingEvent = cachedEvent;
+    if (!options.create) {
+      const profileQuery = await this.queryRelaysWithConfidence(
+        profileRelays,
+        { kinds: [KIND_USER_METADATA], authors: [me], limit: 5 },
+        PROFILE_LOOKUP_MAX_WAIT_MS,
+      );
+      existingEvent = newestEvent([
+        ...profileQuery.events.filter((e) => e.kind === KIND_USER_METADATA && e.pubkey === me),
+        ...(cachedEvent ? [cachedKind0ToEvent(cachedEvent)] : []),
+      ]);
+      if (!existingEvent && !profileQuery.complete) {
+        throw new Error('Could not load your current profile. Try again.');
+      }
     }
     const existing = existingEvent
       ? JSON.parse(existingEvent.content) as Record<string, unknown>
@@ -3905,39 +3898,50 @@ export class BridgeImpl {
     throw new Error(`Login method ${this.session.loginMethod} cannot sign events in this build`);
   }
 
-  private getAuthSigner(): ((evt: EventTemplate) => Promise<VerifiedEvent>) | undefined {
-    if (!this.session) return undefined;
-    return async (evt: EventTemplate): Promise<VerifiedEvent> => {
-      if (this.session?.loginMethod === 'nsec' && this.session.privKeyHex) {
-        const sk = hexToBytes(this.session.privKeyHex);
-        return finalizeEvent(evt, sk) as VerifiedEvent;
+  private signAuthEvent(evt: EventTemplate): Promise<VerifiedEvent> {
+    const session = this.session;
+    if (!session) return Promise.reject(new Error('Not logged in'));
+    const unsigned = { kind: evt.kind, content: evt.content, tags: evt.tags, created_at: evt.created_at };
+    const key = JSON.stringify([session.pubKeyHex, unsigned]);
+    const cached = this.authSignatures.get(key);
+    if (cached) return cached;
+
+    const pending = (async (): Promise<VerifiedEvent> => {
+      if (session.loginMethod === 'nsec' && session.privKeyHex) {
+        return finalizeEvent(unsigned, hexToBytes(session.privKeyHex)) as VerifiedEvent;
       }
-      // Surface NIP-42 AUTH prompts in the activity log so the
-      // "Waiting for signature" toast persists for the entire round-trip
-      // — without this, the only visible toast was "Publishing to relays"
-      // even though the user was being asked to approve a sign in their
-      // extension or bunker.
-      if (this.session?.loginMethod === 'nip07') {
-        const win = (window as any).nostr;
+      if (session.loginMethod === 'nip07') {
+        const win = (window as unknown as {
+          nostr?: { signEvent: (event: EventTemplate) => Promise<VerifiedEvent> };
+        }).nostr;
         if (!win) throw new Error('NIP-07 extension unavailable');
-        return await trackActivity(
+        return trackActivity(
           'Waiting for extension signature',
-          () => win.signEvent(evt) as Promise<VerifiedEvent>,
+          () => win.signEvent(unsigned) as Promise<VerifiedEvent>,
           'NIP-42 relay auth',
           { operation: 'sign', eventKind: evt.kind, description: eventKindDescription(evt.kind) },
         );
       }
-      if (this.session?.loginMethod === 'bunker') {
+      if (session.loginMethod === 'bunker') {
         const b = await this.ensureBunkerSigner();
-        return await trackActivity(
+        return trackActivity(
           'Waiting for bunker signature',
-          () => b.signEvent(evt as unknown as EventTemplate & { pubkey: string }) as Promise<VerifiedEvent>,
+          () => b.signEvent(unsigned) as Promise<VerifiedEvent>,
           'NIP-42 relay auth',
           { operation: 'sign', eventKind: evt.kind, description: eventKindDescription(evt.kind) },
         );
       }
       throw new Error('Cannot sign auth event with current login method');
-    };
+    })().catch((error) => {
+      this.authSignatures.delete(key);
+      throw error;
+    });
+    this.authSignatures.set(key, pending);
+    return pending;
+  }
+
+  private getAuthSigner(): ((evt: EventTemplate) => Promise<VerifiedEvent>) | undefined {
+    return this.session ? (evt) => this.signAuthEvent(evt) : undefined;
   }
 
   /**

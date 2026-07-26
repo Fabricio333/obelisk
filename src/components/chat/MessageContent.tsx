@@ -609,16 +609,13 @@ export default function MessageContent({
           timestamp={voiceTimestamp}
         />
       ))}
-      {/* Audio: native <audio controls>, one per file. Matches the video
-          hoisting pattern so an `.mp3` upload renders as an inline player. */}
+      {/* Uploaded audio uses the same waveform player as recorded voice notes. */}
       {audioUrls.map((url) => (
-        <audio
+        <VoiceMessage
           key={url}
-          src={url}
-          controls
-          preload="metadata"
-          className="mt-1 max-w-sm block"
-          data-testid="audio-player"
+          note={{ url, durationSeconds: 0 }}
+          authorPicture={voiceAuthorPicture}
+          timestamp={voiceTimestamp}
         />
       ))}
       {/* Invoice cards hoisted out of the body text */}

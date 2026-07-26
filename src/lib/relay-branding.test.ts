@@ -1,6 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
+
+const mocks = vi.hoisted(() => ({ publishEvent: vi.fn().mockResolvedValue(undefined) }));
+vi.mock('@/lib/nostr-bridge/client', () => ({
+  getBridge: vi.fn().mockResolvedValue({}),
+  getBridgeImpl: () => ({ publishEvent: mocks.publishEvent }),
+}));
 import type { Event as NostrEvent } from 'nostr-tools';
-import { parseBranding, toTags, EMPTY_BRANDING, type RelayBranding } from './relay-branding';
+import { publishLayout, relayOperatorAuthors } from './channel-layout';
+import { parseBranding, publishBranding, toTags, EMPTY_BRANDING, type RelayBranding } from './relay-branding';
 
 const RELAY = 'wss://relay.example';
 
@@ -17,6 +24,22 @@ function fakeEvent(tags: string[][], created_at = 1000): NostrEvent {
 }
 
 describe('relay-branding', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('trusts only the advertised relay operator for server-wide settings', () => {
+    expect(relayOperatorAuthors('operator')).toEqual(['operator']);
+    expect(relayOperatorAuthors(null)).toEqual([]);
+  });
+
+  it('publishes per-relay kind 30078 documents only to their requested relay', async () => {
+    await publishLayout(RELAY, { categories: [], channels: [], updatedAt: 0 });
+    await publishBranding(RELAY, EMPTY_BRANDING);
+
+    expect(mocks.publishEvent).toHaveBeenCalledTimes(2);
+    expect(mocks.publishEvent.mock.calls.every((call) =>
+      call[1]?.mode === 'replace' && call[1]?.extraRelays?.[0] === RELAY
+    )).toBe(true);
+  });
   it('parses tags into branding fields', () => {
     const ev = fakeEvent([
       ['d', `obelisk:branding:${RELAY}`],

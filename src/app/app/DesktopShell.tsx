@@ -69,7 +69,7 @@ import type { MemberInfo } from '@/lib/mentions';
 import { useToastStore } from '@/store/toast';
 import EmojiPicker from '@/components/chat/EmojiPicker';
 import MessageMediaPicker, { type MediaPickerTab } from '@/components/chat/MessageMediaPicker';
-import { AttachmentMenu, StickerIcon, VoiceNoteButton, VoiceNoteDraft } from '@/components/chat/ComposerActions';
+import { AttachmentMenu, FileDropZone, StickerIcon, VoiceNoteButton, VoiceNoteDraft } from '@/components/chat/ComposerActions';
 import { useMessageZaps, type MessageZapTotal } from '@/hooks/chat/useMessageZaps';
 import { useMessageZapStore } from '@/store/messageZap';
 import MessageZapModal from '@/components/chat/MessageZapModal';
@@ -82,6 +82,7 @@ import { applyMentionToDraft, filterMembers, relayMentionCandidates } from '@/li
 import { npubToHex } from '@nostr-wot/data';
 import {
   applyLayout,
+  relayOperatorAuthors,
   useChannelLayout,
   useRelayOperatorPubkey,
   type ChannelLayout,
@@ -527,7 +528,7 @@ function RelayTopBar({
           )}
         </button>
         <a
-          href="/"
+          href="/help"
           className="p-2.5 md:p-1.5 rounded-lg text-lc-muted hover:text-lc-white hover:bg-lc-border/40 transition-colors inline-flex"
           title={t('common.help')}
           aria-label={t('common.help')}
@@ -767,19 +768,10 @@ function Sidebar({
   // channel they can't actually read still gate on `channelsVisible`.
   const relayAccess = useRelayAccess(relay || null);
   const channelsVisible = relayAccess === 'ok';
-  // Union of all admins across visible groups on this relay, plus the
-  // NIP-11 operator pubkey if the relay advertises one. This is the set of
-  // pubkeys allowed to author the relay-wide layout/branding events.
-  const relayAuthors = useMemo(() => {
-    const set = new Set<string>();
-    for (const g of groups) {
-      for (const pk of adminsByGroup[g.id] ?? []) set.add(pk);
-    }
-    if (operatorPubkey) set.add(operatorPubkey);
-    return Array.from(set);
-  }, [groups, adminsByGroup, operatorPubkey]);
+  // A channel admin must not gain relay-wide settings authority.
+  const relayAuthors = useMemo(() => relayOperatorAuthors(operatorPubkey), [operatorPubkey]);
   const layout = useChannelLayout(relay || null, relayAuthors);
-  const isOperator = !!myPubkey && relayAuthors.includes(myPubkey);
+  const isRelayOperator = !!myPubkey && myPubkey === operatorPubkey;
   const laidOut = useMemo(
     () => applyLayout(layout, roots.map((g) => g.id)),
     [layout, roots],
@@ -807,6 +799,7 @@ function Sidebar({
   const showTitleSkeleton = !brandingLoaded && !brandingGraceElapsed;
   const groupMetadataEoseGlobal = useGroupMetadataEose();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [layoutOpen, setLayoutOpen] = useState(false);
   const [brandingOpen, setBrandingOpen] = useState(false);
   const [emojisOpen, setEmojisOpen] = useState(false);
@@ -897,60 +890,16 @@ function Sidebar({
               (conn === 'Connected' ? 'bg-lc-green' : conn === 'Connecting' ? 'bg-yellow-500' : 'bg-red-500')
             }
           />
-          {isOperator && (
+          {isRelayOperator && (
             <button
-              onClick={() => setBrandingOpen(true)}
-              title="Edit relay branding (group admins only)"
-              aria-label="Edit relay branding"
+              onClick={() => setSettingsOpen(true)}
+              title="Server settings"
+              aria-label="Server settings"
               className="shrink-0 rounded p-1 text-lc-muted hover:bg-lc-card hover:text-lc-white"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <circle cx="8.5" cy="8.5" r="1.5" />
-                <path d="M21 15l-5-5L5 21" />
-              </svg>
-            </button>
-          )}
-          {isOperator && (
-            <button
-              onClick={() => setLayoutOpen(true)}
-              title="Manage categories & order (group admins only)"
-              aria-label="Manage categories"
-              className="shrink-0 rounded p-1 text-lc-muted hover:bg-lc-card hover:text-lc-white"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="3" y1="6" x2="21" y2="6" />
-                <line x1="3" y1="12" x2="21" y2="12" />
-                <line x1="3" y1="18" x2="21" y2="18" />
-              </svg>
-            </button>
-          )}
-          {isOperator && (
-            <button
-              onClick={() => setEmojisOpen(true)}
-              title="Manage relay emojis (group admins only)"
-              aria-label="Manage relay emojis"
-              className="shrink-0 rounded p-1 text-lc-muted hover:bg-lc-card hover:text-lc-white"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="9" />
-                <path d="M8 14s1.5 2 4 2 4-2 4-2" />
-                <path d="M9 9h.01M15 9h.01" />
-              </svg>
-            </button>
-          )}
-          {isOperator && (
-            <button
-              onClick={() => setAdminPanelOpen(true)}
-              title="Manage admins & members across every channel (group admins only)"
-              aria-label="Manage admins and members"
-              className="shrink-0 rounded p-1 text-lc-muted hover:bg-lc-card hover:text-lc-white"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09A1.65 1.65 0 0019.4 15z" />
               </svg>
             </button>
           )}
@@ -1062,7 +1011,16 @@ function Sidebar({
           )
         )}
       </div>
-      {layoutOpen && relay && (
+      {settingsOpen && isRelayOperator && (
+        <RelaySettingsModal
+          onClose={() => setSettingsOpen(false)}
+          onBranding={() => setBrandingOpen(true)}
+          onEmojis={() => setEmojisOpen(true)}
+          onLayout={() => setLayoutOpen(true)}
+          onMembers={() => setAdminPanelOpen(true)}
+        />
+      )}
+      {layoutOpen && relay && isRelayOperator && (
         <ManageLayoutModal
           relayUrl={relay}
           layout={layout}
@@ -1070,14 +1028,14 @@ function Sidebar({
           onClose={() => setLayoutOpen(false)}
         />
       )}
-      {brandingOpen && relay && (
+      {brandingOpen && relay && isRelayOperator && (
         <RelayBrandingModal
           relayUrl={relay}
           branding={branding}
           onClose={() => setBrandingOpen(false)}
         />
       )}
-      {emojisOpen && relay && (
+      {emojisOpen && relay && isRelayOperator && (
         <RelayEmojiAdminModal
           relayUrl={relay}
           emojiSet={emojiSet}
@@ -1085,7 +1043,7 @@ function Sidebar({
           onClose={() => setEmojisOpen(false)}
         />
       )}
-      {adminPanelOpen && (
+      {adminPanelOpen && isRelayOperator && (
         <RelayAdminPanel onClose={() => setAdminPanelOpen(false)} />
       )}
 
@@ -1096,6 +1054,53 @@ function Sidebar({
         </div>
       </div>
     </>
+  );
+}
+
+function RelaySettingsModal({
+  onClose,
+  onBranding,
+  onEmojis,
+  onLayout,
+  onMembers,
+}: {
+  onClose: () => void;
+  onBranding: () => void;
+  onEmojis: () => void;
+  onLayout: () => void;
+  onMembers: () => void;
+}) {
+  const items = [
+    ['Server profile & banner', 'Name, icon, banner, and description.', onBranding],
+    ['Emojis', 'Custom emoji available across the relay.', onEmojis],
+    ['Channels & categories', 'Category names and channel ordering.', onLayout],
+    ['Members & roles', 'Review and moderate membership across channels.', onMembers],
+  ] as const;
+
+  return (
+    <ModalShell onClose={onClose} panelClassName="lc-card w-full max-w-lg mx-4 overflow-hidden bg-lc-dark">
+      <header className="flex items-start justify-between border-b border-lc-border px-5 py-4">
+        <div>
+          <h2 className="text-base font-bold text-lc-white">Server settings</h2>
+          <p className="mt-1 text-xs text-lc-muted">Available only to the relay operator.</p>
+        </div>
+        <button onClick={onClose} className="rounded p-1 text-lc-muted hover:bg-lc-card hover:text-lc-white" aria-label="Close">
+          ✕
+        </button>
+      </header>
+      <div className="grid gap-2 p-4">
+        {items.map(([title, description, action]) => (
+          <button
+            key={title}
+            onClick={() => { onClose(); action(); }}
+            className="rounded-lg border border-lc-border p-4 text-left hover:border-lc-green/50 hover:bg-lc-card"
+          >
+            <span className="block text-sm font-semibold text-lc-white">{title}</span>
+            <span className="mt-1 block text-xs text-lc-muted">{description}</span>
+          </button>
+        ))}
+      </div>
+    </ModalShell>
   );
 }
 
@@ -1512,7 +1517,7 @@ function ManageLayoutModal({
         <header className="flex shrink-0 items-center justify-between border-b border-lc-border px-5 py-3">
           <div>
             <div className="text-base font-bold text-lc-white">Categories &amp; order</div>
-            <div className="text-[11px] text-lc-muted">Shared layout for {shortHost(relayUrl)} · any group admin can edit · NIP-78 kind 30078</div>
+            <div className="text-[11px] text-lc-muted">Shared layout for {shortHost(relayUrl)} · operator only · NIP-78 kind 30078</div>
           </div>
           <button onClick={onClose} className="rounded p-1 text-lc-muted hover:bg-lc-card hover:text-lc-white" aria-label="Close">
             ✕
@@ -2289,7 +2294,11 @@ function ChatPanel({
   }
 
   return (
-    <>
+    <FileDropZone
+      className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      disabled={uploadingMedia}
+      onFiles={(files) => void onPickFiles(files)}
+    >
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-lc-border bg-lc-dark px-5 shadow-sm">
         <div className="flex min-w-0 items-center gap-3">
           <span className="text-xl text-lc-muted">#</span>
@@ -2540,6 +2549,7 @@ function ChatPanel({
                 customEmojis={mergeCustomEmojiMaps(serverEmojis, draftCustomEmojis)}
                 onPick={(emoji, custom, kind) => {
                   if (kind === 'sticker') setDraft(emoji);
+                  else if (kind === 'gif') setDraft((current) => current.trim() ? [current.trim(), emoji].join(String.fromCharCode(10)) : emoji);
                   else setDraft((current) => current + emoji);
                   setDraftSticker(kind === 'sticker' && custom ? custom : null);
                   setDraftVoiceNote(null);
@@ -2681,7 +2691,7 @@ function ChatPanel({
       {showSettings && group && (
         <ChannelSettingsModal group={group} onClose={() => setShowSettings(false)} />
       )}
-    </>
+    </FileDropZone>
   );
 }
 

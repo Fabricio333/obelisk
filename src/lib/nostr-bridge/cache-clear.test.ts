@@ -13,6 +13,7 @@ const wiped = [
   "obelisk-dex/forum-collapsed/group-1",
   "obelisk-dex/mobile-setup-seen/" + PUBKEY,
   "obelisk-dex/just-generated/" + PUBKEY,
+  "obelisk:relay-info-v3",
   "obelisk:relay-info-v2",
   "obelisk:voice-chat-width",
 ];

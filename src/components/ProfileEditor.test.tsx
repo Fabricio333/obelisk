@@ -79,7 +79,7 @@ describe('ProfileEditor', () => {
         expect(mocks.publishProfile).toHaveBeenCalledWith({
           name: 'Alice',
           displayName: 'Alice',
-        });
+        }, { create: true });
       });
 
       await waitFor(() => {
@@ -109,7 +109,7 @@ describe('ProfileEditor', () => {
           name: 'Alice',
           displayName: 'Alice',
           picture: 'https://blossom.primal.net/abc123.jpg',
-        });
+        }, { create: true });
       });
     });
   });

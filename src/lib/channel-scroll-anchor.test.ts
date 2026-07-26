@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { channelInitialAnchorFromCursor } from './channel-scroll-anchor';
+import { channelCursorHasReadLatest, channelInitialAnchorFromCursor } from './channel-scroll-anchor';
 
 const messages = [
   { id: 'm1', createdAt: 100, pubkey: 'alice' },
@@ -27,5 +27,11 @@ describe('channelInitialAnchorFromCursor', () => {
 
   it('falls back to latest when everything loaded is already read', () => {
     expect(channelInitialAnchorFromCursor(messages, 500_000, 'me')).toEqual({ kind: 'bottom' });
+  });
+
+  it('detects when the cursor covers every non-own message', () => {
+    expect(channelCursorHasReadLatest(messages, 400_000, 'me')).toBe(true);
+    expect(channelCursorHasReadLatest(messages, 250_000, 'me')).toBe(false);
+    expect(channelCursorHasReadLatest([{ id: 'own', createdAt: 600, pubkey: 'me' }], 500_000, 'me')).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSeedHistory, decideSnap, decideSwipeNav, decideTabPress, NAV_ORDER, neighborsFor, resolveParent } from './swipe-nav';
+import { buildSeedHistory, decideSnap, decideSwipeNav, decideTabPress, isAdjacentTabSwitch, NAV_ORDER, neighborsFor, resolveParent } from './swipe-nav';
 import { initialNav, type NavState, type ScreenName } from './url-state';
 
 const navOf = (screen: ScreenName, parentScreen: ScreenName | null = null): NavState => ({
@@ -168,6 +168,12 @@ describe('mobile swipe-nav', () => {
 
   it('NAV_ORDER has exactly the 4 expected top-level tabs', () => {
     expect(NAV_ORDER).toEqual(['server', 'dms-list', 'inbox', 'settings-profile']);
+  });
+
+  it('only slides between adjacent bottom-nav tabs', () => {
+    expect(isAdjacentTabSwitch('server', 'dms-list')).toBe(true);
+    expect(isAdjacentTabSwitch('server', 'inbox')).toBe(false);
+    expect(isAdjacentTabSwitch('server', 'settings-profile')).toBe(false);
   });
 
   describe('neighborsFor — drag-carousel reveal', () => {

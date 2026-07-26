@@ -1645,6 +1645,34 @@ describe('nostr-bridge', () => {
     expect(fake.state.published.some((event) => event.kind === 0)).toBe(false);
   });
 
+  it('creates a new profile without waiting for an absent profile read', async () => {
+    const { getBridge } = await import('./client');
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+    fake.state.published = [];
+    fake.state.suppressNextEose = true;
+
+    await bridge.editUserMetadata({ name: 'Alice' }, { create: true });
+
+    expect(fake.state.published.some((event) => event.kind === 0 && event.pubkey === pkHex)).toBe(true);
+  });
+
+  it('edits from the signed profile cache when the preservation read would time out', async () => {
+    const { getBridge } = await import('./client');
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+    await bridge.editUserMetadata({ name: 'Alice', about: 'keep me' });
+    fake.state.published = [];
+    fake.state.suppressNextEose = true;
+
+    await bridge.editUserMetadata({ name: 'Bob' });
+
+    const event = fake.state.published.find((candidate) => candidate.kind === 0);
+    expect(JSON.parse(event!.content)).toMatchObject({ name: 'Bob', about: 'keep me' });
+  });
+
   it('does not overwrite the mute list when the preservation read times out', async () => {
     const { getBridge } = await import('./client');
     const { skHex, pkHex } = makeKeypair();

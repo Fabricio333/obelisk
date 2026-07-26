@@ -1,17 +1,13 @@
 /**
  * Tests for the room-wide video-slot cap.
  *
- * The room allows up to 8 audio participants (`MAX_PARTICIPANTS`) but only
- * `MAX_VIDEO_SLOTS = 4` simultaneous outbound video tracks across the
- * whole room — camera and screen counted in the same pool. The cap is
- * enforced cooperatively: every client computes the global count from the
- * roster's `videoTracks` lists plus its own local state, and refuses /
- * evicts when over.
+ * The room allows four participants, four cameras, and one screen share.
+ * Each cap is enforced cooperatively from relay presence plus local state.
  *
  * Coverage:
  *   - cold-started client can claim camera up to the cap
  *   - cold-started client refuses camera once the room is at the cap
- *   - mixed cameras + screens count toward the same pool
+ *   - screen shares do not consume camera slots
  *   - race-overflow: a remote claim that landed before ours pushes us out
  *   - leave releases the slot
  */
@@ -124,28 +120,11 @@ describe('VoiceClient.canClaimVideoSlot', () => {
     await client.leave();
   });
 
-  it('refuses a camera start when the room already has 4 video tracks', async () => {
+  it('refuses a camera start when the room already has 4 cameras', async () => {
     const members = [SELF, ...PEERS];
     const client = new VoiceClient('ch1', { members });
     await client.join();
-    // Four other peers each claim a video slot — two cameras, two screens.
-    transportFake.fireRoster([
-      presence(PEERS[0], ['camera']),
-      presence(PEERS[1], ['camera']),
-      presence(PEERS[2], ['screen']),
-      presence(PEERS[3], ['screen']),
-    ]);
-    await flushMicrotasks(8);
-
-    expect(client.getVideoSlotsAvailable()).toBe(0);
-    await expect(client.setCameraEnabled(true)).rejects.toThrow(/Video room is full/i);
-    await client.leave();
-  });
-
-  it('refuses a screen-share start when the room is at the cap', async () => {
-    const members = [SELF, ...PEERS];
-    const client = new VoiceClient('ch1', { members });
-    await client.join();
+    // Four other peers each claim a camera slot.
     transportFake.fireRoster([
       presence(PEERS[0], ['camera']),
       presence(PEERS[1], ['camera']),
@@ -154,15 +133,26 @@ describe('VoiceClient.canClaimVideoSlot', () => {
     ]);
     await flushMicrotasks(8);
 
-    await expect(client.setScreenShareEnabled(true)).rejects.toThrow(/Video room is full/i);
+    expect(client.getVideoSlotsAvailable()).toBe(0);
+    await expect(client.setCameraEnabled(true)).rejects.toThrow(/Camera limit reached/i);
     await client.leave();
   });
 
-  it('counts a peer with both camera AND screen as 2 slots', async () => {
+  it('refuses a screen-share start when one screen is already shared', async () => {
     const members = [SELF, ...PEERS];
     const client = new VoiceClient('ch1', { members });
     await client.join();
-    // PEER0 holds two slots; PEERS 1, 2 each hold one. Total = 4. Self can't claim.
+    transportFake.fireRoster([presence(PEERS[0], ['screen'])]);
+    await flushMicrotasks(8);
+
+    await expect(client.setScreenShareEnabled(true)).rejects.toThrow(/Only one screen share/i);
+    await client.leave();
+  });
+
+  it('does not count screen shares against the camera limit', async () => {
+    const members = [SELF, ...PEERS];
+    const client = new VoiceClient('ch1', { members });
+    await client.join();
     transportFake.fireRoster([
       presence(PEERS[0], ['camera', 'screen']),
       presence(PEERS[1], ['camera']),
@@ -170,8 +160,8 @@ describe('VoiceClient.canClaimVideoSlot', () => {
     ]);
     await flushMicrotasks(8);
 
-    expect(client.getVideoSlotsAvailable()).toBe(0);
-    await expect(client.setCameraEnabled(true)).rejects.toThrow(/Video room is full/i);
+    expect(client.getVideoSlotsAvailable()).toBe(2);
+    await expect(client.setCameraEnabled(true)).resolves.toBeUndefined();
     await client.leave();
   });
 });
@@ -256,7 +246,7 @@ describe('VoiceClient slot release on stop', () => {
     await flushMicrotasks(8);
     await client.setCameraEnabled(true);
     await client.setScreenShareEnabled(true);
-    expect(client.getVideoSlotsAvailable()).toBe(2);
+    expect(client.getVideoSlotsAvailable()).toBe(3);
     await client.leave();
     // After leave, building the slot list returns 0 — internal state cleared.
     expect(client.getVideoSlotsAvailable()).toBe(4);
