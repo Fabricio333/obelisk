@@ -169,8 +169,10 @@ neighbor so stale transitive hints age out without requiring relay beacons.
 4. **Library/PC terminal close** — last resort. The owner tears down and
    redials while relay/control discovery still considers the pubkey active.
 
-All four converge on the same `tearDownPeer(pubkey)` (idempotent — see
-`client.ts`).
+All four converge on `tearDownPeer` (idempotent — see `client.ts`). A real
+`bye` removes the participant; connection-only failures close the local
+`simple-peer` silently and preserve membership while kind 20078 still says the
+remote user is present. This prevents reciprocal kind 25050 leave/redial loops.
 
 ## Capacity and full-mesh convergence
 

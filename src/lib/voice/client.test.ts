@@ -651,6 +651,28 @@ describe('VoiceClient roster → peer lifecycle', () => {
     await client.leave();
   });
 
+  it('keeps beacon presence stable and does not publish leave during an internal redial', async () => {
+    vi.useFakeTimers();
+    const onParticipantsChange = vi.fn();
+    const client = new VoiceClient('ch1', {
+      members: [SELF, PEER1],
+      events: { onParticipantsChange },
+    });
+    await client.join();
+    transportFake.fireRoster([presence(PEER1)]);
+    await flushMicrotasks(8);
+    onParticipantsChange.mockClear();
+    transportFake.sentSignals.length = 0;
+
+    await vi.advanceTimersByTimeAsync(9_000);
+    await flushMicrotasks(8);
+
+    expect(client.getParticipants()).toContain(PEER1);
+    expect(onParticipantsChange.mock.calls.some(([participants]) => !participants.includes(PEER1))).toBe(false);
+    expect(transportFake.sentSignals.some(({ payload }) => payload.type === 'bye')).toBe(false);
+    await client.leave();
+  });
+
   it('emits mesh peer connection states while media channels connect', async () => {
     const onPeerConnectionStatesChange = vi.fn();
     const client = new VoiceClient('ch1', {
