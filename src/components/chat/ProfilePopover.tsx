@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useChatStore } from '@/store/chat';
 import { useGroupMemberInfo, useMyPubkey, useUserMetadata } from '@/lib/nostr-bridge';
 import { useToastStore } from '@/store/toast';
@@ -110,22 +110,39 @@ export default function ProfilePopover({ pubkey, onClose, onExplore, onMessage }
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  useLayoutEffect(() => {
+    if (!anchor || !panelRef.current) return;
+    const panel = panelRef.current;
+    const place = () => {
+      const left = anchor.x + panel.offsetWidth + 12 <= window.innerWidth
+        ? anchor.x + 12
+        : Math.max(12, anchor.x - panel.offsetWidth - 12);
+      const bottomEdge = window.innerHeight - 88;
+      const top = anchor.y + panel.offsetHeight + 8 <= bottomEdge
+        ? anchor.y + 8
+        : Math.max(12, anchor.y - panel.offsetHeight - 8);
+      panel.style.left = `${left}px`;
+      panel.style.top = `${top}px`;
+    };
+    place();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place);
+    observer?.observe(panel);
+    window.addEventListener('resize', place);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', place);
+    };
+  }, [anchor]);
+
   let npub = '';
   try { npub = hexToNpub(pubkey); } catch {}
   const safeFallback = npub ? formatPubkey(pubkey) : pubkey;
   const displayName = member?.displayName || safeFallback;
   const npubShort = npub ? shortNpub(pubkey) : pubkey;
   const baseRole = member?.role ? BASE_ROLE_LABEL[member.role] : undefined;
-  const position = anchor && typeof window !== 'undefined'
-    ? {
-        left: Math.max(12, anchor.x + 396 <= window.innerWidth ? anchor.x + 12 : anchor.x - 396),
-        top: Math.max(12, Math.min(anchor.y - 80, window.innerHeight - 420)),
-      }
-    : null;
-
   return (
     <div
-      className={`fixed inset-0 z-[100] flex p-4 ${position ? 'items-start justify-start bg-transparent' : 'items-center justify-center bg-black/60'}`}
+      className={`fixed inset-0 z-[100] flex p-4 ${anchor ? 'items-start justify-start bg-transparent' : 'items-center justify-center bg-black/60'}`}
       onClick={onClose}
       data-testid="profile-popover-backdrop"
     >
@@ -133,7 +150,7 @@ export default function ProfilePopover({ pubkey, onClose, onExplore, onMessage }
         ref={panelRef}
         onClick={(e) => e.stopPropagation()}
         className="w-full max-w-sm max-h-[calc(100dvh-2rem)] overflow-y-auto bg-lc-dark border border-lc-border rounded-xl shadow-2xl"
-        style={position ? { position: 'fixed', ...position, maxHeight: `calc(100dvh - ${position.top + 12}px)` } : undefined}
+        style={anchor ? { position: 'fixed', maxHeight: 'calc(100dvh - 24px)' } : undefined}
         data-testid="profile-popover"
         role="dialog"
       >

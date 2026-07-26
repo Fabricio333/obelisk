@@ -108,13 +108,17 @@ describe('ProfilePopover', () => {
   it('anchors beside the clicked user and opens messages internally', () => {
     const onClose = vi.fn();
     const onMessage = vi.fn();
-    useChatStore.getState().openProfilePopup(PUBKEY, { x: 100, y: 200 });
+    const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(300);
+    const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(384);
+    useChatStore.getState().openProfilePopup(PUBKEY, { x: 100, y: 700 });
     renderProfile(onClose, vi.fn(), onMessage);
 
-    expect(screen.getByTestId('profile-popover')).toHaveStyle({ left: '112px', top: '120px' });
+    expect(screen.getByTestId('profile-popover')).toHaveStyle({ left: '112px', top: '392px' });
     fireEvent.click(screen.getByTestId('profile-message-btn'));
     expect(onClose).toHaveBeenCalledOnce();
     expect(onMessage).toHaveBeenCalledWith(PUBKEY);
+    height.mockRestore();
+    width.mockRestore();
   });
 
   it('shows the npub ending with a copy icon instead of an njump link', () => {
