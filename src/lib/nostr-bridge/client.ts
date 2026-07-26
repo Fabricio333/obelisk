@@ -6026,23 +6026,34 @@ export class BridgeImpl {
     pushRelayDebug({ kind: "publish-start", relays: targetRelays, eventKind: template.kind, status: eventKindDescription(template.kind) });
     const publishes = this.pool.publish(targetRelays, event, { onauth: this.getAuthSigner() });
 
-    // Ephemeral events (NIP-01: kinds 20000-29999) are not stored and some
-    // relays don't even send OK for them — some NIP-29 relays in
-    // particular times out the publish promise instead of acknowledging.
-    // The bytes are already on the wire by the time pool.publish returns;
-    // waiting for OK just produces "publish time out" errors that mislead
-    // users into thinking voice is broken. Treat these as fire-and-forget
-    // and let any per-relay rejection surface as a console swallow.
+    // Some relays never ACK ephemeral events, so keep the bounded
+    // fire-and-forget fallback. Explicit rejections usually arrive at once,
+    // though, and must flow through the normal error path; otherwise voice
+    // claims it joined while every beacon and signal was denied.
     const isEphemeral = event.kind >= 20000 && event.kind < 30000;
-    if (isEphemeral) {
-      for (const p of publishes) {
-        p.catch((e) => console.debug('[bridge] ephemeral publish skip', event.kind, e instanceof Error ? e.message : e));
+    let results: PromiseSettledResult<string>[];
+    if (!isEphemeral) {
+      results = await Promise.allSettled(publishes);
+    } else {
+      let ackTimer: ReturnType<typeof setTimeout> | undefined;
+      const settled = await Promise.race([
+        Promise.allSettled(publishes).then((value) => {
+          if (ackTimer) clearTimeout(ackTimer);
+          return value;
+        }),
+        new Promise<null>((resolve) => { ackTimer = setTimeout(() => resolve(null), 750); }),
+      ]);
+      if (settled !== null) {
+        results = settled;
+      } else {
+        for (const p of publishes) {
+          p.catch((e) => console.debug('[bridge] ephemeral publish skip', event.kind, e instanceof Error ? e.message : e));
+        }
+        if (pubId != null) resolveActivity(pubId, `ephemeral → ${targetRelays.length} relay(s)`);
+        return event;
       }
-      if (pubId != null) resolveActivity(pubId, `ephemeral → ${targetRelays.length} relay(s)`);
-      return event;
     }
 
-    const results = await Promise.allSettled(publishes);
     // Surface NIP-42 / whitelist signals from the active relay. We only flip
     // state on rejections — successful publishes already get marked 'ok' via
     // the read path's onevent/oneose, so no need to overwrite here.

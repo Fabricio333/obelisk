@@ -241,7 +241,7 @@ await bridge.editUserMetadata({ name: 'Alice', displayName: 'Alice' });
 > Tests are part of the implementation, not an afterthought.
 
 ## Relays
-- **Default for groups:** `wss://relay.obelisk.ar` (overridable per session)
+- **Built-in group relays:** `wss://public.obelisk.ar` (default) and `wss://lacrypta-relay.obelisk.ar`
 - **Profile relays (kind:0 / kind:3):** relay.damus.io, relay.nostr.band, nos.lol, relay.primal.net, purplepag.es
 - **NostrConnect rendezvous:** relay.nsec.app + the profile relays
 - **User relays:** Auto-fetched from NIP-65 (kind 10002) for DM delivery (`fetchMyDmRelays`)

@@ -55,7 +55,7 @@ event:
 - The relay implementation is the source of truth for group metadata. If a
   relay strips unknown tags when it republishes 39000, banners will not
   propagate. Most current NIP-29 relays (`relay.0xchat.com`,
-  `groups.fiatjaf.com`, `relay.obelisk.ar`) preserve unknown tags.
+  `groups.fiatjaf.com`, `lacrypta-relay.obelisk.ar`) preserve unknown tags.
 - Other NIP-29 clients will ignore the tag silently — no errors, no banner
   shown. Reverting to a banner-aware client picks the value up from the
   relay's existing 39000 event.

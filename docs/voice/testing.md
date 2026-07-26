@@ -41,16 +41,13 @@ OBELISK_E2E_BASE_URL=http://localhost:3001 npm run test:e2e:voice
 
 `npm run test:e2e:voice:headed` adds `--headed` for live observation.
 
-The specs run against `wss://public.obelisk.ar` by default (override
-with `OBELISK_E2E_RELAY=wss://relay.obelisk.ar`). The two-peer spec
-auto-falls-back to `relay.obelisk.ar` if `public.obelisk.ar` doesn't
-reach `relay-access=ok` in 30 s.
+The specs run against `wss://public.obelisk.ar` by default. Override with `OBELISK_E2E_RELAY`, but use credentials authorized by that relay. The selected relay is never silently replaced.
 
 ### Specs
 
 | Spec | What it proves |
 |---|---|
-| `two-peer-mesh.spec.ts` | Beacon round-trip, signal round-trip, WebRTC `connectionState=connected`, audio RTP both ways, camera RTP both ways, build-tag check, and fast-hangup detection (<15 s) when one peer leaves |
+| `two-peer-mesh.spec.ts` | Beacon round-trip, signal round-trip, WebRTC `connectionState=connected`, audio RTP both ways, camera RTP both ways, UI-facing live audio/camera streams, build-tag check, and fast-hangup detection (<15 s) when one peer leaves |
 | `three-peer-transitive.spec.ts` | Full mesh on 3 peers (each reports `connected=2`), 2 control channels per peer, heartbeat alive, at least one `transitive.discoveredViaControl > 0`, fast-hangup propagation when one peer leaves |
 | `glare.spec.ts` | Two peers join at the exact same await tick → connection still establishes, exactly one control channel per side (no double-create) |
 | `four-peer-media.spec.ts` | Full four-person room plus real audio, camera, and screen media flow |
@@ -63,7 +60,7 @@ The "Media syncing" failure mode can happen after peers are already visible and 
 1. Confirm the loaded client build with `window.__obeliskVoiceBuild`.
 2. Run `npx vitest run src/lib/voice/client.test.ts src/lib/voice/peer.test.ts src/lib/voice/peer-pair.integration.test.ts`.
 3. Build and restart the production server on the E2E port.
-4. Run the focused `two-peer-mesh.spec.ts`; it must pass audio and camera RTP byte assertions in both directions.
+4. Run the focused `two-peer-mesh.spec.ts`; it must pass audio and camera RTP byte assertions plus UI-facing live-stream assertions in both directions.
 
 The adapter delegates SDP/ICE/media renegotiation to `simple-peer`; regression coverage verifies deterministic initiator roles, opaque Nostr signal forwarding, recv-only transceiver requests, terminal redial, and media flow. Keep TURN forcing off for normal mesh tests; set `TEST_PEER_FORCE_RELAY=1` or `NEXT_PUBLIC_FORCE_RELAY=1` only for explicit TURN-only debugging.
 
@@ -84,7 +81,7 @@ media path while speaking the browser mesh protocol:
 
 ```bash
 cd /root/obelisk-sfu
-TEST_PEER_RELAYS=wss://relay.obelisk.ar npm run test-peer:mesh -- <channel-id>
+TEST_PEER_RELAYS=wss://lacrypta-relay.obelisk.ar npm run test-peer:mesh -- <channel-id>
 ```
 
 From the SFU admin UI, choose **Mesh P2P** in the Test peers form. The script

@@ -27,7 +27,7 @@ export const RELAYS_KEY = 'obelisk-dex/relays';
 export const DEFAULT_RELAY = 'wss://public.obelisk.ar';
 
 /** Whitelist-rejection specs use this restricted relay by default. */
-export const DEFAULT_RESTRICTED_RELAY = 'wss://relay.obelisk.ar';
+export const DEFAULT_RESTRICTED_RELAY = 'wss://lacrypta-relay.obelisk.ar';
 
 export interface PersistedSession {
   privKeyHex?: string;

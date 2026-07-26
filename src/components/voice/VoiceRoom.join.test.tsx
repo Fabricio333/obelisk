@@ -5,6 +5,7 @@ import { useVoiceStore } from '@/store/voice';
 
 const voiceHarness = vi.hoisted(() => ({
   activeClient: null as any,
+  joinError: null as Error | null,
   setActiveVoiceClient: vi.fn((client: any) => { voiceHarness.activeClient = client; }),
   voiceClientCtor: vi.fn(),
 }));
@@ -46,7 +47,9 @@ vi.mock('@/lib/voice/client', () => ({
     const client = {
       channelId,
       isJoined: () => true,
-      join: vi.fn(async () => {}),
+      join: vi.fn(async () => {
+        if (voiceHarness.joinError) throw voiceHarness.joinError;
+      }),
       leave: vi.fn(async () => {}),
       setEvents: vi.fn(),
       setExpectSfu: vi.fn(),
@@ -102,6 +105,7 @@ beforeEach(() => {
     subscribeMembershipReady: (_channelId: string, cb: (ready: boolean) => void) => { cb(true); return vi.fn(); },
   };
   voiceHarness.activeClient = null;
+  voiceHarness.joinError = null;
   voiceHarness.setActiveVoiceClient.mockClear();
   voiceHarness.voiceClientCtor.mockClear();
   useVoiceStore.setState({
@@ -159,6 +163,17 @@ describe('VoiceRoom join page', () => {
     await waitFor(() => {
       expect(voiceHarness.activeClient?.setPassiveParticipantHints).toHaveBeenCalledWith(['me-pubkey', 'peer-a']);
     });
+  });
+
+  it('returns to the join page when relay signaling is rejected', async () => {
+    voiceHarness.joinError = new Error('Relay rejected event: restricted: Access denied');
+    render(<VoiceRoom channelId="old-voice" channelName="Old Voice" />);
+
+    fireEvent.click(await screen.findByTestId('join-voice-btn'));
+
+    expect(await screen.findByTestId('join-voice-btn')).toBeInTheDocument();
+    expect(screen.getByText(/restricted: Access denied/i)).toBeInTheDocument();
+    expect(voiceHarness.activeClient).toBeNull();
   });
 
   it('renders passive SFU or mesh occupants on the join page without connecting', async () => {

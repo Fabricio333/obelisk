@@ -30,7 +30,6 @@ import { test, expect, chromium } from '@playwright/test';
 import {
   attachClientCapture,
   generateIdentity,
-  getRelayAccessState,
   nsecSession,
   seedSession,
   waitForRelayOk,
@@ -40,12 +39,12 @@ import {
   getInboundAudioBytes,
   getInboundVideoBytes,
   getPeerState,
+  getRemoteTrackKinds,
   installFakeMediaStreams,
   joinMeshChannel,
   leaveMeshChannel,
   logObserved,
   logOk,
-  logWarn,
   makeProbeChannelId,
   readMetrics,
   setCameraEnabled,
@@ -55,7 +54,6 @@ import {
 } from './lib-voice';
 
 const RELAY_URL = process.env.OBELISK_E2E_RELAY ?? DEFAULT_RELAY;
-const FALLBACK_RELAY = 'wss://relay.obelisk.ar';
 const MEDIA_FLOW_TIMEOUT_MS = 30_000;
 
 test('two real mesh peers connect via the public relay', async () => {
@@ -122,35 +120,11 @@ test('two real mesh peers connect via the public relay', async () => {
     ]);
 
     // ── H4: relay write acceptance check ──────────────────────────────
-    // First, see whether the chosen relay even lets these fresh pubkeys
-    // reach access=ok. If not, log it and bail to the fallback.
-    let chosenRelay = RELAY_URL;
-    try {
-      await Promise.all([
-        waitForRelayOk(pageA, 30_000),
-        waitForRelayOk(pageB, 30_000),
-      ]);
-      logOk(`relay-access ok on both peers (${chosenRelay})`);
-    } catch (err) {
-      logWarn(`${chosenRelay} did not reach 'ok' in 30 s — falling back to ${FALLBACK_RELAY}`);
-      logWarn(`reason: ${(err as Error).message}`);
-      const accessA = await getRelayAccessState(pageA);
-      const accessB = await getRelayAccessState(pageB);
-      logObserved(`peerA access=${accessA}, peerB access=${accessB}`);
-      // Re-seed both contexts with the fallback and reload.
-      await seedSession(ctxA, nsecSession(idA, FALLBACK_RELAY));
-      await seedSession(ctxB, nsecSession(idB, FALLBACK_RELAY));
-      await Promise.all([
-        pageA.reload({ waitUntil: 'domcontentloaded' }),
-        pageB.reload({ waitUntil: 'domcontentloaded' }),
-      ]);
-      await Promise.all([
-        waitForRelayOk(pageA, 30_000),
-        waitForRelayOk(pageB, 30_000),
-      ]);
-      chosenRelay = FALLBACK_RELAY;
-      logOk(`relay-access ok on both peers via fallback (${chosenRelay})`);
-    }
+    await Promise.all([
+      waitForRelayOk(pageA, 30_000),
+      waitForRelayOk(pageB, 30_000),
+    ]);
+    logOk(`relay-access ok on both peers (${RELAY_URL})`);
 
     // ── Bridge readiness ──────────────────────────────────────────────
     const [pkA, pkB] = await Promise.all([
@@ -250,6 +224,22 @@ test('two real mesh peers connect via the public relay', async () => {
       ),
     ]);
     logOk('camera RTP bytes are flowing both ways');
+
+    await Promise.all([
+      waitFor(
+        () => getRemoteTrackKinds(pageA, pkB),
+        (kinds) => kinds.includes('audio') && kinds.includes('camera'),
+        MEDIA_FLOW_TIMEOUT_MS,
+        'peerA exposes peerB media to the UI',
+      ),
+      waitFor(
+        () => getRemoteTrackKinds(pageB, pkA),
+        (kinds) => kinds.includes('audio') && kinds.includes('camera'),
+        MEDIA_FLOW_TIMEOUT_MS,
+        'peerB exposes peerA media to the UI',
+      ),
+    ]);
+    logOk('VoiceClient exposes live audio and camera tracks to the UI on both sides');
 
     // ── Hold for 5 s of steady state, then snapshot ───────────────────
     await pageA.waitForTimeout(5_000);

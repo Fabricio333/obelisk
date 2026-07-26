@@ -34,14 +34,14 @@ Ordinary `voice` channels use the four-person mesh. A `voice-sfu` channel withou
 
 ## Build-time SFU pinning
 
-NIP-29-only relays (e.g. `relay.obelisk.ar`) do not store kind 31313, so the
+NIP-29-only relays (e.g. `lacrypta-relay.obelisk.ar`) do not store kind 31313, so the
 dex can't always discover an SFU through the same relay it uses for the
 group. To skip discovery, set in `.env.local`:
 
 ```
 NEXT_PUBLIC_SFU_PUBKEY=<sfu hex pubkey>
 NEXT_PUBLIC_SFU_URL=https://sfu.obelisk.ar
-NEXT_PUBLIC_SFU_TRUSTED_RELAYS=wss://relay.obelisk.ar
+NEXT_PUBLIC_SFU_TRUSTED_RELAYS=wss://lacrypta-relay.obelisk.ar
 ```
 
 `pickSfu()` short-circuits when these are set — no kind 31313 round-trip

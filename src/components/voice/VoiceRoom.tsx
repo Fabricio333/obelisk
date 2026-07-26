@@ -357,8 +357,14 @@ export default function VoiceRoom({ channelId, channelName, chatSlot, isChatOpen
         s.setVoiceChannel(channelId, currentRelayUrl);
         s.setConnecting(false);
       } catch (e) {
+        if (client) {
+          await client.leave().catch(() => undefined);
+          if (getActiveVoiceClient() === client) setActiveVoiceClient(null);
+          if (clientRef.current === client) clientRef.current = null;
+        }
         const msg = e instanceof Error ? e.message : String(e);
         if (!cancelled) {
+          setJoinedChannelId(null);
           setError(msg);
           useVoiceStore.getState().setError(msg);
           useVoiceStore.getState().setConnecting(false);
