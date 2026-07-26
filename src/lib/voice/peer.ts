@@ -461,16 +461,18 @@ export class Peer {
     }
   }
 
-  close(): void {
+  close(options: { notifyRemote?: boolean } = {}): void {
     if (this.closed) return;
     this.closed = true;
-    this.broadcastControl({ type: 'bye', reason: 'local-leave' });
-    void Promise.resolve(this.send({
-      type: 'bye',
-      sessionId: this.sessionId,
-      seq: ++this.outboundSeq,
-      byeReason: 'local-leave',
-    })).catch(() => {});
+    if (options.notifyRemote !== false) {
+      this.broadcastControl({ type: 'bye', reason: 'local-leave' });
+      void Promise.resolve(this.send({
+        type: 'bye',
+        sessionId: this.sessionId,
+        seq: ++this.outboundSeq,
+        byeReason: 'local-leave',
+      })).catch(() => {});
+    }
     if (this.connectWatchdog) clearTimeout(this.connectWatchdog);
     if (this.pingTimer) clearInterval(this.pingTimer);
     if (this.snapshotTimer) clearInterval(this.snapshotTimer);

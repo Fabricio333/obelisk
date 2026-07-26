@@ -186,4 +186,12 @@ describe('Peer simple-peer adapter', () => {
     expect(sent.filter((payload) => payload.type === 'bye')).toHaveLength(1);
     expect(simple.destroyed).toBe(true);
   });
+
+  it('closes silently when the owner is rebuilding the connection', async () => {
+    const { peer, simple, sent } = makePeer();
+    peer.close({ notifyRemote: false });
+    await Promise.resolve();
+    expect(sent.some((payload) => payload.type === 'bye')).toBe(false);
+    expect(simple.destroyed).toBe(true);
+  });
 });

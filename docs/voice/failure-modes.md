@@ -28,10 +28,10 @@ expected)**.
 
 | Failure | Handler | Counter |
 |---|---|---|
-| Peer's PC reaches a terminal close | `simple-peer` owns SDP/ICE negotiation; `VoiceClient` tears down and redials from relay/control discovery | `peers.tornDown` |
-| Peer crashed / network blackout (no traffic for 20 s) | Control-channel `onDead('heartbeat-lost')` → `tearDownPeer` | `peers.tornDown` |
+| Peer PC reaches a terminal close | `VoiceClient` silently rebuilds the peer (no `bye`), preserves kind 20078 presence, and redials from discovery | `peers.tornDown` |
+| Peer crashed / network blackout (no traffic for 20 s) | Silent local teardown + discovery-driven redial; no reciprocal leave signal | `peers.tornDown` |
 | Peer cleanly leaves | Control-channel `bye` (sub-100 ms) → `tearDownPeer` | `peers.tornDown`, `signals.byeViaControl` |
-| Peer never opens (9 s timeout) | `onPeerDead('open-timeout')` → teardown + discovery-driven redial | `peers.tornDown` |
+| Peer never opens (9 s timeout) | Silent local teardown + discovery-driven redial while the beacon remains live | `peers.tornDown` |
 | Local tab close / refresh | `beforeunload` / `pagehide` → control-channel `bye` to all peers, then `pc.close()` | `peers.tornDownByUnload` (on the leaver), `signals.byeViaControl` (on the receivers) |
 | Both browsers try to negotiate | Deterministic pubkey ordering makes exactly one `simple-peer` instance the initiator; the other sends library `renegotiate`/`transceiverRequest` signals | Covered by `peer.test.ts` and `client.test.ts` |
 

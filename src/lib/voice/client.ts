@@ -864,7 +864,7 @@ export class VoiceClient {
           // A passive active-call hint can open the peer before the roster
           // beacon reveals it as a mesh test peer. Rebuild so the browser
           // becomes the offer-driving side instead of staying polite forever.
-          this.tearDownPeer(pk);
+          this.tearDownPeer(pk, true);
         }
       }
       // Mesh test peers are admitted by their roster beacon, not by NIP-29
@@ -1718,7 +1718,7 @@ export class VoiceClient {
             this.discovery.dropClaimsFromPeer(remotePubkey);
             this.scheduleBeaconRefresh();
             this.scheduleControlPeerSnapshot();
-            this.tearDownPeer(remotePubkey);
+            this.tearDownPeer(remotePubkey, !reason.startsWith('bye:'));
             if (!reason.startsWith('bye:')) this.scheduleDialFromDiscovery();
           },
           onRemoteTrack: (track, stream, kind, originPubkey) => {
@@ -1800,7 +1800,7 @@ export class VoiceClient {
               // where discovery should create a fresh connection.
               const p = this.peers.get(remotePubkey);
               if (p && p === peer) {
-                this.tearDownPeer(remotePubkey);
+                this.tearDownPeer(remotePubkey, true);
                 this.scheduleDialFromDiscovery();
               }
             }
@@ -1848,7 +1848,7 @@ export class VoiceClient {
    * to decide whether to clean up. With the entry still in the map at that
    * moment, the listener would re-enter `tearDownPeer` and recurse.
    */
-  private tearDownPeer(pubkey: string): void {
+  private tearDownPeer(pubkey: string, preservePresence = false): void {
     const peer = this.peers.get(pubkey);
     const droppedClaims = this.discovery.dropClaimsFromPeer(pubkey);
     if (droppedClaims.length > 0) {
@@ -1857,11 +1857,15 @@ export class VoiceClient {
     }
     if (peer) {
       this.peers.delete(pubkey);
-      peer.close();
+      // Internal connection rebuilds must not announce that the user left
+      // the call. Their live kind-20078 beacon remains the presence source.
+      peer.close({ notifyRemote: false });
       this.metrics.peers.tornDown++;
       pushVoiceDebug({ kind: 'peer-torn-down', peer: pubkey });
     }
-    const nextRoster = this.rosterPubkeys.filter((pk) => pk !== pubkey);
+    const nextRoster = preservePresence
+      ? this.rosterPubkeys
+      : this.rosterPubkeys.filter((pk) => pk !== pubkey);
     const rosterChanged = nextRoster.length !== this.rosterPubkeys.length;
     if (rosterChanged) {
       this.rosterPubkeys = nextRoster;
