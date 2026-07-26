@@ -3,7 +3,7 @@
  *
  * Three places used to hand-roll the same picture/initials pair:
  * `DMList`'s `Avatar`, `UserPanel`'s settings header + profile-card variant,
- * and `ProfilePopover`'s banner-overlapping avatar. They all share the
+ * and `NostrProfile`'s banner-overlapping avatar. They all share the
  * "render `picture` if present, otherwise a circle with the first character
  * of name (or pubkey)" pattern.
  *

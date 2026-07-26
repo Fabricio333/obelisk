@@ -102,6 +102,8 @@ import RelayAdminPanel from '@/components/admin/RelayAdminPanel';
 import RelayEmojiAdminModal from '@/components/admin/RelayEmojiAdminModal';
 import LanguagePreference from '@/components/LanguagePreference';
 import AppearancePreferenceControls from '@/components/AppearancePreferenceControls';
+import ProfileFeedRelaySettings from '@/components/settings/ProfileFeedRelaySettings';
+import NostrProfile from '@/components/chat/NostrProfile';
 import { useTranslation } from '@/i18n/context';
 import { npubToHex } from '@nostr-wot/data';
 import {
@@ -3671,58 +3673,7 @@ function ProfileViewScreen({
   back: () => void;
   openDm: (peer: string) => void;
 }) {
-  const { t } = useTranslation();
-  const meta = useUserMetadata(pubkey);
-  const myPubkey = useMyPubkey();
-  const isMe = myPubkey === pubkey;
-  const name = meta?.displayName || meta?.name || shortNpub(pubkey);
-
-  return (
-    <div className="screen profile-view-screen active" data-screen="profile-view">
-      <div
-        className="profile-view-banner"
-        style={meta?.banner ? { backgroundImage: `url(${meta.banner})` } : undefined}
-      >
-        <div className="profile-view-topbar">
-          <button className="back-btn" onClick={back} aria-label={t('common.back')}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
-          </button>
-          <button className="icon-btn" aria-label={t('mobile.profile.more')}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" /></svg>
-          </button>
-        </div>
-      </div>
-      <div className="profile-view-avatar" style={avatarStyle(pubkey)}>
-        {meta?.picture ? <img src={meta.picture} alt="" /> : initialsFor(name, shortNpub(pubkey).slice(0, 2).toUpperCase())}
-      </div>
-      <div className="profile-view-meta">
-        <div className="profile-view-name">{name}</div>
-        {meta?.nip05 && <div className="profile-view-nip05">{meta.nip05}</div>}
-        <div className="profile-view-npub">{shortNpub(pubkey)}</div>
-      </div>
-      {meta?.about && <p className="profile-view-bio">{meta.about}</p>}
-      {!isMe && (
-        <div className="profile-view-actions">
-          <button className="profile-action follow">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="7" r="4" /><path d="M3 21a6 6 0 0 1 12 0" /><path d="M19 8v6M16 11h6" /></svg>
-            {t('mobile.profile.follow')}
-          </button>
-          <button className="profile-action" onClick={() => openDm(pubkey)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
-            {t('mobile.profile.message')}
-          </button>
-          <button className="profile-action zap">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2 3 14h7l-2 8 10-12h-7l2-8z" /></svg>
-            Zap
-          </button>
-        </div>
-      )}
-      <div style={{ flex: 1, padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--app-text-mute)', fontSize: 12, textAlign: 'center', gap: 6 }}>
-        <span>{t('mobile.profile.postsComing')}</span>
-        <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10 }}>{t('mobile.profile.timelineComing')}</span>
-      </div>
-    </div>
-  );
+  return <NostrProfile pubkey={pubkey} onClose={back} onMessage={openDm} />;
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -5351,6 +5302,7 @@ export function SettingsPrefsScreen({ go }: { go: (s: ScreenName) => void }) {
           </div>
         </div>
         <AppearancePreferenceControls variant="mobile" />
+        <ProfileFeedRelaySettings mobile />
       </div>
     </div>
   );

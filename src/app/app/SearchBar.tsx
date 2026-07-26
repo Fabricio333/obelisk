@@ -23,7 +23,7 @@ import { useUserMetadata as useProfile } from '@/lib/nostr-bridge';
 import { useNostrUserSearch, type UserHit } from '@/lib/hooks/useNostrUserSearch';
 import { searchGroups } from '@/lib/group-search';
 import { formatPubkey } from '@nostr-wot/data';
-import ProfilePopover from '@/components/chat/ProfilePopover';
+import { useChatStore } from '@/store/chat';
 import { useTranslation } from '@/i18n/context';
 
 const HISTORY_KEY = 'obelisk-dex/search-history';
@@ -118,9 +118,6 @@ export default function SearchBar({
   const [results, setResults] = useState<ReadonlyArray<JsMessage & { groupId: string | null }>>([]);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<string[]>([]);
-  // Lifted to the root so the popover survives the dropdown unmount that
-  // happens when we close the search panel after selecting a user.
-  const [previewPubkey, setPreviewPubkey] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setHistory(loadHistory()); }, [open]);
@@ -246,13 +243,10 @@ export default function SearchBar({
               t={t}
               onJump={(m) => { onJump?.(m); setOpen(false); }}
               onClose={() => setOpen(false)}
-              onPreviewUser={(pk) => { setPreviewPubkey(pk); setOpen(false); }}
+              onPreviewUser={(pk) => { useChatStore.getState().openProfilePopup(pk); setOpen(false); }}
             />
           )}
         </div>
-      )}
-      {previewPubkey && (
-        <ProfilePopover pubkey={previewPubkey} onClose={() => setPreviewPubkey(null)} />
       )}
     </div>
   );

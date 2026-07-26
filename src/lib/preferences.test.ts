@@ -12,6 +12,11 @@ describe('preferences store', () => {
     expect(getPreferences()).toMatchObject({
       directMessagesEnabled: false,
       developerRelayDebug: false,
+      profileFeedRelays: [
+        'wss://relay.damus.io',
+        'wss://nos.lol',
+        'wss://relay.primal.net',
+      ],
       accentColor: '#b4f953',
       backgroundColor: '#0a0a0a',
       buttonColor: '#b4f953',
@@ -21,6 +26,7 @@ describe('preferences store', () => {
 
     setPreference('directMessagesEnabled', true);
     setPreference('developerRelayDebug', true);
+    setPreference('profileFeedRelays', ['wss://one.example', 'wss://two.example', 'wss://three.example']);
     setPreference('accentColor', '#7ec8ff');
     setPreference('backgroundColor', '#111827');
     setPreference('buttonColor', '#f0c14a');
@@ -30,6 +36,7 @@ describe('preferences store', () => {
     expect(getPreferences()).toMatchObject({
       directMessagesEnabled: true,
       developerRelayDebug: true,
+      profileFeedRelays: ['wss://one.example', 'wss://two.example', 'wss://three.example'],
       accentColor: '#7ec8ff',
       backgroundColor: '#111827',
       buttonColor: '#f0c14a',
@@ -39,6 +46,7 @@ describe('preferences store', () => {
     expect(JSON.parse(localStorage.getItem('obelisk:preferences') ?? '{}')).toMatchObject({
       directMessagesEnabled: true,
       developerRelayDebug: true,
+      profileFeedRelays: ['wss://one.example', 'wss://two.example', 'wss://three.example'],
       accentColor: '#7ec8ff',
       backgroundColor: '#111827',
       buttonColor: '#f0c14a',
@@ -71,6 +79,7 @@ describe('preferences store', () => {
       buttonColor: 'url(javascript:bad)',
       bubbleColor: 'pink',
       bubbleAnimation: 'teleport',
+      profileFeedRelays: ['https://bad.example', 'wss://duplicate.example', 'wss://duplicate.example'],
     }));
 
     const { getPreferences, resetAppearancePreferences } = await import('./preferences');
@@ -82,6 +91,11 @@ describe('preferences store', () => {
       buttonColor: '#b4f953',
       bubbleColor: '#b4f953',
       bubbleAnimation: 'float',
+      profileFeedRelays: [
+        'wss://relay.damus.io',
+        'wss://nos.lol',
+        'wss://relay.primal.net',
+      ],
     });
 
     resetAppearancePreferences();

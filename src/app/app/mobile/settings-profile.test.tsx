@@ -245,7 +245,7 @@ describe('SettingsPrefsScreen', () => {
     );
 
     expect(screen.getByRole('heading', { name: 'Vos' })).toBeTruthy();
-    expect(screen.getByText(/Relays/)).toBeTruthy();
+    expect(screen.getByText('Relays · 1')).toBeTruthy();
     expect(screen.getByText('Mensajes directos')).toBeTruthy();
     expect(screen.getByText(/DMs encriptados de Nostr/i)).toBeTruthy();
   });

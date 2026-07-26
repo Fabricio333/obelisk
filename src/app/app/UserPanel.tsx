@@ -10,6 +10,7 @@ import { setDmOptInEnabled } from '@/lib/dm/opt-in';
 import WotSettings from '@/components/settings/WotSettings';
 import LanguagePreference from '@/components/LanguagePreference';
 import AppearancePreferenceControls from '@/components/AppearancePreferenceControls';
+import ProfileFeedRelaySettings from '@/components/settings/ProfileFeedRelaySettings';
 import UserAvatar from '@/components/UserAvatar';
 import ModalShell from '@/components/ModalShell';
 import { clearAllClientCacheExceptSession } from '@/lib/nostr-bridge/cache-clear';
@@ -394,6 +395,7 @@ export function PreferencesPanel() {
     <div className="space-y-4 p-4">
       <LanguagePreference />
       <AppearancePreferenceControls />
+      <ProfileFeedRelaySettings />
       <ToggleRow
         label="Developer relay logs"
         description="Log relay calls to the console."

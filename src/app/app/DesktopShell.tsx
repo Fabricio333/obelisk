@@ -29,7 +29,6 @@ import {
   useMyMutes,
   useRelayAccess,
   useMyLoginMethod,
-  useGroupMemberInfo,
   useMyPubkey,
   useUserMetadata as useProfile,
   type JsGroup,
@@ -49,6 +48,7 @@ import ShootingStars from '@/components/ShootingStars';
 import UserPanel from './UserPanel';
 import SearchBar from './SearchBar';
 import MessageContent from '@/components/chat/MessageContent';
+import NostrProfile from '@/components/chat/NostrProfile';
 import { MentionText } from '@/components/chat/MentionText';
 import MentionNavigator from '@/components/chat/MentionNavigator';
 import HistoryPaginationStatus from '@/components/chat/HistoryPaginationStatus';
@@ -119,7 +119,6 @@ type View =
   | { kind: 'empty' };
 
 const SIDEBAR_KEY = 'obelisk-dex/sidebar-width';
-const MEMBERS_KEY = 'obelisk-dex/members-width';
 const SHOW_MEMBERS_KEY = 'obelisk-dex/show-members';
 
 export default function AppShell() {
@@ -128,6 +127,8 @@ export default function AppShell() {
   const isRehydrating = useIsRehydrating();
   const conn = useConnectionState();
   const relay = useCurrentRelayUrl();
+  const profilePubkey = useChatStore((state) => state.profilePopupPubkey);
+  const closeProfile = useChatStore((state) => state.closeProfilePopup);
   const [view, setView] = useState<View>({ kind: 'empty' });
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
@@ -361,7 +362,7 @@ export default function AppShell() {
           {view.kind === 'group' ? (
             <ChatLayout
               groupId={view.groupId}
-              showMembers={showMembers}
+              showMembers={profilePubkey ? false : showMembers}
               onToggleMembers={() => setShowMembers((v) => !v)}
               pendingMessageId={pendingMessageId}
               onConsumePendingMessageId={() => setPendingMessageId(null)}
@@ -375,6 +376,18 @@ export default function AppShell() {
             <EmptyState />
           )}
         </main>
+        {profilePubkey && (
+          <aside className="h-full min-w-0 flex-1 overflow-hidden border-l border-t border-lc-border bg-lc-black" data-testid="desktop-profile-pane">
+            <NostrProfile
+              pubkey={profilePubkey}
+              onClose={closeProfile}
+              onMessage={(peer) => {
+                setView({ kind: 'dm', peer });
+                closeProfile();
+              }}
+            />
+          </aside>
+        )}
         <FloatingUserPanel sidebarWidth={sidebarWidth} />
       </div>
     </div>
@@ -2957,12 +2970,8 @@ function MessageRow({
       groupId,
     });
   };
-  const [anchor, setAnchor] = useState<{ x: number; y: number; placement?: 'top' | 'bottom' } | null>(null);
   const displayName = meta?.displayName || meta?.name || msg.pubkey.slice(0, 8);
-  const openProfile = (e: React.MouseEvent) => {
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setAnchor({ x: r.right + 8, y: r.top, placement: r.top > window.innerHeight / 2 ? 'top' : 'bottom' });
-  };
+  const openProfile = () => useChatStore.getState().openProfilePopup(msg.pubkey);
 
   const onRetry = () => {
     if (!msg.clientTag) return;
@@ -3267,15 +3276,6 @@ function MessageRow({
           />
         )}
       </div>
-      {anchor && (
-        <UserPanel
-          pubkey={msg.pubkey}
-          isMe={msg.pubkey === myPubkey}
-          onClose={() => setAnchor(null)}
-          onLogout={msg.pubkey === myPubkey ? () => { nostrActions.logout(); setAnchor(null); } : undefined}
-          anchor={anchor}
-        />
-      )}
     </div>
   );
 }
@@ -3300,59 +3300,6 @@ function MembersPanel({ groupId }: { groupId: string }) {
           <div className="lc-spinner" aria-hidden="true" />
           <div>Loading members…</div>
         </div>
-      )}
-      <ProfilePopupBridge />
-    </>
-  );
-}
-
-
-function ProfilePopupBridge() {
-  const popupPubkey = useChatStore((s) => s.profilePopupPubkey);
-  const closePopup = useChatStore((s) => s.closeProfilePopup);
-  const myPubkey = useMyPubkey();
-  if (!popupPubkey) return null;
-  return (
-    <UserPanel
-      pubkey={popupPubkey}
-      isMe={popupPubkey === myPubkey}
-      onClose={closePopup}
-      onLogout={popupPubkey === myPubkey ? () => { nostrActions.logout(); closePopup(); } : undefined}
-    />
-  );
-}
-
-function MemberRow({ pubkey, isAdmin }: { pubkey: string; isAdmin: boolean }) {
-  const meta = useProfile(pubkey);
-  const myPubkey = useMyPubkey();
-  const [anchor, setAnchor] = useState<{ x: number; y: number; placement?: 'top' | 'bottom' } | null>(null);
-  return (
-    <>
-      <button
-        onClick={(e) => {
-          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-          setAnchor({ x: r.right - 340, y: r.top, placement: r.top > window.innerHeight / 2 ? 'top' : 'bottom' });
-        }}
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-lc-card"
-        title={pubkey}
-      >
-        <Avatar pubkey={pubkey} size={7} picture={meta?.picture ?? null} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1 truncate text-sm text-lc-white">
-            <span className="truncate">{meta?.displayName || meta?.name || pubkey.slice(0, 10)}</span>
-            {isAdmin && <span title="Admin" className="text-xs">👑</span>}
-          </div>
-          {meta?.nip05 && <div className="truncate text-[10px] text-lc-muted">{meta.nip05}</div>}
-        </div>
-      </button>
-      {anchor && (
-        <UserPanel
-          pubkey={pubkey}
-          isMe={pubkey === myPubkey}
-          onClose={() => setAnchor(null)}
-          onLogout={pubkey === myPubkey ? () => { nostrActions.logout(); setAnchor(null); } : undefined}
-          anchor={anchor}
-        />
       )}
     </>
   );
@@ -4008,13 +3955,19 @@ function DMPanel({ peer }: { peer: string | null; onPickPeer: (p: string) => voi
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <header className="flex shrink-0 items-center gap-3 border-b border-lc-border bg-lc-dark px-5 py-3">
-        <Avatar pubkey={peer} size={9} picture={meta?.picture ?? null} />
-        <div className="min-w-0">
-          <div className="truncate text-sm font-bold text-lc-white">
-            {meta?.displayName || meta?.name || peer.slice(0, 16) + '…'}
+        <button
+          type="button"
+          onClick={() => useChatStore.getState().openProfilePopup(peer)}
+          className="flex min-w-0 items-center gap-3 rounded-lg text-left hover:opacity-80"
+        >
+          <Avatar pubkey={peer} size={9} picture={meta?.picture ?? null} />
+          <div className="min-w-0">
+            <div className="truncate text-sm font-bold text-lc-white">
+              {meta?.displayName || meta?.name || peer.slice(0, 16) + '…'}
+            </div>
+            <div className="truncate font-mono text-[10px] text-lc-muted">{peer}</div>
           </div>
-          <div className="truncate font-mono text-[10px] text-lc-muted">{peer}</div>
-        </div>
+        </button>
       </header>
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
         {thread.length === 0 ? (

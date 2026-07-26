@@ -4,6 +4,7 @@ import { LocaleProvider } from '@/i18n/context';
 import SearchBar from './SearchBar';
 import type { JsGroup } from '@/lib/nostr-bridge';
 import type { ReactElement } from 'react';
+import { useChatStore } from '@/store/chat';
 
 const mockSearchMessages = vi.fn();
 const mockSetActiveGroup = vi.fn();
@@ -25,12 +26,6 @@ vi.mock('@/lib/hooks/useNostrUserSearch', () => ({
   useNostrUserSearch: (q: string) => mockUseNostrUserSearch(q),
 }));
 
-vi.mock('@/components/chat/ProfilePopover', () => ({
-  default: ({ pubkey, onClose }: { pubkey: string; onClose: () => void }) => (
-    <div data-testid="profile-popover-stub" data-pubkey={pubkey} onClick={onClose}>popover</div>
-  ),
-}));
-
 let mockGroups: JsGroup[] = [];
 
 const g = (id: string, name: string): JsGroup => ({
@@ -47,6 +42,7 @@ beforeEach(() => {
   localStorage.clear();
   mockSearchMessages.mockReset().mockResolvedValue([]);
   mockSetActiveGroup.mockReset();
+  useChatStore.getState().reset();
   mockUseNostrUserSearch.mockReset().mockReturnValue({
     directHit: null, nip05Hit: null, nostrResults: [], loading: false,
   });
@@ -94,7 +90,7 @@ describe('SearchBar', () => {
     });
   });
 
-  it('clicking a user opens the ProfilePopover with that pubkey', async () => {
+  it('clicking a user opens the shared profile pane state with that pubkey', async () => {
     const pk = 'a'.repeat(64);
     mockUseNostrUserSearch.mockReturnValue({
       directHit: null,
@@ -108,8 +104,7 @@ describe('SearchBar', () => {
     fireEvent.change(input, { target: { value: 'alice' } });
     const row = await screen.findByTestId('search-user-row');
     fireEvent.click(row);
-    const popover = await screen.findByTestId('profile-popover-stub');
-    expect(popover.getAttribute('data-pubkey')).toBe(pk);
+    expect(useChatStore.getState().profilePopupPubkey).toBe(pk);
   });
 
   it('clicking a channel calls setActiveGroup with its id', async () => {

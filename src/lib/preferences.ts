@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from 'react';
 import { createLocalStore } from './local-store';
+import { DEFAULT_PROFILE_FEED_RELAYS, normalizeProfileFeedRelays } from './profile-feed';
 
 export type BubbleAnimationStyle = 'float' | 'drift' | 'orbit' | 'still';
 
@@ -9,6 +10,7 @@ export interface Preferences {
   showActivityIndicator: boolean;
   developerRelayDebug: boolean;
   directMessagesEnabled: boolean;
+  profileFeedRelays: string[];
   accentColor: string;
   backgroundColor: string;
   buttonColor: string;
@@ -20,6 +22,7 @@ const DEFAULTS: Preferences = {
   showActivityIndicator: true,
   developerRelayDebug: false,
   directMessagesEnabled: false,
+  profileFeedRelays: [...DEFAULT_PROFILE_FEED_RELAYS],
   accentColor: '#b4f953',
   backgroundColor: '#0a0a0a',
   buttonColor: '#b4f953',
@@ -120,6 +123,7 @@ function normalizePreferences(raw: Partial<Preferences>): Preferences {
     directMessagesEnabled: typeof raw.directMessagesEnabled === 'boolean'
       ? raw.directMessagesEnabled
       : DEFAULTS.directMessagesEnabled,
+    profileFeedRelays: normalizeProfileFeedRelays(raw.profileFeedRelays),
     accentColor: sanitizeHexColor(raw.accentColor, DEFAULTS.accentColor),
     backgroundColor: sanitizeHexColor(raw.backgroundColor, DEFAULTS.backgroundColor),
     buttonColor: sanitizeHexColor(raw.buttonColor, DEFAULTS.buttonColor),
@@ -129,6 +133,9 @@ function normalizePreferences(raw: Partial<Preferences>): Preferences {
 }
 
 function normalizePreferenceValue<K extends keyof Preferences>(key: K, value: Preferences[K]): Preferences[K] {
+  if (key === 'profileFeedRelays') {
+    return normalizeProfileFeedRelays(value) as Preferences[K];
+  }
   if (key === 'bubbleAnimation') {
     return normalizeBubbleAnimation(value) as Preferences[K];
   }

@@ -49,6 +49,25 @@ describe('PreferencesPanel appearance controls', () => {
     });
   });
 
+  it('saves exactly three profile-feed relays', async () => {
+    const { PreferencesPanel } = await import('./UserPanel');
+
+    render(
+      <LocaleProvider initialLocale="en">
+        <PreferencesPanel />
+      </LocaleProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText('Profile feed relay 1'), { target: { value: 'wss://one.example' } });
+    fireEvent.change(screen.getByLabelText('Profile feed relay 2'), { target: { value: 'wss://two.example' } });
+    fireEvent.change(screen.getByLabelText('Profile feed relay 3'), { target: { value: 'wss://three.example' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(JSON.parse(localStorage.getItem('obelisk:preferences') ?? '{}')).toMatchObject({
+      profileFeedRelays: ['wss://one.example', 'wss://two.example', 'wss://three.example'],
+    });
+  });
+
   it('renders preference labels from the configured language', async () => {
     const { PreferencesPanel } = await import('./UserPanel');
 
