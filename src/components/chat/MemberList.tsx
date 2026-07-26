@@ -14,7 +14,7 @@ function MemberItem({ member, isOnline }: { member: JsMemberInfo; isOnline: bool
   return (
     <button
       type="button"
-      onClick={() => openProfilePopup(member.pubkey)}
+      onClick={(event) => openProfilePopup(member.pubkey, { x: event.clientX, y: event.clientY })}
       className="w-full text-left flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/5 transition-colors group cursor-pointer"
       data-testid="member-item"
     >

@@ -249,6 +249,7 @@ describe('NostrProfile', () => {
 
     fireEvent.click(screen.getByTestId('profile-explore-close'));
     expect(onClose).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('profile-explore-close-sticky')).toHaveClass('sticky', 'top-3');
     fireEvent.click(screen.getByTestId('profile-create-post'));
     fireEvent.change(screen.getByTestId('profile-post-input'), { target: { value: 'My **post** #Nostr' } });
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }));

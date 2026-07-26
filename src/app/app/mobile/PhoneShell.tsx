@@ -6328,6 +6328,7 @@ export default function MobileShell() {
           pubkey={profilePopupPubkey}
           onClose={closeProfilePopup}
           onExplore={exploreProfile}
+          onMessage={selectPeer}
         />
       )}
     </div>

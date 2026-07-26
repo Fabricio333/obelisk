@@ -398,6 +398,7 @@ export default function AppShell() {
             pubkey={profilePopupPubkey}
             onClose={closeProfilePopup}
             onExplore={setExploredProfilePubkey}
+            onMessage={(peer) => setView({ kind: 'dm', peer })}
           />
         )}
         <FloatingUserPanel sidebarWidth={sidebarWidth} />
@@ -2983,7 +2984,10 @@ function MessageRow({
     });
   };
   const displayName = meta?.displayName || meta?.name || msg.pubkey.slice(0, 8);
-  const openProfile = () => useChatStore.getState().openProfilePopup(msg.pubkey);
+  const openProfile = (event: React.MouseEvent<HTMLElement>) => useChatStore.getState().openProfilePopup(
+    msg.pubkey,
+    { x: event.clientX, y: event.clientY },
+  );
 
   const onRetry = () => {
     if (!msg.clientTag) return;
@@ -3969,7 +3973,7 @@ function DMPanel({ peer }: { peer: string | null; onPickPeer: (p: string) => voi
       <header className="flex shrink-0 items-center gap-3 border-b border-lc-border bg-lc-dark px-5 py-3">
         <button
           type="button"
-          onClick={() => useChatStore.getState().openProfilePopup(peer)}
+          onClick={(event) => useChatStore.getState().openProfilePopup(peer, { x: event.clientX, y: event.clientY })}
           className="flex min-w-0 items-center gap-3 rounded-lg text-left hover:opacity-80"
         >
           <Avatar pubkey={peer} size={9} picture={meta?.picture ?? null} />

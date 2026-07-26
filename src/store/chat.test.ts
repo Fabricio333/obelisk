@@ -12,6 +12,7 @@ describe('useChatStore', () => {
       isNearBottom: true,
       serverEmojis: {},
       profilePopupPubkey: null,
+      profilePopupAnchor: null,
       lastActivityAt: {},
       presenceTick: 0,
     });
@@ -19,11 +20,13 @@ describe('useChatStore', () => {
 
   it('updates emoji and profile-popup state', () => {
     useChatStore.getState().setServerEmojis({ party: 'https://example.com/party.png' });
-    useChatStore.getState().openProfilePopup('alice');
+    useChatStore.getState().openProfilePopup('alice', { x: 10, y: 20 });
     expect(useChatStore.getState().serverEmojis).toEqual({ party: 'https://example.com/party.png' });
     expect(useChatStore.getState().profilePopupPubkey).toBe('alice');
+    expect(useChatStore.getState().profilePopupAnchor).toEqual({ x: 10, y: 20 });
     useChatStore.getState().closeProfilePopup();
     expect(useChatStore.getState().profilePopupPubkey).toBeNull();
+    expect(useChatStore.getState().profilePopupAnchor).toBeNull();
   });
 
   it('keeps the newest activity timestamp and advances the presence clock', () => {
@@ -40,6 +43,7 @@ describe('useChatStore', () => {
       isNearBottom: false,
       serverEmojis: { party: 'url' },
       profilePopupPubkey: 'alice',
+      profilePopupAnchor: { x: 10, y: 20 },
       lastActivityAt: { alice: 20 },
       presenceTick: 2,
     });
@@ -49,6 +53,7 @@ describe('useChatStore', () => {
       isNearBottom: true,
       serverEmojis: {},
       profilePopupPubkey: null,
+      profilePopupAnchor: null,
       lastActivityAt: {},
       presenceTick: 0,
     });

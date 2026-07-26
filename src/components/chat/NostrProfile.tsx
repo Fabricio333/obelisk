@@ -143,6 +143,17 @@ function NostrProfileSession({
 
   return (
     <div className="screen active profile-view-screen flex h-full min-h-0 flex-col overflow-y-auto bg-lc-black" data-testid="nostr-profile">
+      <div className="sticky top-3 z-10 hidden h-0 shrink-0 md:block" data-testid="profile-explore-close-sticky">
+        <button
+          type="button"
+          onClick={onClose}
+          className="ml-auto mr-3 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-xl leading-none text-lc-white"
+          aria-label={t('common.close')}
+          data-testid="profile-explore-close"
+        >
+          <span aria-hidden="true">×</span>
+        </button>
+      </div>
       <div
         className="profile-view-banner relative h-36 shrink-0 bg-gradient-to-br from-lc-olive to-lc-black bg-cover bg-center"
         style={meta?.banner ? { backgroundImage: `url(${meta.banner})` } : undefined}
@@ -158,15 +169,6 @@ function NostrProfileSession({
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="m15 18-6-6 6-6" />
             </svg>
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="ml-auto hidden h-9 w-9 items-center justify-center rounded-full bg-black/60 text-xl leading-none text-lc-white md:flex"
-            aria-label={t('common.close')}
-            data-testid="profile-explore-close"
-          >
-            <span aria-hidden="true">×</span>
           </button>
         </div>
       </div>

@@ -33,7 +33,7 @@ function MentionChip({ pubkey, displayName }: { pubkey: string; displayName: str
   return (
     <button
       type="button"
-      onClick={() => openProfilePopup(pubkey)}
+      onClick={(event) => openProfilePopup(pubkey, { x: event.clientX, y: event.clientY })}
       className="bg-lc-green/20 text-lc-green rounded px-1 py-0.5 text-sm font-medium hover:bg-lc-green/30 transition-colors cursor-pointer"
       title={pubkey}
       data-testid="mention-highlight"

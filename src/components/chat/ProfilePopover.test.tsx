@@ -32,10 +32,10 @@ vi.mock('@nostr-wot/data', () => ({
 
 const PUBKEY = 'a'.repeat(64);
 
-function renderProfile(onClose = vi.fn(), onExplore = vi.fn()) {
+function renderProfile(onClose = vi.fn(), onExplore = vi.fn(), onMessage?: (pubkey: string) => void) {
   render(
     <LocaleProvider initialLocale="en">
-      <ProfilePopover pubkey={PUBKEY} onClose={onClose} onExplore={onExplore} />
+      <ProfilePopover pubkey={PUBKEY} onClose={onClose} onExplore={onExplore} onMessage={onMessage} />
     </LocaleProvider>,
   );
 }
@@ -103,5 +103,23 @@ describe('ProfilePopover', () => {
     fireEvent.click(screen.getByTestId('profile-explore-btn'));
     expect(onClose).toHaveBeenCalledOnce();
     expect(onExplore).toHaveBeenCalledWith(PUBKEY);
+  });
+
+  it('anchors beside the clicked user and opens messages internally', () => {
+    const onClose = vi.fn();
+    const onMessage = vi.fn();
+    useChatStore.getState().openProfilePopup(PUBKEY, { x: 100, y: 200 });
+    renderProfile(onClose, vi.fn(), onMessage);
+
+    expect(screen.getByTestId('profile-popover')).toHaveStyle({ left: '112px', top: '120px' });
+    fireEvent.click(screen.getByTestId('profile-message-btn'));
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onMessage).toHaveBeenCalledWith(PUBKEY);
+  });
+
+  it('shows the npub ending with a copy icon instead of an njump link', () => {
+    renderProfile();
+    expect(screen.getByTestId('profile-copy-npub-btn')).toHaveTextContent('…aaaaaaaa');
+    expect(screen.queryByTestId('profile-open-nostr-btn')).not.toBeInTheDocument();
   });
 });

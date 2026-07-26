@@ -5,10 +5,11 @@ export interface ChatState {
   isNearBottom: boolean;
   serverEmojis: Record<string, string>;
   profilePopupPubkey: string | null;
+  profilePopupAnchor: { x: number; y: number } | null;
   lastActivityAt: Record<string, number>;
   presenceTick: number;
   setServerEmojis: (emojis: Record<string, string>) => void;
-  openProfilePopup: (pubkey: string) => void;
+  openProfilePopup: (pubkey: string, anchor?: { x: number; y: number }) => void;
   closeProfilePopup: () => void;
   recordActivity: (pubkey: string, atMs: number) => void;
   bumpPresenceTick: () => void;
@@ -20,6 +21,7 @@ export const CHAT_INITIAL_STATE = {
   isNearBottom: true,
   serverEmojis: {} as Record<string, string>,
   profilePopupPubkey: null as string | null,
+  profilePopupAnchor: null as { x: number; y: number } | null,
   lastActivityAt: {} as Record<string, number>,
   presenceTick: 0,
 };
@@ -27,8 +29,8 @@ export const CHAT_INITIAL_STATE = {
 export const useChatStore = create<ChatState>()((set) => ({
   ...CHAT_INITIAL_STATE,
   setServerEmojis: (serverEmojis) => set({ serverEmojis }),
-  openProfilePopup: (profilePopupPubkey) => set({ profilePopupPubkey }),
-  closeProfilePopup: () => set({ profilePopupPubkey: null }),
+  openProfilePopup: (profilePopupPubkey, profilePopupAnchor = null) => set({ profilePopupPubkey, profilePopupAnchor }),
+  closeProfilePopup: () => set({ profilePopupPubkey: null, profilePopupAnchor: null }),
   recordActivity: (pubkey, atMs) => set((state) =>
     atMs <= (state.lastActivityAt[pubkey] ?? 0)
       ? state

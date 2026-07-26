@@ -57,8 +57,9 @@ describe('MemberList', () => {
 
   it('opens the selected bridge profile', () => {
     render(<MemberList groupId="group-1" />);
-    fireEvent.click(screen.getByText('Alice'));
+    fireEvent.click(screen.getByText('Alice'), { clientX: 200, clientY: 300 });
     expect(useChatStore.getState().profilePopupPubkey).toBe('admin');
+    expect(useChatStore.getState().profilePopupAnchor).toEqual({ x: 200, y: 300 });
   });
 
   it('renders an empty list while relay members load', () => {

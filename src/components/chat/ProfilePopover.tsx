@@ -65,14 +65,16 @@ const BASE_ROLE_LABEL: Record<string, { label: string; color: string }> = {
   member: { label: 'Miembro', color: '#737373' },
 };
 
-export default function ProfilePopover({ pubkey, onClose, onExplore }: {
+export default function ProfilePopover({ pubkey, onClose, onExplore, onMessage }: {
   pubkey: string;
   onClose: () => void;
   onExplore: (pubkey: string) => void;
+  onMessage?: (pubkey: string) => void;
 }) {
   const { t } = useTranslation();
   const activeGroupId = useChatStore((s) => s.activeChannelId);
   const serverEmojis = useChatStore((s) => s.serverEmojis);
+  const anchor = useChatStore((s) => s.profilePopupAnchor);
   const memberFromList = useGroupMemberInfo(activeGroupId).find((m) => m.pubkey === pubkey);
   // For arbitrary pubkeys (e.g. the search-bar dropdown), the active server's
   // memberList won't have an entry. Fall back to live Nostr kind:0 metadata so
@@ -114,10 +116,16 @@ export default function ProfilePopover({ pubkey, onClose, onExplore }: {
   const displayName = member?.displayName || safeFallback;
   const npubShort = npub ? shortNpub(pubkey) : pubkey;
   const baseRole = member?.role ? BASE_ROLE_LABEL[member.role] : undefined;
+  const position = anchor && typeof window !== 'undefined'
+    ? {
+        left: Math.max(12, anchor.x + 396 <= window.innerWidth ? anchor.x + 12 : anchor.x - 396),
+        top: Math.max(12, Math.min(anchor.y - 80, window.innerHeight - 420)),
+      }
+    : null;
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
+      className={`fixed inset-0 z-[100] flex p-4 ${position ? 'items-start justify-start bg-transparent' : 'items-center justify-center bg-black/60'}`}
       onClick={onClose}
       data-testid="profile-popover-backdrop"
     >
@@ -125,6 +133,7 @@ export default function ProfilePopover({ pubkey, onClose, onExplore }: {
         ref={panelRef}
         onClick={(e) => e.stopPropagation()}
         className="w-full max-w-sm max-h-[calc(100dvh-2rem)] overflow-y-auto bg-lc-dark border border-lc-border rounded-xl shadow-2xl"
+        style={position ? { position: 'fixed', ...position, maxHeight: `calc(100dvh - ${position.top + 12}px)` } : undefined}
         data-testid="profile-popover"
         role="dialog"
       >
@@ -220,17 +229,32 @@ export default function ProfilePopover({ pubkey, onClose, onExplore }: {
 
           {/* Actions */}
           <div className="pt-3 border-t border-lc-border space-y-2">
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                onExplore(pubkey);
-              }}
-              className="lc-pill-primary w-full text-xs"
-              data-testid="profile-explore-btn"
-            >
-              {t('profileFeed.explore')}
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onExplore(pubkey);
+                }}
+                className="lc-pill-primary flex-1 text-xs"
+                data-testid="profile-explore-btn"
+              >
+                {t('profileFeed.explore')}
+              </button>
+              {onMessage && !isSelf && (
+                <button
+                  type="button"
+                  className="lc-pill-secondary flex-1 text-xs"
+                  onClick={() => {
+                    onClose();
+                    onMessage(pubkey);
+                  }}
+                  data-testid="profile-message-btn"
+                >
+                  {t('mobile.profile.message')}
+                </button>
+              )}
+            </div>
             <div className="flex gap-2">
               <button
                 onClick={() => {
@@ -256,22 +280,13 @@ export default function ProfilePopover({ pubkey, onClose, onExplore }: {
                         body: `${npub.slice(0, 12)}…${npub.slice(-6)}`,
                       });
                     }}
-                    className="lc-pill-secondary text-xs"
-                    title="Copiar npub"
+                    className="lc-pill-secondary flex items-center gap-1.5 text-xs"
+                    title={t('profileFeed.copyNpub')}
                     data-testid="profile-copy-npub-btn"
                   >
-                    Copiar npub
+                    <span className="font-mono">…{npub.slice(-8)}</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"/></svg>
                   </button>
-                  <a
-                    href={`https://njump.me/${npub}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="lc-pill-secondary text-xs flex items-center justify-center"
-                    title="Abrir en otro cliente Nostr (njump.me)"
-                    data-testid="profile-open-nostr-btn"
-                  >
-                    Nostr ↗
-                  </a>
                 </>
               )}
             </div>
