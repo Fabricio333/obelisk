@@ -316,6 +316,7 @@ export default function LoginModal({
         showRememberToggle
         profileSetup
         nip46Relays={['wss://public.obelisk.ar']}
+        nip46Perms="get_public_key,sign_event,nip04_encrypt,nip04_decrypt,nip44_encrypt,nip44_decrypt"
         methods={methods}
         modalClasses={{ modal: 'obelisk-login-modal' }}
         methodIcons={{

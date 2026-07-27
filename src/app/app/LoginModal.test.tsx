@@ -71,6 +71,9 @@ describe('LoginModal generated identity flow', () => {
     expect(sdkProps.profileSetup).toBe(true);
     expect(sdkProps.showRememberToggle).toBe(true);
     expect(sdkProps.nip46Relays).toEqual(['wss://public.obelisk.ar']);
+    expect(sdkProps.nip46Perms).toBe(
+      'get_public_key,sign_event,nip04_encrypt,nip04_decrypt,nip44_encrypt,nip44_decrypt',
+    );
     act(() => updateDraft?.({
       name: 'Cosmic Fox',
       picture: 'https://cdn.example/avatar.jpg',
@@ -102,14 +105,18 @@ describe('LoginModal generated identity flow', () => {
   });
 
   it('uses the nostr-tools handshake and advertises the Obelisk relay', async () => {
+    render(<LoginModal />);
     const handle = Nip46Signer.startNostrConnect({
       relays: ['wss://public.obelisk.ar'],
       clientSecretKey: new Uint8Array(32).fill(3),
+      perms: sdkProps.nip46Perms as string,
     });
 
     await handle.ready;
 
-    expect(handle.uri).toContain('relay=wss%3A%2F%2Fpublic.obelisk.ar');
+    const params = new URL(handle.uri).searchParams;
+    expect(params.get('relay')).toBe('wss://public.obelisk.ar');
+    expect(params.get('perms')).toBe(sdkProps.nip46Perms);
     expect(bunkerFromUri).toHaveBeenCalledOnce();
   });
 
