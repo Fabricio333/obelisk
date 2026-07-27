@@ -187,7 +187,12 @@ export class Peer {
     };
 
     simple.on('signal', (data) => {
-      void this.sendSignal({ type: 'peer', peerSignal: data }).catch((error) => {
+      const trackInfos = Array.from(this.localMedia, ([kind, { track }]) => ({ trackId: track.id, kind }));
+      void this.sendSignal({
+        type: 'peer',
+        peerSignal: data,
+        ...(trackInfos.length > 0 ? { trackInfos } : {}),
+      }).catch((error) => {
         console.warn('[voice] simple-peer signal publish failed', error);
       });
     });
@@ -347,9 +352,6 @@ export class Peer {
     if (this.closed) return;
     const current = this.localMedia.get(kind);
     if (current?.track === track) return;
-    if (track) {
-      await this.sendSignal({ type: 'trackinfo', trackInfo: { trackId: track.id, kind } });
-    }
     if (current && track) {
       this.simple.replaceTrack(current.track, track, current.stream);
       this.localMedia.set(kind, { track, stream: current.stream });
@@ -388,6 +390,10 @@ export class Peer {
         this.remoteTrackOrigins.set(payload.trackInfo.trackId, payload.trackInfo.originPubkey);
       }
       return;
+    }
+    for (const info of payload.trackInfos ?? []) {
+      this.remoteTrackKinds.set(info.trackId, info.kind);
+      if (info.originPubkey) this.remoteTrackOrigins.set(info.trackId, info.originPubkey);
     }
     if (payload.type === 'qualityhint') {
       this.inboundCap = payload.qualityHint ?? null;

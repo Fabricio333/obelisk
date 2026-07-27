@@ -25,7 +25,7 @@ import {
 import { nip19 } from 'nostr-tools';
 import { finalizeEvent, getPublicKey } from 'nostr-tools/pure';
 import { getPool, nsecToBytes, nsecToHex as sdkNsecToHex } from '@nostr-wot/data';
-import { useCallback, useEffect, useRef, useState, type ReactNode, type SVGProps } from 'react';
+import { useCallback, useEffect, useState, type ReactNode, type SVGProps } from 'react';
 import { nostrActions } from '@/lib/nostr-bridge';
 import { OBELISK_NIP46_PERMISSIONS } from '@/lib/nostr-signing-kinds';
 import GeneratedProfileEnhancements from './GeneratedProfileEnhancements';
@@ -310,24 +310,12 @@ export default function LoginModal({
   const [finishing, setFinishing] = useState(false);
   const [finishError, setFinishError] = useState('');
   const [generatedProfile, setGeneratedProfile] = useState<GeneratedProfileDraft>({});
-  const [nip46Retry, setNip46Retry] = useState(0);
   const [hideTransientError, setHideTransientError] = useState(false);
-  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const updateGeneratedProfile = useCallback((patch: GeneratedProfileDraft) => {
     setGeneratedProfile((current) => ({ ...current, ...patch }));
   }, []);
-  useEffect(() => () => {
-    if (retryTimer.current) clearTimeout(retryTimer.current);
-  }, []);
-
   const handleSdkError = (message: string) => {
-    if (!isTransientNip46Error(message)) return;
-    setHideTransientError(true);
-    if (retryTimer.current) clearTimeout(retryTimer.current);
-    retryTimer.current = setTimeout(() => {
-      setNip46Retry((current) => current + 1);
-      setHideTransientError(false);
-    }, Math.min(5_000, 250 * 2 ** nip46Retry));
+    setHideTransientError(isTransientNip46Error(message));
   };
 
   if (generatedLogin) {
@@ -387,7 +375,6 @@ export default function LoginModal({
       <Nip46SignerDeepLink />
       <GeneratedProfileEnhancements onDraftChange={updateGeneratedProfile} />
       <SdkLoginModal
-        key={nip46Retry}
         open
         onClose={onClose ?? (() => { /* AppShell only mounts this when logged out — no dismiss */ })}
         title={title}

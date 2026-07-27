@@ -197,7 +197,7 @@ describe('LoginModal generated identity flow', () => {
     expect(signerAppHref(uri, 'Mozilla/5.0 (iPhone)')).toBe(uri);
   });
 
-  it('silently rotates the QR after a transient subscription close', async () => {
+  it('keeps the QR mounted after a transient subscription close', async () => {
     expect(isTransientNip46Error('subscription closed before connection was established.')).toBe(true);
     expect(isTransientNip46Error('Remote signer rejected the request')).toBe(false);
     render(<LoginModal />);
@@ -208,7 +208,13 @@ describe('LoginModal generated identity flow', () => {
     });
 
     expect(sdkProps.styles).toEqual({ error: { display: 'none' } });
-    await waitFor(() => expect(screen.getByTestId('sdk-login')).not.toBe(oldQr), { timeout: 1_000 });
+    expect(screen.getByTestId('sdk-login')).toBe(oldQr);
+
+    act(() => {
+      (sdkProps.onError as (message: string) => void)('Remote signer rejected the request');
+    });
+    expect(sdkProps.styles).toBeUndefined();
+    expect(screen.getByTestId('sdk-login')).toBe(oldQr);
   });
 
   it('shows an aligned back control on the final generated-profile screen', async () => {

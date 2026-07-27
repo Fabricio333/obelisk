@@ -105,24 +105,38 @@ describe('Peer simple-peer adapter', () => {
     peer.close();
   });
 
-  it('forwards inbound opaque signaling to simple-peer', async () => {
-    const { peer, simple } = makePeer();
+  it('forwards inbound signaling after applying its track metadata', async () => {
+    const { peer, simple, events } = makePeer();
     const signal = { type: 'candidate', candidate: { candidate: 'candidate-a' } };
-    await peer.handleSignal({ type: 'peer', peerSignal: signal, sessionId: 'remote', seq: 1 });
+    const screen = new FakeMediaStreamTrack('video') as unknown as MediaStreamTrack;
+    const stream = new MediaStream([screen]);
+    await peer.handleSignal({
+      type: 'peer',
+      peerSignal: signal,
+      trackInfos: [{ trackId: screen.id, kind: 'screen' }],
+      sessionId: 'remote',
+      seq: 1,
+    });
+    simple.emit('track', screen, stream);
+
     expect(simple.signaled).toEqual([signal]);
+    expect(events.onRemoteTrack).toHaveBeenCalledWith(screen, stream, 'screen', undefined);
     peer.close();
   });
 
-  it('announces track kind and applies sender limits', async () => {
-    const { peer, sent } = makePeer();
+  it('piggybacks track kind on signaling and applies sender limits', async () => {
+    const { peer, simple, sent } = makePeer();
     const camera = new FakeMediaStreamTrack('video') as unknown as MediaStreamTrack;
     await peer.setLocalTrack('camera', camera);
     await peer.setLocalVideoCap({ maxBitrate: 1_000_000, maxFramerate: 24 });
+    simple.emit('signal', { type: 'offer', sdp: 'v=0' });
+    await Promise.resolve();
 
     expect(sent).toContainEqual(expect.objectContaining({
-      type: 'trackinfo',
-      trackInfo: { trackId: camera.id, kind: 'camera' },
+      type: 'peer',
+      trackInfos: [{ trackId: camera.id, kind: 'camera' }],
     }));
+    expect(sent).not.toContainEqual(expect.objectContaining({ type: 'trackinfo' }));
     const params = peer.pc.getSenders()[0].getParameters();
     expect(params.encodings?.[0].maxBitrate).toBe(1_000_000);
     expect(params.encodings?.[0].maxFramerate).toBe(24);

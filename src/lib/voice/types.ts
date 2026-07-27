@@ -51,6 +51,8 @@ export interface VoiceSignalPayload {
    * Mesh peers omit it (the RTC remote IS the origin).
    */
   trackInfo?: { trackId: string; kind: VoiceTrackKind; originPubkey?: string };
+  /** Track metadata piggybacked on SDP/ICE so remote signers approve one event. */
+  trackInfos?: { trackId: string; kind: VoiceTrackKind; originPubkey?: string }[];
   /** Receiver-driven cap: "please don't send me more than this". */
   qualityHint?: VoiceQualityHint;
   /** Random per-session id so a peer who left and rejoined isn't confused
