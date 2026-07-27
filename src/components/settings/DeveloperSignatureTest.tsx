@@ -3,11 +3,13 @@
 import { useState } from 'react';
 import { nostrActions, useSignerReady } from '@/lib/nostr-bridge';
 import { OBELISK_SIGNING_KINDS } from '@/lib/nostr-signing-kinds';
+import { setPreference, usePreferences } from '@/lib/preferences';
 
 type Result = 'pending' | 'accepted' | 'rejected';
 
 export default function DeveloperSignatureTest({ mobile = false }: { mobile?: boolean }) {
   const signerReady = useSignerReady();
+  const prefs = usePreferences();
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<Record<number, Result>>({});
 
@@ -40,6 +42,24 @@ export default function DeveloperSignatureTest({ mobile = false }: { mobile?: bo
       <summary className={mobile ? 'settings-section-title cursor-pointer' : 'cursor-pointer text-xs font-semibold uppercase tracking-wider text-lc-muted'}>
         Developer settings
       </summary>
+      {mobile && (
+        <button
+          type="button"
+          className="settings-row action"
+          onClick={() => setPreference('developerRelayDebug', !prefs.developerRelayDebug)}
+        >
+          <span style={{ minWidth: 0, flex: 1 }}>
+            <span style={{ display: 'block' }}>Developer relay logs</span>
+            <span className="settings-row-meta muted" style={{ display: 'block', maxWidth: '100%', marginTop: 3 }}>Browser console.</span>
+          </span>
+          <span
+            className={`toggle ${prefs.developerRelayDebug ? 'on' : ''}`}
+            role="switch"
+            aria-checked={prefs.developerRelayDebug}
+            data-testid="mobile-developer-relay-debug-toggle"
+          />
+        </button>
+      )}
       <div className={mobile ? 'settings-row !block' : 'mt-3 space-y-3'}>
         <div className={mobile ? 'settings-row-meta muted' : 'text-xs text-lc-muted'}>
           Request mock signatures for every event kind Obelisk uses. Signed events are discarded and never published.

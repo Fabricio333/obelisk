@@ -229,6 +229,14 @@ describe("SettingsPrefsScreen", () => {
     expect(screen.getByTestId('mobile-appearance-submenu')).toBeInTheDocument();
   });
 
+  it('keeps relay logging inside the collapsed developer settings', () => {
+    renderWithLocale(<SettingsPrefsScreen go={vi.fn()} />);
+
+    const developer = screen.getByTestId('developer-signature-test');
+    expect(developer).not.toHaveAttribute('open');
+    expect(screen.getByTestId('mobile-developer-relay-debug-toggle').closest('details')).toBe(developer);
+  });
+
   it('renders preferences from the configured language', () => {
     render(
       <LocaleProvider initialLocale="es">

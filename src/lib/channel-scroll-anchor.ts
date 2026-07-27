@@ -20,7 +20,6 @@ export function channelInitialAnchorFromCursor(
   ownPubkey: string | null | undefined,
 ): ChannelInitialAnchor {
   if (!cursorMs || cursorMs <= 0 || messages.length === 0) return { kind: 'bottom' };
-  if (messages[0].createdAt * 1000 > cursorMs) return { kind: 'bottom' };
 
   for (const message of messages) {
     if (message.createdAt * 1000 <= cursorMs) continue;

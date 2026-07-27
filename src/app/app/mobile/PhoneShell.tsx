@@ -141,7 +141,7 @@ import { type ScreenName, type NavState, initialNav, urlFor, parseUrl } from './
 import { buildSeedHistory, decideSnap, decideSwipeNav, decideTabPress, isAdjacentTabSwitch, neighborsFor, NAV_ORDER, resolveParent } from './swipe-nav';
 import { useKeyboardInset } from './use-keyboard';
 import { channelScrollPositionKey } from '@/lib/channel-scroll-position';
-import { channelCursorHasReadLatest, channelInitialAnchorFromCursor } from '@/lib/channel-scroll-anchor';
+import { channelInitialAnchorFromCursor } from '@/lib/channel-scroll-anchor';
 import { useChannelScrollPosition } from '@/hooks/chat/useChannelScrollPosition';
 import { useNostrUserSearch, type UserHit } from '@/lib/hooks/useNostrUserSearch';
 // CSS is hoisted to AppGate.tsx so it lands in the route's eagerly-loaded
@@ -2533,10 +2533,6 @@ function ChannelScreen({
     [messages, myPubkey, readCursorMs],
   );
   const initialAnchorMessageId = initialAnchor.kind === 'message' ? initialAnchor.messageId : null;
-  const readThroughLatest = useMemo(
-    () => channelCursorHasReadLatest(messages, readCursorMs, myPubkey),
-    [messages, myPubkey, readCursorMs],
-  );
   const getInitialAnchorElement = useCallback(() => {
     if (!initialAnchorMessageId) return null;
     const scroller = messagesRef.current;
@@ -2673,7 +2669,7 @@ function ChannelScreen({
     itemCount: messages.length,
     initialAnchorKey: initialAnchorMessageId,
     getInitialAnchorElement,
-    ignoreSavedOnInitialRestore: readThroughLatest,
+    ignoreSavedOnInitialRestore: true,
     nearBottomPx: 200,
     onNearBottomChange: (near) => {
       const cur = useChatStore.getState().isNearBottom;
@@ -5164,7 +5160,6 @@ export function EditProfileScreen({ go }: { go: (s: ScreenName, dir?: 'forward' 
 export function SettingsPrefsScreen({ go }: { go: (s: ScreenName) => void }) {
   const { t } = useTranslation();
   const dmOptInEnabled = useDmOptInEnabled();
-  const prefs = usePreferences();
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
   const [confirmingLogout, setConfirmingLogout] = useState(false);
@@ -5237,24 +5232,6 @@ export function SettingsPrefsScreen({ go }: { go: (s: ScreenName) => void }) {
               role="switch"
               aria-checked={dmOptInEnabled}
               data-testid="mobile-dm-opt-in-toggle"
-            />
-          </button>
-          <button
-            type="button"
-            className="settings-row action"
-            onClick={() => setPreference("developerRelayDebug", !prefs.developerRelayDebug)}
-          >
-            <span style={{ minWidth: 0, flex: 1 }}>
-              <span style={{ display: "block" }}>Developer relay logs</span>
-              <span className="settings-row-meta muted" style={{ display: "block", maxWidth: "100%", marginTop: 3 }}>
-                Browser console.
-              </span>
-            </span>
-            <span
-              className={"toggle " + (prefs.developerRelayDebug ? "on" : "")}
-              role="switch"
-              aria-checked={prefs.developerRelayDebug}
-              data-testid="mobile-developer-relay-debug-toggle"
             />
           </button>
           <div className="settings-row">
@@ -5482,7 +5459,7 @@ export default function MobileShell() {
     setNav(parsed);
     navRef.current = parsed;
     if (parsed.screen === 'channel' && parsed.groupId) {
-      useChatStore.setState({ activeChannelId: parsed.groupId });
+      useChatStore.setState({ activeChannelId: parsed.groupId, isNearBottom: false });
     } else if (dmOptInEnabled && parsed.screen === 'dm-thread' && parsed.dmPeer) {
       useDMStore.setState({ activeDMPubkey: parsed.dmPeer });
     }
@@ -5556,7 +5533,10 @@ export default function MobileShell() {
         }
         setNav(next);
         navRef.current = next;
-        useChatStore.setState({ activeChannelId: next.screen === 'channel' ? next.groupId : null });
+        useChatStore.setState({
+          activeChannelId: next.screen === 'channel' ? next.groupId : null,
+          isNearBottom: false,
+        });
         useDMStore.setState({ activeDMPubkey: dmOptInEnabled && next.screen === 'dm-thread' ? next.dmPeer : null });
       }
     };
@@ -5788,7 +5768,7 @@ export default function MobileShell() {
     } else {
       // Pure navigation. The cursor is advanced by `useAutoMarkRead` once the
       // user is actually watching the channel (visible + focused + active).
-      useChatStore.setState({ activeChannelId: groupId });
+      useChatStore.setState({ activeChannelId: groupId, isNearBottom: false });
       useDMStore.setState({ activeDMPubkey: null });
       pushNav((n) => ({
         ...n,

@@ -112,6 +112,21 @@ describe('useChannelScrollPosition', () => {
     expect((screen.getByTestId('scroller') as HTMLDivElement).scrollTop).toBe(360);
   });
 
+  it('lets the read cursor override an old saved position on channel entry', () => {
+    rememberChannelScrollPosition('relay::g1', { scrollTop: 120, scrollHeight: 1000, clientHeight: 200 });
+
+    render(
+      <Harness
+        scrollKey="relay::g1"
+        itemCount={5}
+        initialAnchorOffset={360}
+        ignoreSavedOnInitialRestore
+      />,
+    );
+
+    expect((screen.getByTestId('scroller') as HTMLDivElement).scrollTop).toBe(360);
+  });
+
   it('does not run passive restore after an explicit message jump takes over', () => {
     rememberChannelScrollPosition('relay::g1', { scrollTop: 300, scrollHeight: 1000, clientHeight: 200 });
     const { rerender } = render(<Harness scrollKey="relay::g1" itemCount={5} disabled />);

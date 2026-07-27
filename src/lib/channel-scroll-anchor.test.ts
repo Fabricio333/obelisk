@@ -21,8 +21,11 @@ describe('channelInitialAnchorFromCursor', () => {
     });
   });
 
-  it('falls back to latest when the read boundary is older than loaded history', () => {
-    expect(channelInitialAnchorFromCursor(messages, 50_000, 'me')).toEqual({ kind: 'bottom' });
+  it('anchors to the oldest loaded unread message when the cursor predates loaded history', () => {
+    expect(channelInitialAnchorFromCursor(messages, 50_000, 'me')).toEqual({
+      kind: 'message',
+      messageId: 'm1',
+    });
   });
 
   it('falls back to latest when everything loaded is already read', () => {
