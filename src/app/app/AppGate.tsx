@@ -52,7 +52,7 @@ export default function AppGate() {
     <>
       {loggedIn ? <ReadStateRoot /> : null}
       {isMobile ? <MobileShell /> : <AppShell />}
-      <ActivityIndicator hideSigning={isMobile} />
+      {!isMobile && <ActivityIndicator />}
     </>
   );
 }

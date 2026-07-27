@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { nip19 } from 'nostr-tools';
 import { Nip46Signer } from '@nostr-wot/signers';
-import LoginModal, { signerAppHref } from './LoginModal';
+import LoginModal, { copyConnectionUri, signerAppHref } from './LoginModal';
 
 const bunkerFromUri = vi.hoisted(() => vi.fn());
 const loginWithNsec = vi.fn();
@@ -164,8 +164,28 @@ describe('LoginModal generated identity flow', () => {
 
     await waitFor(() => expect(screen.getByText('Open in signer app')).toBeInTheDocument());
 
-    expect(screen.getByText('Open in signer app').closest('a')?.previousElementSibling)
+    expect(screen.getByText('Open in signer app').closest('.nui-signer-actions')?.previousElementSibling)
       .toBe(screen.getByTestId('sdk-qr'));
+  });
+
+  it('copies the exact QR URI for Amber manual import', async () => {
+    render(<LoginModal />);
+    const copy = await screen.findByRole('button', { name: 'Copy connection URI' });
+
+    fireEvent.click(copy);
+
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith('nostrconnect://test'));
+    expect(copy).toHaveTextContent('Copied');
+  });
+
+  it('falls back to a temporary textarea when the Clipboard API rejects', async () => {
+    vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'));
+    document.execCommand = vi.fn().mockReturnValue(true);
+
+    await expect(copyConnectionUri('nostrconnect://complete')).resolves.toBe(true);
+
+    expect(document.execCommand).toHaveBeenCalledWith('copy');
+    expect(document.querySelector('textarea')).toBeNull();
   });
 
   it('hands Android the complete QR URI through Amber', () => {

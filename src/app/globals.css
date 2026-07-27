@@ -1003,8 +1003,13 @@ button:not(:disabled),
  * QR with their phone signer, but on mobile the QR is unscannable so
  * handing off to Amber / Nsec.app / Keychat via the `nostrconnect://`
  * URL scheme is the only ergonomic path. */
-.nui-open-signer {
+.nui-signer-actions {
   display: none;
+}
+
+.obelisk-login-modal .nui-qr-wrap .nui-key-display {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .obelisk-login-modal .nui-qr svg {
@@ -1055,7 +1060,12 @@ button:not(:disabled),
   .obelisk-login-modal .nui-qr svg {
     width: min(220px, calc(100vw - 64px));
   }
-  .nui-open-signer {
+  .nui-signer-actions {
+    display: grid;
+    width: 100%;
+    gap: 8px;
+  }
+  :is(.nui-open-signer, .nui-copy-signer) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1070,8 +1080,20 @@ button:not(:disabled),
     text-decoration: none;
     transition: background 0.15s, box-shadow 0.15s;
   }
+  .nui-copy-signer {
+    border: 1px solid color-mix(in oklab, var(--color-lc-green) 28%, transparent);
+    background: color-mix(in oklab, var(--color-lc-green) 10%, transparent);
+    color: var(--color-lc-green);
+  }
   .nui-open-signer:active {
     background: color-mix(in oklab, var(--color-lc-green) 88%, black 12%);
   }
   .nui-open-signer > span:first-child { font-size: 16px; line-height: 1; }
+  .nui-signer-copy-hint {
+    margin: 0;
+    color: var(--color-lc-muted);
+    font-size: 11px;
+    line-height: 1.35;
+    text-align: center;
+  }
 }

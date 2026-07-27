@@ -90,6 +90,23 @@ export function signerAppHref(uri: string, userAgent: string): string {
   return `intent://${uri.slice('nostrconnect://'.length)}#Intent;scheme=nostrconnect;package=com.greenart7c3.nostrsigner;end`;
 }
 
+export async function copyConnectionUri(uri: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(uri);
+    return true;
+  } catch {
+    const textarea = document.createElement('textarea');
+    textarea.value = uri;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.append(textarea);
+    textarea.select();
+    try { return document.execCommand('copy'); }
+    catch { return false; }
+    finally { textarea.remove(); }
+  }
+}
+
 async function routeToBridge(args: {
   method: LoginMethodId;
   pubkey: string;
@@ -149,7 +166,7 @@ function Nip46SignerDeepLink(): null {
   useEffect(() => {
     if (typeof document === 'undefined') return;
 
-    let injected: HTMLAnchorElement | null = null;
+    let injected: HTMLElement | null = null;
     let innerObserver: MutationObserver | null = null;
 
     const removeInjected = () => {
@@ -160,6 +177,8 @@ function Nip46SignerDeepLink(): null {
     const sync = () => {
       const qrWrap = document.querySelector<HTMLElement>('.nui-modal .nui-qr-wrap');
       const uri = qrWrap?.querySelector<HTMLElement>('.nui-key-display')?.textContent?.trim();
+      const pasteTab = document.querySelector<HTMLButtonElement>('.nui-modal .nui-tabs [role="tab"]:last-child');
+      if (pasteTab?.textContent?.trim() === 'Paste URI') pasteTab.textContent = 'Use bunker URI';
 
       if (!qrWrap || !uri || !uri.startsWith('nostrconnect://')) {
         removeInjected();
@@ -168,21 +187,35 @@ function Nip46SignerDeepLink(): null {
       if (injected && injected.isConnected && injected.dataset.nostrconnect === uri) return;
 
       removeInjected();
+      const actions = document.createElement('div');
+      actions.className = 'nui-signer-actions';
+      actions.dataset.nostrconnect = uri;
       const a = document.createElement('a');
       a.href = signerAppHref(uri, navigator.userAgent);
-      a.dataset.nostrconnect = uri;
       a.className = 'nui-open-signer';
       a.rel = 'noopener noreferrer';
+      a.addEventListener('click', () => { void copyConnectionUri(uri); });
       const arrow = document.createElement('span');
       arrow.setAttribute('aria-hidden', 'true');
       arrow.textContent = '↗'; // ↗
       const label = document.createElement('span');
       label.textContent = 'Open in signer app';
       a.append(arrow, label);
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'nui-copy-signer';
+      copy.textContent = 'Copy connection URI';
+      copy.addEventListener('click', async () => {
+        copy.textContent = await copyConnectionUri(uri) ? 'Copied' : 'Copy failed — select URI below';
+      });
+      const hint = document.createElement('p');
+      hint.className = 'nui-signer-copy-hint';
+      hint.textContent = 'Fallback: copy it, then in Amber open New application → Paste from clipboard.';
+      actions.append(a, copy, hint);
       const qr = qrWrap.querySelector('.nui-qr');
-      if (qr) qr.insertAdjacentElement('afterend', a);
-      else qrWrap.append(a);
-      injected = a;
+      if (qr) qr.insertAdjacentElement('afterend', actions);
+      else qrWrap.append(actions);
+      injected = actions;
     };
 
     const attachInner = (overlay: Element) => {
