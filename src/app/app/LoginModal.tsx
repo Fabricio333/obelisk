@@ -27,16 +27,10 @@ import { finalizeEvent, getPublicKey } from 'nostr-tools/pure';
 import { getPool, nsecToBytes, nsecToHex as sdkNsecToHex } from '@nostr-wot/data';
 import { useCallback, useEffect, useState, type ReactNode, type SVGProps } from 'react';
 import { nostrActions } from '@/lib/nostr-bridge';
+import { OBELISK_NIP46_PERMISSIONS } from '@/lib/nostr-signing-kinds';
 import GeneratedProfileEnhancements from './GeneratedProfileEnhancements';
 
-const NIP46_PERMS = [
-  'nip04_encrypt',
-  'nip04_decrypt',
-  'nip44_encrypt',
-  'nip44_decrypt',
-  ...[1, 2, 9, 17, 18, 25, 29, 42, 51, 57, 59, 78, 98].map((nip) => 'nip:' + nip),
-  ...[20078, 24242, 25050, 25052].map((kind) => 'sign_event:' + kind),
-].join(',');
+const NIP46_PERMS = OBELISK_NIP46_PERMISSIONS;
 
 const NIP46_METADATA = {
   name: 'Obelisk',

@@ -12,6 +12,7 @@ import LanguagePreference from '@/components/LanguagePreference';
 import AppearancePreferenceControls from '@/components/AppearancePreferenceControls';
 import ProfileFeedRelaySettings from '@/components/settings/ProfileFeedRelaySettings';
 import AccountBackupExport from '@/components/settings/AccountBackupExport';
+import DeveloperSignatureTest from '@/components/settings/DeveloperSignatureTest';
 import UserAvatar from '@/components/UserAvatar';
 import ModalShell from '@/components/ModalShell';
 import MediaLibraryModal from '@/components/media/MediaLibraryModal';
@@ -468,6 +469,7 @@ export function PreferencesPanel() {
         checked={prefs.developerRelayDebug}
         onChange={(v) => setPreference('developerRelayDebug', v)}
       />
+      <DeveloperSignatureTest />
       <ToggleRow
         label={t('preferences.activity.label')}
         description={t('preferences.activity.description')}

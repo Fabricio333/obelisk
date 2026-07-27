@@ -84,6 +84,7 @@ describe('PreferencesPanel appearance controls', () => {
     expect(screen.getByTestId('appearance-background-color')).toBeInTheDocument();
     expect(screen.getByTestId('appearance-button-color')).toBeInTheDocument();
     expect(screen.getByTestId('desktop-download-backup')).toBeInTheDocument();
+    expect(screen.getByTestId('developer-signature-test')).toBeInTheDocument();
   });
 
   it('includes a direct-message opt-in reset toggle', async () => {

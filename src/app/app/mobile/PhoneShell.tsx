@@ -108,6 +108,7 @@ import MediaLibraryModal from '@/components/media/MediaLibraryModal';
 import AppearancePreferenceControls from '@/components/AppearancePreferenceControls';
 import ProfileFeedRelaySettings from '@/components/settings/ProfileFeedRelaySettings';
 import AccountBackupExport from '@/components/settings/AccountBackupExport';
+import DeveloperSignatureTest from '@/components/settings/DeveloperSignatureTest';
 import NostrProfile from '@/components/chat/NostrProfile';
 import ProfilePopover from '@/components/chat/ProfilePopover';
 import MobileSigningIndicator from '@/components/MobileSigningIndicator';
@@ -5259,6 +5260,7 @@ export function SettingsPrefsScreen({ go }: { go: (s: ScreenName) => void }) {
           <AccountBackupExport mobile />
         </div>
         <ProfileFeedRelaySettings mobile />
+        <DeveloperSignatureTest mobile />
         <div className="settings-section">
           <div className="settings-section-title">{t("mobile.settings.identity")}</div>
           <button
