@@ -725,6 +725,7 @@ export class BridgeImpl {
   private activeGroupId: string | null = null;
   /** Active NIP-46 signer (when loginMethod === 'bunker'). Reconstructed lazily. */
   private bunkerSigner: RemoteSigner | null = null;
+  private bunkerSignerRecovery: Promise<RemoteSigner> | null = null;
   /** Set by the modal so it can show the auth-challenge URL. */
   private bunkerOnAuth: ((url: string) => void) | null = null;
 
@@ -1864,12 +1865,14 @@ export class BridgeImpl {
       ? hexToBytes(options.clientSecretHex)
       : generateSecretKey();
     this.bunkerOnAuth = options?.onAuthUrl ?? null;
-    const signer = options?.signer ?? BunkerSigner.fromBunker(localSecret, bp, {
+    const signerOptions = {
       onauth: (url) => {
         if (this.bunkerOnAuth) this.bunkerOnAuth(url);
         else if (typeof window !== 'undefined') window.open(url, '_blank', 'width=600,height=700');
       },
-    });
+    };
+    const pairedSigner = options?.signer;
+    const signer = pairedSigner ?? BunkerSigner.fromBunker(localSecret, bp, signerOptions);
     const connectId = pushActivity('Connecting to bunker', 'waiting for remote signer');
     let pubKeyHex: string;
     try {
@@ -1884,7 +1887,11 @@ export class BridgeImpl {
       throw e;
     }
     resolveActivity(connectId);
-    this.bunkerSigner = signer;
+    // The SDK owns `pairedSigner` and closes it when its login modal unmounts.
+    // Keep a bridge-owned instance on the same authorized client key instead.
+    this.bunkerSigner = pairedSigner
+      ? BunkerSigner.fromBunker(localSecret, bp, signerOptions)
+      : signer;
     this.session = {
       pubKeyHex,
       loginMethod: 'bunker',
@@ -2009,6 +2016,23 @@ export class BridgeImpl {
     this.bunkerSigner = signer;
     this.bunkerSignerReady.set(true);
     return signer;
+  }
+
+  private async withBunkerSigner<T>(operation: (signer: RemoteSigner) => Promise<T>): Promise<T> {
+    const signer = await this.ensureBunkerSigner();
+    try {
+      return await operation(signer);
+    } catch (error) {
+      if (!(error instanceof Error) || !/signer is not open anymore/i.test(error.message)) throw error;
+      if (this.bunkerSigner === signer) {
+        this.bunkerSigner = null;
+        this.bunkerSignerReady.set(false);
+      }
+      this.bunkerSignerRecovery ??= this.ensureBunkerSigner().finally(() => {
+        this.bunkerSignerRecovery = null;
+      });
+      return operation(await this.bunkerSignerRecovery);
+    }
   }
 
   async logout(): Promise<void> {
@@ -4115,10 +4139,9 @@ export class BridgeImpl {
       );
     }
     if (this.session.loginMethod === 'bunker') {
-      const b = await this.ensureBunkerSigner();
       return await trackActivity(
         'Waiting for bunker signature',
-        () => b.signEvent(fullTemplate) as Promise<NostrEvent>,
+        () => this.withBunkerSigner((b) => b.signEvent(fullTemplate) as Promise<NostrEvent>),
         "kind " + template.kind,
         { operation: "sign", eventKind: template.kind, description: eventKindDescription(template.kind) },
       );
@@ -4151,10 +4174,9 @@ export class BridgeImpl {
         );
       }
       if (session.loginMethod === 'bunker') {
-        const b = await this.ensureBunkerSigner();
         return trackActivity(
           'Waiting for bunker signature',
-          () => b.signEvent(unsigned) as Promise<VerifiedEvent>,
+          () => this.withBunkerSigner((b) => b.signEvent(unsigned) as Promise<VerifiedEvent>),
           'NIP-42 relay auth',
           { operation: 'sign', eventKind: evt.kind, description: eventKindDescription(evt.kind) },
         );
@@ -6107,8 +6129,7 @@ export class BridgeImpl {
           return w.signEvent(template);
         }
         if (session.loginMethod === 'bunker') {
-          const b = await this.ensureBunkerSigner();
-          return b.signEvent(template) as Promise<NostrEvent>;
+          return this.withBunkerSigner((b) => b.signEvent(template) as Promise<NostrEvent>);
         }
         throw new Error(`Cannot sign with login method ${session.loginMethod}`);
       },
@@ -6126,8 +6147,7 @@ export class BridgeImpl {
           return w.nip44.encrypt(recipientPubkey, plaintext);
         }
         if (session.loginMethod === 'bunker') {
-          const b = await this.ensureBunkerSigner();
-          return b.nip44Encrypt(recipientPubkey, plaintext);
+          return this.withBunkerSigner((b) => b.nip44Encrypt(recipientPubkey, plaintext));
         }
         throw new Error(`Cannot NIP-44 encrypt with login method ${session.loginMethod}`);
       },
@@ -6145,8 +6165,7 @@ export class BridgeImpl {
           return w.nip44.decrypt(senderPubkey, ciphertext);
         }
         if (session.loginMethod === 'bunker') {
-          const b = await this.ensureBunkerSigner();
-          return b.nip44Decrypt(senderPubkey, ciphertext);
+          return this.withBunkerSigner((b) => b.nip44Decrypt(senderPubkey, ciphertext));
         }
         throw new Error(`Cannot NIP-44 decrypt with login method ${session.loginMethod}`);
       },
@@ -6164,8 +6183,7 @@ export class BridgeImpl {
       return w.nip04.encrypt(recipientPubkey, content);
     }
     if (this.session.loginMethod === 'bunker') {
-      const b = await this.ensureBunkerSigner();
-      return b.nip04Encrypt(recipientPubkey, content);
+      return this.withBunkerSigner((b) => b.nip04Encrypt(recipientPubkey, content));
     }
     throw new Error('Cannot encrypt with current login method');
   }
@@ -6181,8 +6199,7 @@ export class BridgeImpl {
       return w.nip04.decrypt(senderPubkey, ciphertext);
     }
     if (this.session.loginMethod === 'bunker') {
-      const b = await this.ensureBunkerSigner();
-      return b.nip04Decrypt(senderPubkey, ciphertext);
+      return this.withBunkerSigner((b) => b.nip04Decrypt(senderPubkey, ciphertext));
     }
     throw new Error('Cannot decrypt with current login method');
   }
@@ -6324,8 +6341,7 @@ export class BridgeImpl {
         if (!win) throw new Error('NIP-07 extension unavailable');
         event = (await win.signEvent(template)) as NostrEvent;
       } else if (this.session.loginMethod === 'bunker') {
-        const b = await this.ensureBunkerSigner();
-        event = (await b.signEvent(template)) as NostrEvent;
+        event = await this.withBunkerSigner((b) => b.signEvent(template) as Promise<NostrEvent>);
       } else {
         throw new Error(`Login method ${this.session.loginMethod} cannot sign events in this build`);
       }

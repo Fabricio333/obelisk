@@ -75,6 +75,7 @@ vi.mock('nostr-tools', async (orig) => {
 vi.mock('nostr-tools/nip46', () => {
   class BunkerSigner {
     bp: { pubkey: string; relays: string[]; secret: string | null };
+    closed = false;
     constructor(bp = { pubkey: 'bunker-remote-pk', relays: ['wss://relay.nsec.app'] as string[], secret: 'sec' as string | null }) {
       this.bp = bp;
     }
@@ -91,6 +92,7 @@ vi.mock('nostr-tools/nip46', () => {
       return 'a'.repeat(64);
     }
     async signEvent(evt: { kind: number; tags: string[][]; content: string; created_at?: number; pubkey?: string }) {
+      if (this.closed) throw new Error('this signer is not open anymore, create a new one');
       return {
         ...evt,
         id: 'mocked-id',
@@ -99,7 +101,7 @@ vi.mock('nostr-tools/nip46', () => {
         created_at: evt.created_at ?? Math.floor(Date.now() / 1000),
       };
     }
-    close(): void { /* noop */ }
+    close(): void { this.closed = true; }
   }
   return {
     BunkerSigner,
@@ -308,7 +310,7 @@ describe('Fix C — bunker pre-warm on initialize', () => {
     expect(fake.state.bunkerGetPublicKeyCount).toBeGreaterThanOrEqual(1);
   });
 
-  it('keeps the exact SDK-paired signer instead of reconstructing it', async () => {
+  it('keeps a bridge-owned signer alive after the SDK closes its paired signer', async () => {
     const { getBridge } = await import('./client');
     const bridge = await getBridge();
     const { BunkerSigner } = await import('nostr-tools/nip46');
@@ -323,9 +325,13 @@ describe('Fix C — bunker pre-warm on initialize', () => {
       signer,
     });
 
-    expect(fake.state.bunkerFromBunkerCount).toBe(0);
+    expect(fake.state.bunkerFromBunkerCount).toBe(1);
     expect(fake.state.bunkerConnectCount).toBe(0);
     expect(fake.state.bunkerGetPublicKeyCount).toBe(1);
+
+    signer.close();
+    await expect(bridge.publishEvent({ kind: 20078, content: '', tags: [['e', 'voice']] }))
+      .resolves.toMatchObject({ kind: 20078, pubkey: 'a'.repeat(64) });
   });
 
   it('does NOT pre-warm BunkerSigner for nsec sessions', async () => {

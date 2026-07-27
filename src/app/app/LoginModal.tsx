@@ -25,7 +25,7 @@ import {
 import { nip19 } from 'nostr-tools';
 import { finalizeEvent, getPublicKey } from 'nostr-tools/pure';
 import { getPool, nsecToBytes, nsecToHex as sdkNsecToHex } from '@nostr-wot/data';
-import { useCallback, useEffect, useState, type ReactNode, type SVGProps } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode, type SVGProps } from 'react';
 import { nostrActions } from '@/lib/nostr-bridge';
 import { OBELISK_NIP46_PERMISSIONS } from '@/lib/nostr-signing-kinds';
 import GeneratedProfileEnhancements from './GeneratedProfileEnhancements';
@@ -105,6 +105,10 @@ export async function copyConnectionUri(uri: string): Promise<boolean> {
     catch { return false; }
     finally { textarea.remove(); }
   }
+}
+
+export function isTransientNip46Error(message: string): boolean {
+  return /subscription closed before (?:the )?connection was established/i.test(message);
 }
 
 async function routeToBridge(args: {
@@ -306,9 +310,25 @@ export default function LoginModal({
   const [finishing, setFinishing] = useState(false);
   const [finishError, setFinishError] = useState('');
   const [generatedProfile, setGeneratedProfile] = useState<GeneratedProfileDraft>({});
+  const [nip46Retry, setNip46Retry] = useState(0);
+  const [hideTransientError, setHideTransientError] = useState(false);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const updateGeneratedProfile = useCallback((patch: GeneratedProfileDraft) => {
     setGeneratedProfile((current) => ({ ...current, ...patch }));
   }, []);
+  useEffect(() => () => {
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+  }, []);
+
+  const handleSdkError = (message: string) => {
+    if (!isTransientNip46Error(message)) return;
+    setHideTransientError(true);
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    retryTimer.current = setTimeout(() => {
+      setNip46Retry((current) => current + 1);
+      setHideTransientError(false);
+    }, Math.min(5_000, 250 * 2 ** nip46Retry));
+  };
 
   if (generatedLogin) {
     const npub = nip19.npubEncode(generatedLogin.pubkey);
@@ -367,6 +387,7 @@ export default function LoginModal({
       <Nip46SignerDeepLink />
       <GeneratedProfileEnhancements onDraftChange={updateGeneratedProfile} />
       <SdkLoginModal
+        key={nip46Retry}
         open
         onClose={onClose ?? (() => { /* AppShell only mounts this when logged out — no dismiss */ })}
         title={title}
@@ -379,6 +400,8 @@ export default function LoginModal({
         nip46Metadata={NIP46_METADATA}
         methods={methods}
         modalClasses={{ modal: 'obelisk-login-modal' }}
+        {...(hideTransientError ? { styles: { error: { display: 'none' } } } : {})}
+        onError={handleSdkError}
         methodIcons={{
           nip07: <LockIcon />,
           nip46: <ShieldIcon />,

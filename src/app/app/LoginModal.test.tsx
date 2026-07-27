@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { nip19 } from 'nostr-tools';
 import { Nip46Signer } from '@nostr-wot/signers';
-import LoginModal, { copyConnectionUri, signerAppHref } from './LoginModal';
+import LoginModal, { copyConnectionUri, isTransientNip46Error, signerAppHref } from './LoginModal';
 
 const bunkerFromUri = vi.hoisted(() => vi.fn());
 const loginWithNsec = vi.fn();
@@ -195,6 +195,20 @@ describe('LoginModal generated identity flow', () => {
       'intent://abc123?relay=wss%3A%2F%2Fpublic.obelisk.ar&name=Obelisk&perms=sign_event%3A1#Intent;scheme=nostrconnect;package=com.greenart7c3.nostrsigner;end',
     );
     expect(signerAppHref(uri, 'Mozilla/5.0 (iPhone)')).toBe(uri);
+  });
+
+  it('silently rotates the QR after a transient subscription close', async () => {
+    expect(isTransientNip46Error('subscription closed before connection was established.')).toBe(true);
+    expect(isTransientNip46Error('Remote signer rejected the request')).toBe(false);
+    render(<LoginModal />);
+    const oldQr = screen.getByTestId('sdk-login');
+
+    act(() => {
+      (sdkProps.onError as (message: string) => void)('subscription closed before connection was established.');
+    });
+
+    expect(sdkProps.styles).toEqual({ error: { display: 'none' } });
+    await waitFor(() => expect(screen.getByTestId('sdk-login')).not.toBe(oldQr), { timeout: 1_000 });
   });
 
   it('shows an aligned back control on the final generated-profile screen', async () => {
