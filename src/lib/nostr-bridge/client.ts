@@ -1,6 +1,11 @@
 /** Relay-only nostr-tools bridge singleton. */
 import { SimplePool, type Filter, type Event as NostrEvent, type EventTemplate, type VerifiedEvent, finalizeEvent, getPublicKey, nip04 } from 'nostr-tools';
-import { KIND_VOICE_PRESENCE } from '@/lib/nip-kinds';
+import {
+  KIND_EMOJI_FAVORITES,
+  KIND_EMOJI_SET,
+  KIND_VOICE_PRESENCE,
+} from '@/lib/nip-kinds';
+import { EMPTY_MEDIA_FAVORITES, mediaFavoriteTags, mediaPackTags, parseMediaFavorites, parseMediaPack } from '@/lib/media-packs';
 import { BunkerSigner, parseBunkerInput, createNostrConnectURI } from 'nostr-tools/nip46';
 import { generateSecretKey } from 'nostr-tools/pure';
 import { v2 as nip44 } from 'nostr-tools/nip44';
@@ -28,6 +33,8 @@ import type {
   JsUserMetadata,
   JsReaction,
   JsDirectMessage,
+  JsMediaFavorites,
+  JsMediaPack,
   LoadMoreMessagesResult,
   MessagesStatus,
   RelayAccessState,
@@ -639,7 +646,11 @@ export class BridgeImpl {
       const host = (() => {
         try { return new URL(url).host; } catch { return url; }
       })();
-      const id = pushActivity(`Authenticating with ${host}`, 'NIP-42 relay AUTH — approve in your signer');
+      const id = pushActivity(
+        'Authenticating with ' + host,
+        'NIP-42 relay AUTH — approve in your signer',
+        { operation: 'sign', description: 'NIP-42 relay auth' },
+      );
       this.authActivityIds.set(key, id);
     } else if (cur[key] === 'authenticating' && state !== 'authenticating') {
       const id = this.authActivityIds.get(key);
@@ -949,6 +960,10 @@ export class BridgeImpl {
   myContactList = new StateStore<NostrEvent | null>(null);
   myContactListReady = new StateStore(false);
   private myContactListLatestAt = 0;
+  mediaPacks = new StateStore<Record<string, JsMediaPack>>({});
+  myMediaFavorites = new StateStore<JsMediaFavorites>(EMPTY_MEDIA_FAVORITES);
+  private mediaPackLatestAt = new Map<string, number>();
+  private mediaLibrarySubscribed = false;
   reactionsByGroup = new StateStore<Record<string, Record<string, JsReaction[]>>>({});
   private deletedEventIdsByGroup = new Map<string, Map<string, string>>();
   private moderatedEventIdsByGroup = new Map<string, Set<string>>();
@@ -1442,6 +1457,8 @@ export class BridgeImpl {
       KIND_USER_METADATA,
       KIND_GROUP_MESSAGE,
       KIND_REACTION,
+      KIND_EMOJI_SET,
+      KIND_EMOJI_FAVORITES,
     ]);
     const idsFor = (kind: number) => ids.get(kind) ?? [];
     let hasRenderableCache = false;
@@ -1540,6 +1557,28 @@ export class BridgeImpl {
     }
     if (Object.keys(cachedMetadata).length > 0) {
       this.userMetadata.update((prev) => ({ ...prev, ...cachedMetadata }));
+    }
+
+    const cachedPacks: Record<string, JsMediaPack> = {};
+    for (const id of idsFor(KIND_EMOJI_SET).filter((value) => value.startsWith('media-pack:'))) {
+      const entry = cacheGet<JsMediaPack>(relay, KIND_EMOJI_SET, id);
+      if (!entry) continue;
+      const pack = entry.value;
+      if ((this.mediaPackLatestAt.get(pack.address) ?? 0) >= pack.createdAt) continue;
+      cachedPacks[pack.address] = pack;
+      this.mediaPackLatestAt.set(pack.address, pack.createdAt);
+    }
+    if (Object.keys(cachedPacks).length > 0) {
+      this.mediaPacks.update((prev) => ({ ...prev, ...cachedPacks }));
+    }
+    const mediaOwner = this.session?.pubKeyHex;
+    if (mediaOwner) {
+      const entry = cacheGet<JsMediaFavorites>(
+        relay,
+        KIND_EMOJI_FAVORITES,
+        `media-favorites:${mediaOwner}`,
+      );
+      if (entry) this.myMediaFavorites.set(entry.value);
     }
 
     const currentMessages = this.messagesByGroup.get();
@@ -1648,6 +1687,9 @@ export class BridgeImpl {
       this.myContactList.set(null);
       this.myContactListReady.set(false);
       this.myContactListLatestAt = 0;
+      this.mediaPacks.set({});
+      this.myMediaFavorites.set(EMPTY_MEDIA_FAVORITES);
+      this.mediaPackLatestAt.clear();
     }
     this.persist();
     this.resetPoolForSessionChange();
@@ -1724,6 +1766,7 @@ export class BridgeImpl {
     this.adminMemberSubByGroup.clear();
     this.adminMemberLatestAt.clear();
     this.metadataRequested.clear();
+    this.mediaLibrarySubscribed = false;
     // The new pool's per-group REQs haven't been issued yet — drop any
     // EOSE bits captured from the old pool so the chat pane shows its
     // loading spinner until the resub completes (see `pendingResubscribe`
@@ -1983,6 +2026,10 @@ export class BridgeImpl {
     this.myContactList.set(null);
     this.myContactListReady.set(false);
     this.myContactListLatestAt = 0;
+    this.mediaPacks.set({});
+    this.myMediaFavorites.set(EMPTY_MEDIA_FAVORITES);
+    this.mediaPackLatestAt.clear();
+    this.mediaLibrarySubscribed = false;
     this.connectionState.set('Disconnected');
     this.groups.set([]);
     this.groupMetadataEose.set(false);
@@ -2129,6 +2176,7 @@ export class BridgeImpl {
       queueMicrotask(() => {
         this.subscribeAllAdminMember();
         this.openMyContactListSubscription();
+        this.subscribeMediaLibraryEvents();
         this.subscribeMyMuteList();
         this.subscribeMyAuthoredGroups();
         this.subscribeActiveCalls();
@@ -2267,6 +2315,10 @@ export class BridgeImpl {
     this.adminMemberSubByGroup.clear();
     this.adminMemberLatestAt.clear();
     this.metadataRequested.clear();
+    this.mediaPacks.set({});
+    this.myMediaFavorites.set(EMPTY_MEDIA_FAVORITES);
+    this.mediaPackLatestAt.clear();
+    this.mediaLibrarySubscribed = false;
     this.adminsByGroup.set({});
     this.membersByGroup.set({});
     // Reset readiness too — the new relay hasn't delivered evidence yet.
@@ -2528,6 +2580,77 @@ export class BridgeImpl {
 
   subscribeMyContactListReady(cb: (ready: boolean) => void): Unsubscribe {
     return this.myContactListReady.subscribe(cb);
+  }
+
+  subscribeMediaPacks(
+    cb: (packs: Readonly<Record<string, JsMediaPack>>) => void,
+  ): Unsubscribe {
+    this.subscribeMediaLibraryEvents();
+    return this.mediaPacks.subscribe(cb);
+  }
+
+  subscribeMyMediaFavorites(cb: (favorites: JsMediaFavorites) => void): Unsubscribe {
+    this.subscribeMediaLibraryEvents();
+    return this.myMediaFavorites.subscribe(cb);
+  }
+
+  async saveMediaPack(
+    pack: Pick<JsMediaPack, 'identifier' | 'title' | 'description' | 'image' | 'items'>,
+  ): Promise<void> {
+    const author = this.getPublicKey();
+    if (!author) throw new Error('Not logged in.');
+    const address = "30030:" + author + ":" + pack.identifier;
+    const previousAt = Math.max(
+      this.mediaPacks.get()[address]?.createdAt ?? 0,
+      this.mediaPackLatestAt.get(address) ?? 0,
+    );
+    await this.publishEvent({
+      kind: KIND_EMOJI_SET,
+      content: '',
+      tags: mediaPackTags(pack, author),
+      created_at: Math.max(
+        Math.floor(Date.now() / 1000),
+        previousAt + 1,
+      ),
+    }, { extraRelays: PROFILE_RELAYS });
+  }
+
+  async deleteMediaPack(address: string): Promise<void> {
+    const author = this.getPublicKey();
+    const pack = this.mediaPacks.get()[address];
+    if (!author || !pack || pack.author !== author) throw new Error('You can only delete your own packs.');
+    const createdAt = Math.max(Math.floor(Date.now() / 1000), pack.createdAt + 1);
+    await this.publishEvent({
+      kind: KIND_EVENT_DELETION,
+      content: 'delete media pack',
+      tags: [['a', address], ['k', String(KIND_EMOJI_SET)]],
+      created_at: createdAt,
+    }, { extraRelays: PROFILE_RELAYS });
+    this.mediaPackLatestAt.set(address, createdAt);
+    this.mediaPacks.update((previous) => {
+      const next = { ...previous };
+      delete next[address];
+      return next;
+    });
+    cacheDelete(this.currentRelayUrl.get(), KIND_EMOJI_SET, 'media-pack:' + address);
+    if (this.myMediaFavorites.get().packAddresses.includes(address)) {
+      await this.saveMediaFavorites({
+        items: this.myMediaFavorites.get().items,
+        packAddresses: this.myMediaFavorites.get().packAddresses.filter((value) => value !== address),
+      });
+    }
+  }
+
+  async saveMediaFavorites(
+    favorites: Pick<JsMediaFavorites, 'items' | 'packAddresses'>,
+  ): Promise<void> {
+    const previousAt = this.myMediaFavorites.get().createdAt;
+    await this.publishEvent({
+      kind: KIND_EMOJI_FAVORITES,
+      content: '',
+      tags: mediaFavoriteTags({ ...favorites, createdAt: 0 }),
+      created_at: Math.max(Math.floor(Date.now() / 1000), previousAt + 1),
+    }, { extraRelays: PROFILE_RELAYS });
   }
 
   subscribeMyMutes(cb: (pubkeys: ReadonlyArray<string>) => void): Unsubscribe {
@@ -3415,6 +3538,8 @@ export class BridgeImpl {
       opts,
     );
     if (event.kind === KIND_CONTACT_LIST) this.ingestMyContactList(event);
+    if (event.kind === KIND_EMOJI_SET) this.ingestMediaPack(event);
+    if (event.kind === KIND_EMOJI_FAVORITES) this.ingestMediaFavorites(event);
     return event;
   }
 
@@ -3913,7 +4038,8 @@ export class BridgeImpl {
       return await trackActivity(
         'Waiting for extension signature',
         () => win.signEvent(fullTemplate) as Promise<NostrEvent>,
-        `kind ${template.kind}`,
+        "kind " + template.kind,
+        { operation: "sign", eventKind: template.kind, description: eventKindDescription(template.kind) },
       );
     }
     if (this.session.loginMethod === 'bunker') {
@@ -3921,7 +4047,8 @@ export class BridgeImpl {
       return await trackActivity(
         'Waiting for bunker signature',
         () => b.signEvent(fullTemplate) as Promise<NostrEvent>,
-        `kind ${template.kind}`,
+        "kind " + template.kind,
+        { operation: "sign", eventKind: template.kind, description: eventKindDescription(template.kind) },
       );
     }
     throw new Error(`Login method ${this.session.loginMethod} cannot sign events in this build`);
@@ -5040,6 +5167,68 @@ export class BridgeImpl {
     this.myContactList.set(ev);
     this.myContactListReady.set(true);
     cacheSet(PROFILE_RELAYS[0], KIND_CONTACT_LIST, ev.pubkey, ev);
+  }
+
+  private ingestMediaPack(ev: NostrEvent): void {
+    if (ev.kind !== KIND_EMOJI_SET) return;
+    const pack = parseMediaPack(ev);
+    if (!pack || pack.items.length === 0) return;
+    if (ev.created_at <= (this.mediaPackLatestAt.get(pack.address) ?? 0)) return;
+    this.mediaPackLatestAt.set(pack.address, ev.created_at);
+    this.mediaPacks.update((prev) => ({ ...prev, [pack.address]: pack }));
+    cacheSet(
+      this.currentRelayUrl.get(),
+      KIND_EMOJI_SET,
+      `media-pack:${pack.address}`,
+      pack,
+    );
+  }
+
+  private ingestMediaFavorites(ev: NostrEvent): void {
+    if (
+      !this.session
+      || ev.kind !== KIND_EMOJI_FAVORITES
+      || ev.pubkey !== this.session.pubKeyHex
+      || ev.created_at <= this.myMediaFavorites.get().createdAt
+    ) return;
+    const favorites = parseMediaFavorites(ev);
+    this.myMediaFavorites.set(favorites);
+    cacheSet(
+      this.currentRelayUrl.get(),
+      KIND_EMOJI_FAVORITES,
+      `media-favorites:${ev.pubkey}`,
+      favorites,
+    );
+  }
+
+  private subscribeMediaLibraryEvents(): void {
+    if (!this.session || this.mediaLibrarySubscribed) return;
+    this.mediaLibrarySubscribed = true;
+    const relays = Array.from(new Set([
+      ...this.relays,
+      ...PROFILE_RELAYS,
+      ...getPreferences().profileFeedRelays,
+    ]));
+    const options = {
+      affectsRelayAccess: false,
+      bypassWot: true,
+      maxAttempts: 2,
+    } as const;
+    const packs = this.subscribeWatched(
+      relays,
+      { kinds: [KIND_EMOJI_SET], limit: 200 },
+      (ev) => this.ingestMediaPack(ev),
+      undefined,
+      options,
+    );
+    const favorites = this.subscribeWatched(
+      relays,
+      { kinds: [KIND_EMOJI_FAVORITES], authors: [this.session.pubKeyHex], limit: 1 },
+      (ev) => this.ingestMediaFavorites(ev),
+      undefined,
+      options,
+    );
+    this.subs.push(packs, favorites);
   }
 
   private openMyContactListSubscription(): void {

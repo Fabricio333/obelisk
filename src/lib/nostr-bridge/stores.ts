@@ -12,7 +12,8 @@ import { normalizeRelayUrl } from './relay-url';
 import { usePreferences } from '@/lib/preferences';
 import { wotEngine } from '@/lib/wot/engine';
 import { useWotEnabled } from '@/lib/wot';
-import type { JsGroup, JsMessage, JsReaction, JsDirectMessage, JsUserMetadata, LoadMoreMessagesResult, MessagesStatus, RelayAccessState } from './types';
+import { EMPTY_MEDIA_FAVORITES } from '@/lib/media-packs';
+import type { JsGroup, JsMessage, JsReaction, JsDirectMessage, JsUserMetadata, JsMediaFavorites, JsMediaPack, LoadMoreMessagesResult, MessagesStatus, RelayAccessState } from './types';
 
 function useSubscription<T>(
   subscribe: (
@@ -167,6 +168,18 @@ export function useMyContactListReady(): boolean {
   return useSubscription((b, cb) => b.subscribeMyContactListReady(cb), false);
 }
 
+
+export function useMediaPacks(): Readonly<Record<string, JsMediaPack>> {
+  return useSubscription<Readonly<Record<string, JsMediaPack>>>(
+    (b, cb) => b.subscribeMediaPacks(cb), {},
+  );
+}
+
+export function useMyMediaFavorites(): JsMediaFavorites {
+  return useSubscription<JsMediaFavorites>(
+    (b, cb) => b.subscribeMyMediaFavorites(cb), EMPTY_MEDIA_FAVORITES,
+  );
+}
 export function useMyFollows(): ReadonlyArray<string> {
   const event = useMyContactList();
   return useMemo(() => {

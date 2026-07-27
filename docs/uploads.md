@@ -1,90 +1,40 @@
-# Uploads — storage layout and access model
+# Uploads — Blossom storage and event URLs
 
-## Storage
+Obelisk has no local upload route, upload table, or backend file store. Browser
+clients upload directly to Blossom and publish the returned URL in signed Nostr
+events.
 
-Uploaded files live on disk at `./uploads/<24-hex>.<ext>` relative to the
-Node.js working directory. In Docker this is backed by a persistent volume
-(see `docker-compose.yml`). The directory is intentionally **outside**
-`public/` because Next.js indexes `public/` at build time and won't serve
-files written there at runtime in production.
+## Upload flow
 
-Files are served by a dedicated route handler at
-`src/app/uploads/[name]/route.ts`, not by Next.js static file serving.
+`src/lib/blossom.ts` implements the shared BUD-01 flow:
 
-## URL format
+1. Hash the file with SHA-256.
+2. Sign a short-lived kind `24242` Blossom authorization event.
+3. `PUT` the bytes to the configured Blossom servers, trying each until one
+   succeeds.
+4. Store the returned absolute HTTP(S) URL in the Nostr event.
 
-Stored URLs in the database (emojis, GIFs, message content, etc.) are
-**site-relative** (`/uploads/<name>.<ext>`) — never absolute.
+The signer is the active Nostr identity. There is no cookie session, API route,
+Prisma model, SQL backfill, or site-relative `/uploads/...` URL.
 
-Absolute URLs would bake the hostname at upload time, which breaks when:
-- The server listens on `0.0.0.0` (not a routable client hostname)
-- The domain changes (self-hosted migration, reverse-proxy swap)
-- Clients load the app over a different scheme/port than the upload was made
+## URL and privacy contract
 
-If you see `https?://<host>/uploads/...` in the DB, it's legacy data — run
-the backfill:
+Blossom media URLs are public by possession. Anyone who receives a message,
+pack, profile, or relay-setting event can fetch its media URL, and retaining the
+URL may preserve access after relay membership changes. Do not use chat uploads
+for private documents, regulated data, or content that requires revocable
+access.
 
-```sql
-UPDATE "ServerEmoji"
-   SET url = regexp_replace(url, '^https?://[^/]+/uploads/', '/uploads/')
- WHERE url ~ '^https?://[^/]+/uploads/';
+Obelisk validates HTTP(S) URLs before accepting media-pack, sticker, and voice
+markers. Availability, retention, abuse controls, and deletion remain policies
+of the selected Blossom server.
 
-UPDATE "Message"
-   SET content = regexp_replace(content, 'https?://[^/\s)]+/uploads/', '/uploads/', 'g')
- WHERE content ~ 'https?://[^/\s)]+/uploads/';
-```
+## Media packs
 
-## Access model — IMPORTANT
-
-The `/uploads/<name>` route **does not check authentication**. Anyone who
-knows a filename can fetch it.
-
-### What this means
-
-- **Unlisted, not private.** Filenames are `randomBytes(12).toString('hex')`
-  = 96 bits of entropy, effectively unguessable. This is the same model as
-  Discord/Slack CDN URLs.
-- **URLs leak across server boundaries.** A user on Server A who posts an
-  image exposes that URL to anyone who sees the message — including
-  non-members, kicked users, embed crawlers (Telegram/Twitter/Slack link
-  previews), and search engines that index any page linking the URL.
-- **No per-server scoping at fetch time.** The uploads table doesn't record
-  which server owns a file, and the route handler doesn't know either.
-- **Kicked/banned users retain access** to any URL they already saw.
-
-### When this is fine
-
-- Emojis, avatars, server icons, GIF libraries — content that's *intended*
-  to be shareable.
-- Casual chat attachments in a context where the threat model matches
-  Discord's (i.e. "nobody outside the server is going to find these URLs,
-  and if they do, it's not a disaster").
-
-### When this is NOT fine
-
-- Anything resembling private documents, PII, or regulated content.
-- Rooms or servers advertised as "private" where members would reasonably
-  expect attachments to be inaccessible to non-members.
-
-### If you need to lock this down
-
-Two tiers, in increasing order of strictness:
-
-1. **Session-gated** — require a logged-in session in
-   `src/app/uploads/[name]/route.ts`. Cheap to implement, but breaks
-   `<img src>` in contexts that don't carry the session cookie
-   (cross-origin embeds, external link-preview crawlers, email clients).
-
-2. **Server-scoped** — add a `serverId` column to an `Upload` table,
-   populated at upload time, and check the viewer's membership in that
-   server at fetch time. This is the "correct" model for private content
-   but requires: schema migration, upload route persisting rows, fetch
-   route doing a DB lookup per request (cache-friendly since filenames
-   are immutable), and a strategy for emoji/avatar images that need to
-   stay public.
-
-Neither is implemented today. Status quo matches Discord's CDN model and
-is acceptable for a Discord-like chat. Revisit if the threat model shifts.
+Emoji, GIF, and sticker pack files use this same flow. Named packs, item
+favorites, and server favorites store only Blossom URLs in Nostr tags. See
+[media-packs.md](media-packs.md) for the complete event contract and migration
+flow.
 
 ## Voice notes
 
@@ -120,6 +70,5 @@ Per-mime caps (bytes) live in `src/lib/attachments.ts`:
 - Documents: 25 MB
 - Audio: 25 MB
 
-Servers can tighten these per-mime (but not loosen past the global
-ceiling) via the admin panel. Custom emojis clamp tighter still
-(256 KB static, 2 MB GIF) client-side; the GIF library clamps to 8 MB.
+These caps apply to composer attachments. The media-pack editor accepts image
+files and delegates final upload acceptance to the selected Blossom server.

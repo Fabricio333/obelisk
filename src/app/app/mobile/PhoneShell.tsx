@@ -30,6 +30,7 @@ import {
   useMessagesStatus,
   useSignerReady,
   useMyPubkey,
+  useMediaPacks,
   useMyFollows,
   useUserMetadata,
   useLoadEarlier,
@@ -89,6 +90,8 @@ import {
 import {
   useRelayEmojiSet,
   relayEmojiMap,
+  relayMediaKindMap,
+  resolveRelayEmojiSet,
   type RelayEmojiSet,
 } from '@/lib/relay-emojis';
 import {
@@ -101,6 +104,7 @@ import BlossomImageInput, { ChannelAppearanceInput } from '@/components/BlossomI
 import RelayAdminPanel from '@/components/admin/RelayAdminPanel';
 import RelayEmojiAdminModal from '@/components/admin/RelayEmojiAdminModal';
 import LanguagePreference from '@/components/LanguagePreference';
+import MediaLibraryModal from '@/components/media/MediaLibraryModal';
 import AppearancePreferenceControls from '@/components/AppearancePreferenceControls';
 import ProfileFeedRelaySettings from '@/components/settings/ProfileFeedRelaySettings';
 import NostrProfile from '@/components/chat/NostrProfile';
@@ -586,7 +590,7 @@ export function RelayMenuSheet({
               />
               <Row
                 icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" /></svg>}
-                rowLabel="Custom emojis"
+                rowLabel="Emoji, GIFs & stickers"
                 hint="NIP-51"
                 onClick={() => setAdminPanel('emojis')}
               />
@@ -2237,10 +2241,12 @@ function ServerScreen({
   );
   const branding = useRelayBranding(relay || null, relayAuthors);
   const emojiSet = useRelayEmojiSet(relay || null, relayAuthors);
+  const mediaPacks = useMediaPacks();
+  const resolvedEmojiSet = useMemo(() => resolveRelayEmojiSet(emojiSet, mediaPacks), [emojiSet, mediaPacks]);
   const setServerEmojis = useChatStore((s) => s.setServerEmojis);
   useEffect(() => {
-    setServerEmojis(relayEmojiMap(emojiSet));
-  }, [emojiSet, setServerEmojis]);
+    setServerEmojis(relayEmojiMap(resolvedEmojiSet), relayMediaKindMap(resolvedEmojiSet));
+  }, [resolvedEmojiSet, setServerEmojis]);
 
   // Renders a single channel row, plus — for forum containers with thread
   // children — the inline thread list when the user has expanded it. Used by
@@ -4900,6 +4906,7 @@ export function SettingsProfileScreen({ go }: { go: (s: ScreenName) => void }) {
   const name = meta?.displayName || meta?.name || shortNpub(myPubkey ?? '');
   const npub = myPubkey ? pubkeyToNpub(myPubkey) : '';
   const [confirmingLogout, setConfirmingLogout] = useState(false);
+  const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
 
   return (
     <div className="screen active" data-screen="settings-profile">
@@ -4944,6 +4951,13 @@ export function SettingsProfileScreen({ go }: { go: (s: ScreenName) => void }) {
             </a>
           )}
         </div>
+        <div className="settings-section">
+          <div className="settings-section-title">Media</div>
+          <button type="button" className="settings-row action" onClick={() => setMediaLibraryOpen(true)} data-testid="mobile-profile-media-library">
+            <span>Emoji, GIFs &amp; stickers</span>
+            <span className="settings-row-meta muted" aria-hidden="true">›</span>
+          </button>
+        </div>
         <button className="settings-btn-primary" onClick={() => go('profile-edit')} data-testid="edit-profile-btn">
           {t('mobile.settings.editNostrProfile')}
         </button>
@@ -4960,6 +4974,7 @@ export function SettingsProfileScreen({ go }: { go: (s: ScreenName) => void }) {
           {t('mobile.settings.disconnect')}
         </button>
       </div>
+      {mediaLibraryOpen && <MediaLibraryModal onClose={() => setMediaLibraryOpen(false)} />}
       {confirmingLogout && (
         <DisconnectConfirmSheet
           onConfirm={() => { setConfirmingLogout(false); void nostrActions.logout(); }}
@@ -5262,6 +5277,7 @@ export function SettingsPrefsScreen({ go }: { go: (s: ScreenName) => void }) {
   const dmOptInEnabled = useDmOptInEnabled();
   const prefs = usePreferences();
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
 
   if (appearanceOpen) {
     return (
@@ -5280,6 +5296,7 @@ export function SettingsPrefsScreen({ go }: { go: (s: ScreenName) => void }) {
   }
 
   return (
+    <>
     <div className="screen active" data-screen="settings-prefs">
       <div className="app-header">
         <h2>{t('settings.you')}</h2>
@@ -5299,6 +5316,13 @@ export function SettingsPrefsScreen({ go }: { go: (s: ScreenName) => void }) {
             data-testid="mobile-appearance-submenu"
           >
             <span>{t('preferences.appearance.title')}</span>
+            <span className="settings-row-meta muted" aria-hidden="true">›</span>
+          </button>
+          <button type="button" className="settings-row action" onClick={() => setMediaLibraryOpen(true)} data-testid="mobile-media-library">
+            <span style={{ minWidth: 0, flex: 1 }}>
+              <span style={{ display: 'block' }}>Emoji, GIFs &amp; stickers</span>
+              <span className="settings-row-meta muted" style={{ display: 'block', maxWidth: '100%', marginTop: 3 }}>Create packs and manage favorites.</span>
+            </span>
             <span className="settings-row-meta muted" aria-hidden="true">›</span>
           </button>
           <button
@@ -5345,6 +5369,8 @@ export function SettingsPrefsScreen({ go }: { go: (s: ScreenName) => void }) {
         <ProfileFeedRelaySettings mobile />
       </div>
     </div>
+      {mediaLibraryOpen && <MediaLibraryModal onClose={() => setMediaLibraryOpen(false)} />}
+    </>
   );
 }
 

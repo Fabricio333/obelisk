@@ -1,13 +1,25 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { nostrActions } from '@/lib/nostr-bridge';
 import MessageMediaPicker from './MessageMediaPicker';
+import { useChatStore } from '@/store/chat';
 
 vi.mock('@/lib/blossom', () => ({
   uploadToBlossom: vi.fn().mockResolvedValue('https://cdn.example/mine.webp'),
 }));
 
+vi.mock('@/lib/nostr-bridge', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/nostr-bridge')>();
+  return { ...actual, useMyPubkey: () => 'a'.repeat(64) };
+});
+
+afterEach(() => vi.restoreAllMocks());
+
 describe('MessageMediaPicker', () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {
+    localStorage.clear();
+    useChatStore.getState().reset();
+  });
 
   it('separates emoji, GIF, and sticker views', () => {
     const onPick = vi.fn();
@@ -23,6 +35,7 @@ describe('MessageMediaPicker', () => {
       />,
     );
 
+    expect(screen.queryByRole('button', { name: 'Packs' })).not.toBeInTheDocument();
     expect(screen.getByRole('searchbox', { name: 'Search emoji' }).parentElement).toHaveClass('rounded-xl', 'border-lc-green/80');
     expect(screen.getByText('Server GIFs')).toBeInTheDocument();
     expect(screen.getByText('Server emojis')).toBeInTheDocument();
@@ -98,5 +111,48 @@ describe('MessageMediaPicker', () => {
       { name: 'wave', url: 'https://cdn.example/wave.webp' },
       'sticker',
     );
+  });
+
+  it('uses server pack media types in the existing tabs', () => {
+    useChatStore.getState().setServerEmojis(
+      { clip: 'https://cdn.example/clip.webp', stamp: 'https://cdn.example/stamp.gif' },
+      { clip: 'gif', stamp: 'sticker' },
+    );
+    render(
+      <MessageMediaPicker
+        initialTab="gif"
+        onPick={() => {}}
+        onClose={() => {}}
+        customEmojis={useChatStore.getState().serverEmojis}
+      />,
+    );
+
+    expect(within(screen.getByTestId('media-section-server_gifs')).getByAltText(':clip:')).toBeInTheDocument();
+    expect(screen.queryByAltText(':stamp:')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Stickers' }));
+    expect(within(screen.getByTestId('media-section-server_stickers')).getByAltText(':stamp:')).toBeInTheDocument();
+    expect(screen.queryByAltText(':clip:')).not.toBeInTheDocument();
+  });
+
+  it("saves newly created stickers into the default user pack", async () => {
+    const savePack = vi.spyOn(nostrActions, "saveMediaPack").mockResolvedValue(undefined);
+    const saveFavorites = vi.spyOn(nostrActions, "saveMediaFavorites").mockResolvedValue(undefined);
+    render(<MessageMediaPicker initialTab="sticker" onPick={() => {}} onClose={() => {}} customEmojis={{}} />);
+
+    const input = document.querySelector<HTMLInputElement>("input[type=\"file\"]");
+    expect(input).not.toBeNull();
+    fireEvent.change(input!, { target: { files: [new File(["image"], "Party Cat.webp", { type: "image/webp" })] } });
+
+    await waitFor(() => expect(savePack).toHaveBeenCalledWith({
+      identifier: "obelisk-my-stickers",
+      title: "My stickers",
+      description: "Stickers created from the message picker.",
+      image: "",
+      items: [{ name: "party_cat", url: "https://cdn.example/mine.webp", kind: "sticker" }],
+    }));
+    expect(saveFavorites).toHaveBeenCalledWith({
+      items: [],
+      packAddresses: ["30030:" + "a".repeat(64) + ":obelisk-my-stickers"],
+    });
   });
 });

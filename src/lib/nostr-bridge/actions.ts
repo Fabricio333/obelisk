@@ -26,6 +26,12 @@ export const nostrActions = {
   addRelay: async (url: string) => (await getBridge()).addRelay(url),
   removeRelay: async (url: string) => (await getBridge()).removeRelay(url),
 
+  saveMediaPack: async (pack: Parameters<Awaited<ReturnType<typeof getBridge>>['saveMediaPack']>[0]) =>
+    (await getBridge()).saveMediaPack(pack),
+  deleteMediaPack: async (address: string) => (await getBridge()).deleteMediaPack(address),
+  saveMediaFavorites: async (favorites: Parameters<Awaited<ReturnType<typeof getBridge>>['saveMediaFavorites']>[0]) =>
+    (await getBridge()).saveMediaFavorites(favorites),
+
   sendMessage: async (
     groupId: string,
     content: string,

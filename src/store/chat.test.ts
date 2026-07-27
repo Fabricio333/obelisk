@@ -11,6 +11,7 @@ describe('useChatStore', () => {
       activeChannelId: null,
       isNearBottom: true,
       serverEmojis: {},
+      serverMediaKinds: {},
       profilePopupPubkey: null,
       profilePopupAnchor: null,
       lastActivityAt: {},
@@ -19,9 +20,13 @@ describe('useChatStore', () => {
   });
 
   it('updates emoji and profile-popup state', () => {
-    useChatStore.getState().setServerEmojis({ party: 'https://example.com/party.png' });
+    useChatStore.getState().setServerEmojis(
+      { party: 'https://example.com/party.png' },
+      { party: 'sticker' },
+    );
     useChatStore.getState().openProfilePopup('alice', { x: 10, y: 20 });
     expect(useChatStore.getState().serverEmojis).toEqual({ party: 'https://example.com/party.png' });
+    expect(useChatStore.getState().serverMediaKinds).toEqual({ party: 'sticker' });
     expect(useChatStore.getState().profilePopupPubkey).toBe('alice');
     expect(useChatStore.getState().profilePopupAnchor).toEqual({ x: 10, y: 20 });
     useChatStore.getState().closeProfilePopup();
@@ -42,6 +47,7 @@ describe('useChatStore', () => {
       activeChannelId: 'group',
       isNearBottom: false,
       serverEmojis: { party: 'url' },
+      serverMediaKinds: { party: 'gif' },
       profilePopupPubkey: 'alice',
       profilePopupAnchor: { x: 10, y: 20 },
       lastActivityAt: { alice: 20 },
@@ -52,6 +58,7 @@ describe('useChatStore', () => {
       activeChannelId: null,
       isNearBottom: true,
       serverEmojis: {},
+      serverMediaKinds: {},
       profilePopupPubkey: null,
       profilePopupAnchor: null,
       lastActivityAt: {},

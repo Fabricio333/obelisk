@@ -30,6 +30,7 @@ import {
   useRelayAccess,
   useMyLoginMethod,
   useMyPubkey,
+  useMediaPacks,
   useUserMetadata as useProfile,
   type JsGroup,
   type JsForumTag,
@@ -97,6 +98,8 @@ import {
 import {
   useRelayEmojiSet,
   relayEmojiMap,
+  relayMediaKindMap,
+  resolveRelayEmojiSet,
 } from '@/lib/relay-emojis';
 import {
   emojiTagsForContent,
@@ -804,10 +807,12 @@ function Sidebar({
   );
   const branding = useRelayBranding(relay || null, relayAuthors);
   const emojiSet = useRelayEmojiSet(relay || null, relayAuthors);
+  const mediaPacks = useMediaPacks();
+  const resolvedEmojiSet = useMemo(() => resolveRelayEmojiSet(emojiSet, mediaPacks), [emojiSet, mediaPacks]);
   const setServerEmojis = useChatStore((s) => s.setServerEmojis);
   useEffect(() => {
-    setServerEmojis(relayEmojiMap(emojiSet));
-  }, [emojiSet, setServerEmojis]);
+    setServerEmojis(relayEmojiMap(resolvedEmojiSet), relayMediaKindMap(resolvedEmojiSet));
+  }, [resolvedEmojiSet, setServerEmojis]);
   // 1500ms grace period for the title — keeps a skeleton in place while
   // we wait for branding. If nothing arrives by then, fall back to the
   // shortHost() label so the user isn't staring at shimmer forever.
@@ -1098,7 +1103,7 @@ export function RelaySettingsModal({
 }) {
   const items = [
     ['profile', 'Server profile & banner', 'Name, icon, banner, and description.', onBranding],
-    ['emoji', 'Emojis', 'Custom emoji available across the relay.', onEmojis],
+    ['emoji', 'Emoji, GIFs & stickers', 'Server favorites, packs, and marketplace.', onEmojis],
     ['channels', 'Channels & categories', 'Category names and channel ordering.', onLayout],
     ['members', 'Members & roles', 'Review and moderate membership across channels.', onMembers],
   ] as const;

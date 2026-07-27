@@ -134,6 +134,33 @@ export interface JsDirectMessage {
   readonly clientTag?: string;
 }
 
+export type JsMediaKind = 'emoji' | 'gif' | 'sticker';
+
+export interface JsMediaItem {
+  readonly name: string;
+  readonly url: string;
+  readonly kind: JsMediaKind;
+  /** NIP-30/NIP-51 address of the pack this item came from, when known. */
+  readonly packAddress?: string;
+}
+
+export interface JsMediaPack {
+  readonly address: string;
+  readonly identifier: string;
+  readonly author: string;
+  readonly title: string;
+  readonly description: string;
+  readonly image: string;
+  readonly items: ReadonlyArray<JsMediaItem>;
+  readonly createdAt: number;
+}
+
+export interface JsMediaFavorites {
+  readonly items: ReadonlyArray<JsMediaItem>;
+  readonly packAddresses: ReadonlyArray<string>;
+  readonly createdAt: number;
+}
+
 export type Unsubscribe = () => void;
 
 /**

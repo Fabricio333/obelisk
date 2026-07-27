@@ -87,6 +87,10 @@ vi.mock('@/components/admin/RelayAdminPanel', () => ({
   default: () => <div data-testid="relay-admin-panel-stub" />,
 }));
 
+vi.mock('@/components/media/MediaLibraryModal', () => ({
+  default: () => <div data-testid="media-library-stub" />,
+}));
+
 import { LocaleProvider } from '@/i18n/context';
 import type { Locale } from '@/i18n/index';
 import { SettingsProfileScreen, EditProfileScreen, SettingsPrefsScreen } from './PhoneShell';
@@ -174,6 +178,12 @@ describe('SettingsProfileScreen', () => {
     renderWithLocale(<SettingsProfileScreen go={vi.fn()} />);
     fireEvent.click(screen.getByTestId('copy-hex'));
     expect(writeText).toHaveBeenCalledWith(PUBKEY);
+  });
+
+  it('opens the personal media library directly for a normal signed-in user', () => {
+    renderWithLocale(<SettingsProfileScreen go={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('mobile-profile-media-library'));
+    expect(screen.getByTestId('media-library-stub')).toBeInTheDocument();
   });
 
   it('navigates to profile-edit when "Edit Nostr Profile" is tapped', () => {

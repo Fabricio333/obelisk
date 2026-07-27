@@ -120,8 +120,8 @@
   }
 }
 
-/* Lift direct children above the ambient layers. */
-.obelisk-mobile > * {
+/* Lift app chrome above the ambient layers without demoting fixed overlays. */
+.obelisk-mobile > :not(.fixed) {
   position: relative;
   z-index: 1;
 }

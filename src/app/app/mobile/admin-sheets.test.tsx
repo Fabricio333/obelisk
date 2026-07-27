@@ -221,7 +221,7 @@ describe('RelayMenuSheet admin gating', () => {
     );
     expect(screen.queryByTestId('mobile-relay-admin-section')).toBeNull();
     expect(screen.queryByText('Edit branding')).toBeNull();
-    expect(screen.queryByText('Custom emojis')).toBeNull();
+    expect(screen.queryByText('Emoji, GIFs & stickers')).toBeNull();
     expect(screen.queryByText('Categories & order')).toBeNull();
     expect(screen.queryByText('Admins & members')).toBeNull();
     expect(screen.getByRole('button', { name: 'Close' })).toHaveClass('relay-menu-close');
@@ -241,12 +241,12 @@ describe('RelayMenuSheet admin gating', () => {
     );
     expect(screen.getByTestId('mobile-relay-admin-section')).toBeTruthy();
     expect(screen.getByText('Edit branding')).toBeTruthy();
-    expect(screen.getByText('Custom emojis')).toBeTruthy();
+    expect(screen.getByText('Emoji, GIFs & stickers')).toBeTruthy();
     expect(screen.getByText('Categories & order')).toBeTruthy();
     expect(screen.getByText('Admins & members')).toBeTruthy();
   });
 
-  it('opens the emoji admin panel when the admin taps "Custom emojis"', () => {
+  it('opens the emoji admin panel when the admin taps "Emoji, GIFs & stickers"', () => {
     render(
       <RelayMenuSheet
         close={() => {}}
@@ -259,7 +259,7 @@ describe('RelayMenuSheet admin gating', () => {
         rootChannels={[]}
       />,
     );
-    fireEvent.click(screen.getByText('Custom emojis'));
+    fireEvent.click(screen.getByText('Emoji, GIFs & stickers'));
     expect(screen.getByTestId('relay-emoji-admin-stub')).toBeTruthy();
   });
 

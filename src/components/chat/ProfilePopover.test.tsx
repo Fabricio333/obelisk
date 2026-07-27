@@ -1,5 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import ProfilePopover from './ProfilePopover';
 import { useChatStore } from '@/store/chat';
 import { LocaleProvider } from '@/i18n/context';
@@ -87,6 +89,13 @@ describe('ProfilePopover', () => {
     renderProfile(onClose);
     fireEvent.click(screen.getByTestId('profile-popover-backdrop'));
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('stays a viewport overlay inside the mobile shell', () => {
+    renderProfile();
+    expect(screen.getByTestId('profile-popover-backdrop')).toHaveClass('fixed', 'z-[100]', 'items-center', 'justify-center');
+    expect(readFileSync(join(process.cwd(), 'src/app/app/mobile/mobile-shell.css'), 'utf8'))
+      .toContain('.obelisk-mobile > :not(.fixed)');
   });
 
   it('does not close from panel content', () => {

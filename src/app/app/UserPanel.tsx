@@ -13,6 +13,7 @@ import AppearancePreferenceControls from '@/components/AppearancePreferenceContr
 import ProfileFeedRelaySettings from '@/components/settings/ProfileFeedRelaySettings';
 import UserAvatar from '@/components/UserAvatar';
 import ModalShell from '@/components/ModalShell';
+import MediaLibraryModal from '@/components/media/MediaLibraryModal';
 import { clearAllClientCacheExceptSession } from '@/lib/nostr-bridge/cache-clear';
 import { useTranslation } from '@/i18n/context';
 
@@ -32,6 +33,7 @@ export default function UserPanel({ pubkey, isMe, onClose, onLogout, anchor, ini
   const meta = useProfile(pubkey);
   const [editing, setEditing] = useState(initialEditing);
   const [settingsTab, setSettingsTab] = useState<'profile' | 'preferences'>('profile');
+  const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
 
   useEffect(() => {
     nostrActions.ensureUserMetadata(pubkey).catch(() => {});
@@ -53,6 +55,11 @@ export default function UserPanel({ pubkey, isMe, onClose, onLogout, anchor, ini
     try { return hexToNpub(pubkey); } catch { return null; }
   })();
   const displayName = meta?.displayName || meta?.name || pubkey.slice(0, 10);
+  const logout = () => {
+    onClose();
+    if (onLogout) onLogout();
+    else void nostrActions.logout();
+  };
 
   if (typeof document === 'undefined') return null;
 
@@ -114,7 +121,27 @@ export default function UserPanel({ pubkey, isMe, onClose, onLogout, anchor, ini
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
                 <span>{t('settings.preferences')}</span>
               </button>
+              <button
+                type="button"
+                onClick={() => setMediaLibraryOpen(true)}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-lc-white hover:bg-lc-border/40"
+                data-testid="desktop-media-library"
+              >
+                <span aria-hidden="true">★</span>
+                <span>Emoji, GIFs &amp; stickers</span>
+              </button>
             </nav>
+            <div className="border-t border-lc-border p-2">
+              <button
+                type="button"
+                onClick={logout}
+                className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-red-400 hover:bg-lc-border/40"
+                data-testid="desktop-logout"
+              >
+                <span aria-hidden="true">↪</span>
+                <span>{t('user.logOut')}</span>
+              </button>
+            </div>
           </aside>
           <main className="flex-1 min-w-0 overflow-y-auto">
             <div className="max-w-3xl mx-auto px-10 py-10">
@@ -141,6 +168,7 @@ export default function UserPanel({ pubkey, isMe, onClose, onLogout, anchor, ini
               )}
             </div>
           </main>
+          {mediaLibraryOpen && <MediaLibraryModal onClose={() => setMediaLibraryOpen(false)} />}
         </div>
       </div>,
       document.body,
@@ -253,7 +281,7 @@ export default function UserPanel({ pubkey, isMe, onClose, onLogout, anchor, ini
                 </button>
                 <div className="border-t border-lc-border" />
                 <button
-                  onClick={onLogout}
+                  onClick={logout}
                   className="flex w-full items-center gap-2 p-3 text-left text-xs text-red-400 transition hover:bg-lc-border/50"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -342,6 +370,28 @@ function EditProfileForm({
 
   return (
     <div className="space-y-3 p-4">
+      <div
+        className="relative mb-14 aspect-[4/1] overflow-visible rounded-xl border border-lc-border bg-lc-black"
+        data-testid="profile-appearance-preview"
+      >
+        {banner ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={banner} alt={t('user.field.banner')} className="h-full w-full rounded-xl object-cover" />
+        ) : (
+          <div className="h-full w-full rounded-xl bg-gradient-to-r from-lc-olive/30 to-lc-dark" />
+        )}
+        <div className="absolute -bottom-12 left-6 rounded-full bg-lc-black">
+          <UserAvatar
+            pubkey={name || '0'}
+            picture={picture || null}
+            size={24}
+            name={name}
+            alt={t('user.field.picture')}
+            className="border-4 border-lc-black shadow-lg"
+            initialClassName="text-3xl"
+          />
+        </div>
+      </div>
       <Field label={t('user.field.name')}>
         <input ref={firstField} value={name} onChange={(e) => { markDirty(); setName(e.target.value); }} className={fieldCls} />
       </Field>
@@ -353,6 +403,7 @@ function EditProfileForm({
         value={picture}
         onChange={(url) => { markDirty(); setPicture(url); }}
         shape="square"
+        showPreview={false}
       />
       <BlossomImageInput
         label={t('user.field.banner')}
@@ -360,6 +411,7 @@ function EditProfileForm({
         onChange={(url) => { markDirty(); setBanner(url); }}
         shape="wide"
         accept="image/*"
+        showPreview={false}
       />
       <Field label="NIP-05">
         <input value={nip05} onChange={(e) => { markDirty(); setNip05(e.target.value); }} placeholder="you@example.com" className={fieldCls} />
@@ -391,10 +443,17 @@ function EditProfileForm({
 export function PreferencesPanel() {
   const prefs = usePreferences();
   const { t } = useTranslation();
+  const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
   return (
     <div className="space-y-4 p-4">
       <LanguagePreference />
       <AppearancePreferenceControls />
+      <button type="button" onClick={() => setMediaLibraryOpen(true)} className="flex w-full items-center justify-between rounded-lg border border-lc-border bg-lc-black p-4 text-left hover:border-lc-green/50">
+        <span><span className="block text-sm font-semibold text-lc-white">Emoji, GIFs &amp; stickers</span><span className="mt-1 block text-xs text-lc-muted">Create packs and manage favorites.</span></span>
+        <span className="text-lc-muted">›</span>
+      </button>
+      {mediaLibraryOpen && <MediaLibraryModal onClose={() => setMediaLibraryOpen(false)} />}
+
       <ProfileFeedRelaySettings />
       <ToggleRow
         label="Developer relay logs"

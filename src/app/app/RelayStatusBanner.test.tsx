@@ -40,6 +40,20 @@ describe('RelayStatusBanner test ids', () => {
     expect(banner).not.toHaveClass('border-b');
   });
 
+  it('lets the mobile top signer status own authentication notices', () => {
+    mockBridge.relayAccess = 'authenticating';
+    const { rerender } = render(<RelayStatusBanner hideAuthenticating />);
+    expect(screen.queryByTestId('relay-access-banner')).toBeNull();
+
+    mockBridge.relayAccess = 'auth-required';
+    rerender(<RelayStatusBanner hideAuthenticating />);
+    expect(screen.queryByTestId('relay-access-banner')).toBeNull();
+
+    mockBridge.connectionState = 'Disconnected';
+    rerender(<RelayStatusBanner hideAuthenticating />);
+    expect(screen.getByTestId('connection-loss-banner')).toHaveTextContent('Connection lost');
+  });
+
   it('surfaces offline mode with cached-content guidance', () => {
     mockBridge.connectionState = 'Offline';
 

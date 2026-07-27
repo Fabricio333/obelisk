@@ -44,6 +44,9 @@ export const KIND_RELAY_LIST = 10002;
 /** NIP-17 — DM inbox relays. */
 export const KIND_DM_INBOX_RELAYS = 10050;
 
+/** NIP-51 — user's preferred emojis and referenced emoji/media packs. */
+export const KIND_EMOJI_FAVORITES = 10030;
+
 /** NIP-51 / NIP-30 — addressable custom emoji set. */
 export const KIND_EMOJI_SET = 30030;
 

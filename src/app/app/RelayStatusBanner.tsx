@@ -142,7 +142,7 @@ function bannerTestId(state: string): 'connection-loss-banner' | 'relay-access-b
 }
 
 /** Shared relay row inside the bottom-right activity stack. */
-export default function RelayStatusBanner() {
+export default function RelayStatusBanner({ hideAuthenticating = false }: { hideAuthenticating?: boolean }) {
   const isLoggedIn = useIsLoggedIn();
   const conn = useConnectionState();
   const access = useRelayAccess();
@@ -150,7 +150,7 @@ export default function RelayStatusBanner() {
   const relay = useCurrentRelayUrl();
   if (!isLoggedIn || !relay) return null;
   const status = computeStatus(conn, access, loginMethod, shortHost(relay));
-  if (!status) return null;
+  if (!status || (hideAuthenticating && (status.state === 'authenticating' || status.state === 'auth-required'))) return null;
   return (
     <div
       data-testid={bannerTestId(status.state)}

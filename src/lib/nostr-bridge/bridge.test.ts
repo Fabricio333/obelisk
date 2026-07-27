@@ -182,6 +182,89 @@ describe('nostr-bridge', () => {
     expect(bridge.getPublicKey()).toBe(pkHex);
   });
 
+  it('subscribes, caches, and publishes NIP-51 media packs and favorites', async () => {
+    const { getBridge } = await import('./client');
+    const { cacheGet } = await import('./cache');
+    const { mediaPackAddress } = await import('../media-packs');
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+
+    const creatorSk = generateSecretKey();
+    const creatorPubkey = getPublicKey(creatorSk);
+    const address = mediaPackAddress(creatorPubkey, 'cats');
+    const packEvent = finalizeEvent({
+      kind: 30030,
+      created_at: 50,
+      content: '',
+      tags: [
+        ['d', 'cats'],
+        ['title', 'Cat pack'],
+        ['emoji', 'party_cat', 'https://cdn.example/cat.webp'],
+        ['media', 'party_cat', 'sticker'],
+      ],
+    }, creatorSk);
+
+    const packSnapshots: Array<Readonly<Record<string, { title: string }>>> = [];
+    bridge.subscribeMediaPacks((packs) => packSnapshots.push(packs));
+    deliver(packEvent);
+    await flush();
+
+    expect(packSnapshots.at(-1)?.[address]?.title).toBe('Cat pack');
+    expect(cacheGet('wss://public.obelisk.ar', 30030, `media-pack:${address}`)?.value).toMatchObject({
+      address,
+      title: 'Cat pack',
+    });
+
+    await bridge.saveMediaFavorites({ items: [], packAddresses: [address] });
+    await flush();
+
+    const published = fake.state.published.find((event) => event.kind === 10030);
+    expect(published?.tags).toContainEqual(['a', address]);
+    expect(bridge.myMediaFavorites.get().packAddresses).toEqual([address]);
+    expect(cacheGet('wss://public.obelisk.ar', 10030, `media-favorites:${pkHex}`)?.value).toMatchObject({
+      packAddresses: [address],
+    });
+  });
+
+  it('deletes only an owned media pack with a NIP-09 address request', async () => {
+    const { getBridge } = await import('./client');
+    const { mediaPackAddress } = await import('../media-packs');
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+    await bridge.saveMediaPack({
+      identifier: 'mine',
+      title: 'Mine',
+      description: '',
+      image: '',
+      items: [{ name: 'wave', url: 'https://cdn.example/wave.webp', kind: 'sticker' }],
+    });
+    const address = mediaPackAddress(pkHex, 'mine');
+    await bridge.saveMediaFavorites({ items: [], packAddresses: [address] });
+
+    await bridge.deleteMediaPack(address);
+
+    const deletion = fake.state.published.find((event) => event.kind === 5);
+    expect(deletion?.tags).toEqual([
+      ['a', address],
+      ['k', '30030'],
+    ]);
+    expect(bridge.mediaPacks.get()[address]).toBeUndefined();
+    expect(bridge.myMediaFavorites.get().packAddresses).toEqual([]);
+
+    await bridge.saveMediaPack({
+      identifier: 'mine',
+      title: 'Mine again',
+      description: '',
+      image: '',
+      items: [{ name: 'wave', url: 'https://cdn.example/wave.webp', kind: 'sticker' }],
+    });
+    const recreated = fake.state.published.filter((event) => event.kind === 30030).at(-1);
+    expect(recreated!.created_at).toBeGreaterThan(deletion!.created_at);
+    expect(bridge.mediaPacks.get()[address]?.title).toBe('Mine again');
+  });
+
   it('createGroup publishes a kind 9007 + 9002 and the group appears in the groups store', async () => {
     const { getBridge } = await import('./client');
     const { skHex, pkHex } = makeKeypair();

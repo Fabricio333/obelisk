@@ -9,9 +9,9 @@ what every user sees for a given relay:
 
 Both accept one authoritative author: the validated NIP-11 operator identity.
 
-Relay custom emojis use the same operator-author model, but they are stored as
+Server media favorites use the same operator-author model, but they are stored as
 NIP-51 `kind:30030` emoji-set events instead of NIP-78. See
-[relay-custom-emojis.md](relay-custom-emojis.md).
+[media-packs.md](media-packs.md).
 
 ## Storage
 
@@ -37,7 +37,7 @@ validated NIP-11 `contact` npub when present, falling back to the relay's
 NIP-11 `pubkey`.
 
 The sidebar gear is rendered only when the active identity matches that
-operator key. Layout, branding, and emoji subscriptions use the same key, so
+operator key. Layout, branding, and server-media subscriptions use the same key, so
 events from channel admins or unrelated pubkeys are ignored client-side.
 
 ## Security boundary

@@ -23,6 +23,8 @@ interface Props {
   hint?: React.ReactNode;
   /** Restrict the file picker (default: any image). */
   accept?: string;
+  /** Hide the inline thumbnail when a parent renders a larger combined preview. */
+  showPreview?: boolean;
 }
 
 export function ChannelAppearanceInput({
@@ -106,6 +108,7 @@ export default function BlossomImageInput({
   shape = 'square',
   hint,
   accept = 'image/*',
+  showPreview = true,
 }: Props) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -137,12 +140,12 @@ export default function BlossomImageInput({
     <div>
       <label className="block text-xs text-lc-muted mb-1.5 uppercase tracking-wider">{label}</label>
       <div className="flex items-center gap-3">
-        {value ? (
+        {showPreview && (value ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={value} alt="" className={thumbCls} />
         ) : (
           <div className={placeholderCls} />
-        )}
+        ))}
         <input
           value={value}
           onChange={(e) => onChange(e.target.value)}

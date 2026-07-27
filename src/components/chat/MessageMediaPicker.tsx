@@ -3,17 +3,21 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import EmojiPicker, { MediaPickerSearch, RecentIcon, type PickedCustomEmoji } from './EmojiPicker';
 import { uploadToBlossom } from '@/lib/blossom';
-import { loadPersonalStickers, savePersonalSticker } from '@/lib/personal-stickers';
+import { loadPersonalStickers } from '@/lib/personal-stickers';
 import { normalizeCustomEmojiName, type CustomEmojiMap } from '@/lib/custom-emoji-tags';
+import { mediaItemsFromPacks, mediaPackAddress } from '@/lib/media-packs';
+import { nostrActions, useMediaPacks, useMyMediaFavorites, useMyPubkey, type JsMediaKind } from '@/lib/nostr-bridge';
+import { useChatStore } from '@/store/chat';
 
 export type MediaPickerTab = 'emoji' | 'gif' | 'sticker';
 
 const MEDIA_CATEGORIES = ['Recent', 'Trending', 'Reactions', 'Funny', 'Love', 'Celebration', 'Animals', 'Sports', 'Memes'] as const;
 type MediaCategory = (typeof MEDIA_CATEGORIES)[number];
-type MediaEntry = PickedCustomEmoji & { categories?: readonly MediaCategory[] };
+type MediaEntry = PickedCustomEmoji & { categories?: readonly MediaCategory[]; kind?: JsMediaKind };
 type RecentMediaEntry = MediaEntry & { tab: Exclude<MediaPickerTab, 'emoji'> };
 
 const RECENT_MEDIA_KEY = 'obelisk:recent-media';
+const DEFAULT_STICKER_PACK_ID = 'obelisk-my-stickers';
 const GIPHY_KEY = process.env.NEXT_PUBLIC_GIPHY_API_KEY;
 const giphy = (id: string) => 'https://media.giphy.com/media/' + id + '/giphy.gif';
 const twemoji = (code: string) => 'https://cdn.jsdelivr.net/gh/jdecked/twemoji/assets/svg/' + code + '.svg';
@@ -114,8 +118,12 @@ export default function MessageMediaPicker({
   const [category, setCategory] = useState<MediaCategory>('Trending');
   const [recentMedia, setRecentMedia] = useState<RecentMediaEntry[]>(loadRecentMedia);
   const [remote, setRemote] = useState<MediaEntry[]>([]);
-  const [personal, setPersonal] = useState<CustomEmojiMap>(() => loadPersonalStickers());
+  const [personal] = useState<CustomEmojiMap>(() => loadPersonalStickers());
   const [uploading, setUploading] = useState(false);
+  const mediaPacks = useMediaPacks();
+  const mediaFavorites = useMyMediaFavorites();
+  const myPubkey = useMyPubkey();
+  const serverMediaKinds = useChatStore((state) => state.serverMediaKinds);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -150,28 +158,38 @@ export default function MessageMediaPicker({
     };
   }, [category, query, tab]);
 
-  const personalEntries = useMemo(
-    () => Object.entries(personal)
-      .map(([name, url]) => ({ name: normalizeCustomEmojiName(name), url }))
-      .filter((entry) => entry.name && entry.url)
-      .sort((a, b) => a.name.localeCompare(b.name)),
-    [personal],
-  );
+  const personalEntries = useMemo(() => {
+    const byUrl = new Map<string, MediaEntry>();
+    for (const [name, url] of Object.entries(personal)) {
+      const normalized = normalizeCustomEmojiName(name);
+      if (normalized && url) byUrl.set(url, { name: normalized, url, kind: 'sticker' });
+    }
+    for (const item of [
+      ...mediaItemsFromPacks(mediaFavorites.packAddresses, mediaPacks),
+      ...mediaFavorites.items,
+    ]) byUrl.set(item.url, item);
+    return Array.from(byUrl.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [mediaFavorites, mediaPacks, personal]);
   const serverEntries = useMemo(() => {
-    const personalUrls = new Set(Object.values(personal));
+    const personalUrls = new Set(personalEntries.map((entry) => entry.url));
     const starterUrls = new Set([...STARTER_GIFS, ...STARTER_STICKERS].map((entry) => entry.url));
     return Object.entries(customEmojis)
-      .map(([name, url]) => ({ name: normalizeCustomEmojiName(name), url }))
+      .map(([name, url]) => ({ name: normalizeCustomEmojiName(name), url, kind: serverMediaKinds[normalizeCustomEmojiName(name)] }))
       .filter((entry) => entry.name && entry.url && !personalUrls.has(entry.url) && !starterUrls.has(entry.url))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [customEmojis, personal]);
+  }, [customEmojis, personalEntries, serverMediaKinds]);
   const serverCustomEmojis = useMemo(
-    () => Object.fromEntries(serverEntries.map((entry) => [entry.name, entry.url])),
-    [serverEntries],
+    () => Object.fromEntries([
+      ...serverEntries,
+      ...personalEntries.filter((entry) => entry.kind !== 'sticker'),
+    ].map((entry) => [entry.name, entry.url])),
+    [personalEntries, serverEntries],
   );
   const normalizedQuery = normalizeCustomEmojiName(query);
   const matchesQuery = (entry: MediaEntry) => !normalizedQuery || entry.name.includes(normalizedQuery);
-  const matchesTab = (entry: MediaEntry) => entry.url.split(/[?#]/, 1)[0].toLowerCase().endsWith('.gif') === (tab === 'gif');
+  const matchesTab = (entry: MediaEntry) => entry.kind
+    ? entry.kind === tab
+    : entry.url.split(/[?#]/, 1)[0].toLowerCase().endsWith('.gif') === (tab === 'gif');
   const recentVisible = recentMedia.filter((entry) => entry.tab === tab && matchesQuery(entry));
   const serverVisible = serverEntries.filter((entry) => matchesTab(entry) && matchesQuery(entry));
   const personalVisible = personalEntries.filter((entry) => matchesTab(entry) && matchesQuery(entry));
@@ -216,8 +234,25 @@ export default function MessageMediaPicker({
     if (!file) return;
     setUploading(true);
     try {
+      if (!myPubkey) throw new Error('Log in to create stickers.');
       const url = await uploadToBlossom(file);
-      setPersonal(savePersonalSticker(file.name, url));
+      const name = normalizeCustomEmojiName(file.name) || 'sticker';
+      const address = mediaPackAddress(myPubkey, DEFAULT_STICKER_PACK_ID);
+      const existing = mediaPacks[address];
+      await nostrActions.saveMediaPack({
+        identifier: DEFAULT_STICKER_PACK_ID,
+        title: existing?.title || 'My stickers',
+        description: existing?.description || 'Stickers created from the message picker.',
+        image: existing?.image || '',
+        items: [
+          ...(existing?.items ?? []).filter((item) => item.url !== url && item.name !== name),
+          { name, url, kind: 'sticker' },
+        ],
+      });
+      if (!mediaFavorites.packAddresses.includes(address)) await nostrActions.saveMediaFavorites({
+        items: mediaFavorites.items,
+        packAddresses: [...mediaFavorites.packAddresses, address],
+      });
       setTab('sticker');
     } finally {
       setUploading(false);

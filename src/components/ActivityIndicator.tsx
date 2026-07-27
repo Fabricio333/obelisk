@@ -20,7 +20,7 @@ export default function ActivityIndicator({ hideSigning = false }: { hideSigning
       className="pointer-events-none fixed bottom-3 right-3 z-[60] flex max-w-[min(22rem,calc(100vw-1.5rem))] flex-col gap-2"
       aria-live="polite"
     >
-      <RelayStatusBanner />
+      <RelayStatusBanner hideAuthenticating={hideSigning} />
       {visible.map((e) => (
         <ActivityRow key={e.id} entry={e} />
       ))}
