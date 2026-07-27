@@ -1,6 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import MediaLibraryModal from '@/components/media/MediaLibraryModal';
+import { normalizeCustomEmojiName } from '@/lib/custom-emoji-tags';
+import { inferMediaKind } from '@/lib/media-kind';
+import { useMediaPacks, useMyMediaFavorites, type JsMediaItem, type JsMediaPack } from '@/lib/nostr-bridge';
+import { useChatStore } from '@/store/chat';
 
 interface ImageGalleryProps {
   urls: string[];
@@ -21,8 +26,38 @@ interface ImageGalleryProps {
  */
 export default function ImageGallery({ urls, wide = false }: ImageGalleryProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [selectedMedia, setSelectedMedia] = useState<{ pack?: JsMediaPack; item: JsMediaItem } | null>(null);
+  const packs = useMediaPacks();
+  const favorites = useMyMediaFavorites();
+  const serverEmojis = useChatStore((state) => state.serverEmojis);
+  const serverMediaKinds = useChatStore((state) => state.serverMediaKinds);
 
-  const open = (i: number) => setLightboxIndex(i);
+  const gifSelections = useMemo(() => {
+    const selections = new Map<string, { pack?: JsMediaPack; item: JsMediaItem }>();
+    for (const pack of Object.values(packs)) {
+      for (const item of pack.items) if (item.kind === 'gif') selections.set(item.url, { pack, item });
+    }
+    for (const item of favorites.items) {
+      if (item.kind === 'gif' && !selections.has(item.url)) selections.set(item.url, { item });
+    }
+    for (const [name, url] of Object.entries(serverEmojis)) {
+      if (serverMediaKinds[name] === 'gif' && !selections.has(url)) selections.set(url, { item: { name, url, kind: 'gif' } });
+    }
+    for (const url of urls) {
+      if (inferMediaKind(url) !== 'gif' || selections.has(url)) continue;
+      const parts = new URL(url).pathname.split('/').filter(Boolean);
+      const filename = parts.at(-1) ?? '';
+      const rawName = /^giphy\.gif$/i.test(filename) ? parts.at(-2) : filename;
+      selections.set(url, { item: { name: normalizeCustomEmojiName(rawName ?? '') || 'gif', url, kind: 'gif' } });
+    }
+    return selections;
+  }, [favorites.items, packs, serverEmojis, serverMediaKinds, urls]);
+
+  const open = (i: number) => {
+    const selection = gifSelections.get(urls[i]);
+    if (selection) setSelectedMedia(selection);
+    else setLightboxIndex(i);
+  };
   const close = useCallback(() => setLightboxIndex(null), []);
   const next = useCallback(
     () => setLightboxIndex((i) => (i === null ? null : (i + 1) % urls.length)),
@@ -78,6 +113,7 @@ export default function ImageGallery({ urls, wide = false }: ImageGalleryProps) 
             onNext={next}
           />
         )}
+        {selectedMedia && <MediaLibraryModal onClose={() => setSelectedMedia(null)} initialSelection={selectedMedia} />}
       </>
     );
   }
@@ -145,6 +181,7 @@ export default function ImageGallery({ urls, wide = false }: ImageGalleryProps) 
           onNext={next}
         />
       )}
+      {selectedMedia && <MediaLibraryModal onClose={() => setSelectedMedia(null)} initialSelection={selectedMedia} />}
     </>
   );
 }

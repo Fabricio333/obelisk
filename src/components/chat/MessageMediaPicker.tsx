@@ -184,12 +184,9 @@ export default function MessageMediaPicker({
       .filter((entry) => entry.name && entry.url && !personalUrls.has(entry.url) && !starterUrls.has(entry.url))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [customEmojis, kindOverrides, personalEntries, serverMediaKinds]);
-  const emojiEntries = [...serverEntries, ...personalEntries.filter((entry) => entry.kind !== 'sticker')];
+  const emojiEntries = [...serverEntries, ...personalEntries].filter((entry) => entry.kind === 'emoji');
   const serverCustomEmojis = Object.fromEntries(emojiEntries.map((entry) => [entry.name, entry.url]));
-  const serverCustomMediaKinds = Object.fromEntries([
-    ...serverEntries.map((entry) => [entry.name, kindOverrides[entry.url] ?? serverMediaKinds[entry.name] ?? inferMediaKind(entry.url)]),
-    ...personalEntries.filter((entry) => entry.kind !== 'sticker').map((entry) => [entry.name, entry.kind]),
-  ]);
+  const serverCustomMediaKinds = Object.fromEntries(emojiEntries.map((entry) => [entry.name, 'emoji' as const]));
   const normalizedQuery = normalizeCustomEmojiName(query);
   const matchesQuery = (entry: MediaEntry) => !normalizedQuery || entry.name.includes(normalizedQuery);
   const matchesTab = (entry: MediaEntry) => entry.kind === tab;

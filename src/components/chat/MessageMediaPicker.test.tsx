@@ -23,6 +23,15 @@ describe('MessageMediaPicker', () => {
 
   it('separates emoji, GIF, and sticker views', () => {
     const onPick = vi.fn();
+    useChatStore.getState().setServerEmojis(
+      {
+        dance: 'https://cdn.example/dance.gif',
+        wave: 'https://cdn.example/wave.webp',
+        stamp: 'https://cdn.example/stamp.webp',
+        applause_copy: 'https://media.giphy.com/media/l3q2XhfQ8oCkm1Ts4/giphy.gif',
+      },
+      { dance: 'gif', wave: 'emoji', stamp: 'sticker', applause_copy: 'gif' },
+    );
     render(
       <MessageMediaPicker
         onPick={onPick}
@@ -30,6 +39,7 @@ describe('MessageMediaPicker', () => {
         customEmojis={{
           dance: 'https://cdn.example/dance.gif',
           wave: 'https://cdn.example/wave.webp',
+          stamp: 'https://cdn.example/stamp.webp',
           applause_copy: 'https://media.giphy.com/media/l3q2XhfQ8oCkm1Ts4/giphy.gif',
         }}
       />,
@@ -38,9 +48,8 @@ describe('MessageMediaPicker', () => {
     expect(screen.queryByRole('button', { name: 'Packs' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create emoji' })).toBeInTheDocument();
     expect(screen.getByRole('searchbox', { name: 'Search emoji' }).parentElement).toHaveClass('rounded-xl', 'border-lc-green/80');
-    expect(screen.getByText('Server GIFs')).toBeInTheDocument();
     expect(screen.getByText('Server emojis')).toBeInTheDocument();
-    expect(screen.getByAltText(':dance:')).toBeInTheDocument();
+    expect(screen.queryByAltText(':dance:')).not.toBeInTheDocument();
     expect(screen.getByAltText(':wave:')).toBeInTheDocument();
     const categoryNav = screen.getByRole('navigation', { name: 'Emoji categories' });
     const emojiTab = screen.getByRole('button', { name: 'emoji' });
@@ -83,7 +92,7 @@ describe('MessageMediaPicker', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Stickers' }));
     expect(screen.getByRole('searchbox', { name: 'Search stickers' }).parentElement).toHaveClass('rounded-xl', 'border-lc-green/80');
-    expect(within(screen.getByTestId('media-section-server_stickers')).getByAltText(':wave:')).toBeInTheDocument();
+    expect(within(screen.getByTestId('media-section-server_stickers')).getByAltText(':stamp:')).toBeInTheDocument();
     const defaultSticker = within(screen.getByTestId('media-section-default_stickers')).getByAltText(':laugh_cry:');
     expect(defaultSticker).toBeInTheDocument();
     fireEvent.click(defaultSticker);

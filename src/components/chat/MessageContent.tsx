@@ -7,7 +7,7 @@ import remarkSpoiler from '@/lib/remark-spoiler';
 import { preprocessForMarkdown, MENTION_PLACEHOLDER_REGEX, EVERYONE_PLACEHOLDER, isImageUrl, extractYouTubeId, extractUrls } from '@/lib/markdown';
 import { isUploadUrl, filenameFromUrl, isVideoUrl, isAudioUrl } from '@/lib/attachments';
 import { useChatStore } from '@/store/chat';
-import { useGroupMemberInfo, useMediaPacks, type JsMediaItem, type JsMediaPack } from '@/lib/nostr-bridge';
+import { useGroupMemberInfo, useMediaPacks, type JsMediaItem } from '@/lib/nostr-bridge';
 import {
   replaceShortcodes,
   CUSTOM_EMOJI_PLACEHOLDER_REGEX,
@@ -234,18 +234,8 @@ function StickerImg({ sticker }: { sticker: MessageSticker }) {
     const pack = (sticker.packAddress ? packsByAddress[sticker.packAddress] : undefined)
       ?? Object.values(packsByAddress).find((candidate) => candidate.items.some((item) => item.url === sticker.url));
     const fallbackItem: JsMediaItem = { name: sticker.name, url: sticker.url, kind: 'sticker', ...(sticker.packAddress ? { packAddress: sticker.packAddress } : {}) };
-    const fallbackPack: JsMediaPack = {
-      address: sticker.packAddress ?? '',
-      identifier: '',
-      author: '',
-      title: sticker.packAddress ? 'Sticker pack' : 'Shared sticker',
-      description: '',
-      image: '',
-      items: [fallbackItem],
-      createdAt: 0,
-    };
     return {
-      pack: pack ?? fallbackPack,
+      ...(pack ? { pack } : {}),
       item: pack?.items.find((item) => item.url === sticker.url) ?? fallbackItem,
     };
   }, [packsByAddress, sticker.name, sticker.packAddress, sticker.url]);

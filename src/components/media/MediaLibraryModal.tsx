@@ -202,6 +202,11 @@ export default function MediaLibraryModal({
         toggleItem(selectedMedia.item);
         onClose();
       }}
+      onCreatePack={() => {
+        const draft = newPack();
+        setEditing({ ...draft, title: selectedMedia.item.name + " pack", items: [selectedMedia.item] });
+        setSelectedMedia(null);
+      }}
     />;
   }
 
