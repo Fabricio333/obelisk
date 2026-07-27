@@ -19,7 +19,13 @@ describe('DeveloperSignatureTest', () => {
 
     await waitFor(() => expect(signEventTemplate).toHaveBeenCalledTimes(OBELISK_SIGNING_KINDS.length));
     expect(signEventTemplate.mock.calls.map(([template]) => template.kind)).toEqual(OBELISK_SIGNING_KINDS);
-    expect(signEventTemplate.mock.calls.every(([template]) => template.content.includes('not published'))).toBe(true);
+    expect(signEventTemplate.mock.calls.find(([template]) => template.kind === 22242)?.[0]).toMatchObject({
+      content: '',
+      tags: expect.arrayContaining([
+        ['relay', 'wss://public.obelisk.ar'],
+        ['challenge', 'obelisk-developer-signature-test'],
+      ]),
+    });
     expect(await screen.findByRole('status')).toHaveTextContent(`${OBELISK_SIGNING_KINDS.length} accepted · 0 rejected`);
   });
 });

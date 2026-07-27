@@ -18,8 +18,10 @@ export default function DeveloperSignatureTest({ mobile = false }: { mobile?: bo
       try {
         await nostrActions.signEventTemplate({
           kind,
-          content: `Obelisk mock signature test for kind ${kind}. This event is not published.`,
-          tags: [['client', 'Obelisk'], ['alt', 'Developer signature permission test']],
+          content: kind === 22242 ? '' : `Obelisk mock signature test for kind ${kind}. This event is not published.`,
+          tags: kind === 22242
+            ? [['relay', 'wss://public.obelisk.ar'], ['challenge', 'obelisk-developer-signature-test'], ['client', 'Obelisk']]
+            : [['client', 'Obelisk'], ['alt', 'Developer signature permission test']],
         });
         setResults((current) => ({ ...current, [kind]: 'accepted' }));
       } catch {

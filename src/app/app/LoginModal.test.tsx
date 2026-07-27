@@ -72,7 +72,8 @@ describe('LoginModal generated identity flow', () => {
     expect(sdkProps.showRememberToggle).toBe(true);
     expect(sdkProps.nip46Relays).toEqual(['wss://public.obelisk.ar']);
     const permissions = (sdkProps.nip46Perms as string).split(',');
-    expect(permissions).toContain('nip:42');
+    expect(permissions).toContain('sign_event:22242');
+    expect(permissions).not.toContain('nip:42');
     expect(permissions).toContain('nip:29');
     expect(permissions).toContain('sign_event:25052');
     expect(permissions).not.toContain('sign_event');
