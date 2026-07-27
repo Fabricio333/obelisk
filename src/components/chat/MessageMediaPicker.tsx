@@ -5,7 +5,7 @@ import EmojiPicker, { MediaPickerSearch, RecentIcon, type PickedCustomEmoji } fr
 import { uploadToBlossom } from '@/lib/blossom';
 import { loadPersonalStickers } from '@/lib/personal-stickers';
 import { normalizeCustomEmojiName, type CustomEmojiMap } from '@/lib/custom-emoji-tags';
-import { mediaItemsFromPacks, mediaPackAddress } from '@/lib/media-packs';
+import { mediaItemsFromPacks } from '@/lib/media-packs';
 import { nostrActions, useMediaPacks, useMyMediaFavorites, useMyPubkey, type JsMediaItem, type JsMediaKind } from '@/lib/nostr-bridge';
 import { useChatStore } from '@/store/chat';
 import MediaLibraryModal from '@/components/media/MediaLibraryModal';
@@ -19,7 +19,6 @@ type MediaEntry = PickedCustomEmoji & { categories?: readonly MediaCategory[]; k
 type RecentMediaEntry = MediaEntry & { tab: Exclude<MediaPickerTab, 'emoji'> };
 
 const RECENT_MEDIA_KEY = 'obelisk:recent-media';
-const DEFAULT_STICKER_PACK_ID = 'obelisk-my-stickers';
 const GIPHY_KEY = process.env.NEXT_PUBLIC_GIPHY_API_KEY;
 const giphy = (id: string) => 'https://media.giphy.com/media/' + id + '/giphy.gif';
 const twemoji = (code: string) => 'https://cdn.jsdelivr.net/gh/jdecked/twemoji/assets/svg/' + code + '.svg';
@@ -122,7 +121,7 @@ export default function MessageMediaPicker({
   const [remote, setRemote] = useState<MediaEntry[]>([]);
   const [personal] = useState<CustomEmojiMap>(() => loadPersonalStickers());
   const [uploading, setUploading] = useState(false);
-  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState<'mine' | 'favorites' | null>(null);
   const [kindOverrides, setKindOverrides] = useState<Record<string, JsMediaKind>>({});
   const mediaPacks = useMediaPacks();
   const mediaFavorites = useMyMediaFavorites();
@@ -217,7 +216,53 @@ export default function MessageMediaPicker({
     ? 'flex h-full w-full flex-col overflow-hidden bg-lc-black text-lc-white'
     : `absolute left-0 ${placementClass} z-40 flex h-[520px] max-h-[calc(100vh-1rem)] w-[600px] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-2xl border border-lc-border bg-lc-black text-lc-white shadow-2xl`;
 
-  if (tab === 'emoji') {
+  const createMedia = async (file: File | undefined, kind: JsMediaKind) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      if (!myPubkey) throw new Error("Log in to create media.");
+      const url = await uploadToBlossom(file);
+      const name = normalizeCustomEmojiName(file.name) || kind;
+      await nostrActions.saveMediaFavorites({
+        items: [
+          ...mediaFavorites.items.filter((item) => item.url !== url && item.name !== name),
+          { name, url, kind },
+        ],
+        packAddresses: mediaFavorites.packAddresses,
+      });
+      setLibraryOpen("favorites");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const createControl = (kind: JsMediaKind, square = false) => {
+    const label = kind === "gif" ? "GIF" : kind;
+    return <>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        className="hidden"
+        onChange={(event) => {
+          void createMedia(event.target.files?.[0], kind);
+          event.target.value = "";
+        }}
+      />
+      <button
+        type="button"
+        disabled={uploading}
+        onClick={() => fileRef.current?.click()}
+        className={(square ? "aspect-square w-full " : "h-full ") + "flex min-h-0 min-w-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-xl border border-lc-border bg-lc-dark text-lc-muted hover:border-lc-green/50 hover:text-lc-white disabled:opacity-50"}
+        aria-label={"Create " + label}
+      >
+        <span className="text-3xl font-light leading-none" aria-hidden="true">+</span>
+        <span className="text-xs">{uploading ? "Creating…" : "Create"}</span>
+      </button>
+    </>;
+  };
+
+  if (tab === "emoji") {
     return (
       <div className={shellClass} data-testid="media-picker-shell">
         <div className="min-h-0 flex-1 [&_[role=dialog]]:static [&_[role=dialog]]:h-full [&_[role=dialog]]:w-full [&_[role=dialog]]:rounded-none [&_[role=dialog]]:border-0">
@@ -227,12 +272,14 @@ export default function MessageMediaPicker({
             customEmojis={serverCustomEmojis}
             customMediaKinds={serverCustomMediaKinds}
             columns={isSheet ? 7 : 12}
+            customEmojiAction={createControl("emoji", true)}
             onPick={onPick}
             onClose={onClose}
           >
             <PickerTabs tab={tab} onTab={setTab} />
           </EmojiPicker>
         </div>
+        {libraryOpen && <MediaLibraryModal onClose={() => setLibraryOpen(null)} initialTab={libraryOpen} initialKind="emoji" />}
       </div>
     );
   }
@@ -273,34 +320,6 @@ export default function MessageMediaPicker({
     else onPick(':' + entry.name + ':', { name: entry.name, url: entry.url, ...(entry.packAddress ? { packAddress: entry.packAddress } : {}) }, presentation);
   };
 
-  const createSticker = async (file: File | undefined) => {
-    if (!file) return;
-    setUploading(true);
-    try {
-      if (!myPubkey) throw new Error('Log in to create stickers.');
-      const url = await uploadToBlossom(file);
-      const name = normalizeCustomEmojiName(file.name) || 'sticker';
-      const address = mediaPackAddress(myPubkey, DEFAULT_STICKER_PACK_ID);
-      const existing = mediaPacks[address];
-      await nostrActions.saveMediaPack({
-        identifier: DEFAULT_STICKER_PACK_ID,
-        title: existing?.title || 'My stickers',
-        description: existing?.description || 'Stickers created from the message picker.',
-        image: existing?.image || '',
-        items: [
-          ...(existing?.items ?? []).filter((item) => item.url !== url && item.name !== name),
-          { name, url, kind: 'sticker' },
-        ],
-      });
-      if (!mediaFavorites.packAddresses.includes(address)) await nostrActions.saveMediaFavorites({
-        items: mediaFavorites.items,
-        packAddresses: [...mediaFavorites.packAddresses, address],
-      });
-      setTab('sticker');
-    } finally {
-      setUploading(false);
-    }
-  };
 
   return (
     <div className={shellClass} data-testid="media-picker-shell">
@@ -332,32 +351,9 @@ export default function MessageMediaPicker({
           <MediaSection title={tab === 'gif' ? 'Recent GIFs' : 'Recent stickers'} entries={recentVisible} onPick={pickMedia} favoriteUrls={favoriteUrls} onFavorite={favoriteMedia} onMediaLoad={classifyEntry} />
         ) : (
           <>
-            {(tab === 'sticker' || personalVisible.length > 0) && (
+            {(tab === "sticker" || tab === "gif" || personalVisible.length > 0) && (
               <MediaSection title={tab === 'gif' ? 'My GIFs' : 'My stickers'} entries={personalVisible} onPick={pickMedia} favoriteUrls={favoriteUrls} onFavorite={favoriteMedia} onMediaLoad={classifyEntry}>
-                {tab === 'sticker' && (
-                  <>
-                    <input
-                      ref={fileRef}
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp,image/gif"
-                      className="hidden"
-                      onChange={(event) => {
-                        void createSticker(event.target.files?.[0]);
-                        event.target.value = '';
-                      }}
-                    />
-                    <button
-                      type="button"
-                      disabled={uploading}
-                      onClick={() => fileRef.current?.click()}
-                      className="flex h-full min-h-0 min-w-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-xl border border-lc-border bg-lc-dark text-lc-muted hover:border-lc-green/50 hover:text-lc-white disabled:opacity-50"
-                      aria-label="Create sticker"
-                    >
-                      <span className="text-3xl font-light leading-none" aria-hidden="true">+</span>
-                      <span className="text-xs">{uploading ? 'Creating…' : 'Create'}</span>
-                    </button>
-                  </>
-                )}
+                {createControl(tab)}
               </MediaSection>
             )}
             <MediaSection title={tab === 'gif' ? 'Default GIFs' : 'Default stickers'} entries={defaultVisible} onPick={pickMedia} favoriteUrls={favoriteUrls} onFavorite={favoriteMedia} onMediaLoad={classifyEntry} />
@@ -371,13 +367,13 @@ export default function MessageMediaPicker({
         )}
       </div>
       <div className="flex items-center justify-between gap-2 pb-1">
-        <button type="button" onClick={() => setLibraryOpen(true)} className="text-xs font-medium text-lc-green hover:underline" data-testid="manage-media-packs">
+        <button type="button" onClick={() => setLibraryOpen("mine")} className="text-xs font-medium text-lc-green hover:underline" data-testid="manage-media-packs">
           Favorites &amp; packs
         </button>
         <span className="text-right text-[10px] text-lc-muted">{tab === 'gif' ? 'Powered by GIPHY' : 'Stickers by Twemoji'}</span>
       </div>
       <PickerTabs tab={tab} onTab={setTab} />
-      {libraryOpen && <MediaLibraryModal onClose={() => setLibraryOpen(false)} initialTab="mine" initialKind={tab} />}
+      {libraryOpen && <MediaLibraryModal onClose={() => setLibraryOpen(null)} initialTab={libraryOpen} initialKind={tab} />}
       </div>
     </div>
   );

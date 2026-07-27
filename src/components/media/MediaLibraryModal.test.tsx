@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   saveMediaFavorites: vi.fn().mockResolvedValue(undefined),
   deleteMediaPack: vi.fn().mockResolvedValue(undefined),
   publishRelayEmojiSet: vi.fn().mockResolvedValue(undefined),
+  favoriteItems: [] as Array<{ name: string; url: string; kind: "emoji" | "gif" | "sticker"; packAddress?: string }>,
 }));
 
 vi.mock('@/lib/nostr-bridge', () => ({
@@ -34,7 +35,7 @@ vi.mock('@/lib/nostr-bridge', () => ({
   useMediaPacks: () => ({
     [pack.address]: pack,
   }),
-  useMyMediaFavorites: () => ({ items: [], packAddresses: [], createdAt: 0 }),
+  useMyMediaFavorites: () => ({ items: mocks.favoriteItems, packAddresses: [], createdAt: 0 }),
   useMyPubkey: () => author,
 }));
 
@@ -42,7 +43,7 @@ vi.mock('@/lib/relay-emojis', () => ({
   publishRelayEmojiSet: (...args: unknown[]) => mocks.publishRelayEmojiSet(...args),
 }));
 
-vi.mock('@/lib/blossom', () => ({ uploadToBlossom: vi.fn() }));
+vi.mock('@/lib/blossom', () => ({ uploadToBlossom: vi.fn().mockResolvedValue('https://cdn.example/uploaded.gif') }));
 
 describe('MediaLibraryModal', () => {
   beforeEach(() => {
@@ -50,6 +51,7 @@ describe('MediaLibraryModal', () => {
     mocks.saveMediaFavorites.mockClear();
     mocks.deleteMediaPack.mockClear();
     mocks.publishRelayEmojiSet.mockClear();
+    mocks.favoriteItems = [];
   });
 
   it('opens directly on a sticker detail and explores its source pack', () => {
@@ -119,6 +121,38 @@ describe('MediaLibraryModal', () => {
       title: 'My reactions',
       items: [{ name: 'wow', url: 'https://cdn.example/wow.webp', kind: 'emoji' }],
     }));
+  });
+
+  it("uploads individual media and switches to favorites", async () => {
+    render(<MediaLibraryModal onClose={() => {}} initialTab="mine" initialKind="gif" />);
+
+    expect(screen.getAllByRole("button", { name: "Upload media" })).toHaveLength(2);
+    const input = document.querySelector<HTMLInputElement>("input[type=\"file\"]");
+    fireEvent.change(input!, { target: { files: [new File(["gif"], "Victory Dance.gif", { type: "image/gif" })] } });
+
+    await waitFor(() => expect(mocks.saveMediaFavorites).toHaveBeenCalledWith({
+      items: [{ name: "victory_dance", url: "https://cdn.example/uploaded.gif", kind: "gif" }],
+      packAddresses: [],
+    }));
+    expect(screen.getByText("Uploaded :victory_dance: to individual favorites.")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Favorites" }).some((button) => button.className.includes("text-lc-green"))).toBe(true);
+  });
+
+  it("opens an individual favorite from its thumbnail and only removes it from the star", async () => {
+    mocks.favoriteItems = [pack.items[0]];
+    render(<MediaLibraryModal onClose={() => {}} initialTab="favorites" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open :party_cat: actions" }));
+    expect(screen.getByTestId("media-item-menu")).toBeInTheDocument();
+    expect(mocks.saveMediaFavorites).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Create pack with this item" }));
+    const editor = screen.getByTestId("media-pack-editor");
+    expect(within(editor).getByRole("textbox", { name: "Pack name" })).toHaveValue("party_cat pack");
+    expect(within(editor).getByRole("textbox", { name: "Item 1 shortcode" })).toHaveValue("party_cat");
+    fireEvent.click(within(editor).getByRole("button", { name: "Close pack editor" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove :party_cat: from favorites" }));
+    await waitFor(() => expect(mocks.saveMediaFavorites).toHaveBeenCalledWith({ items: [], packAddresses: [] }));
   });
 
   it("server settings only track existing whole packs", async () => {

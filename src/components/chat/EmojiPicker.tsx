@@ -57,6 +57,7 @@ export interface EmojiPickerProps {
   customEmojis?: CustomEmojiMap;
   customMediaKinds?: Readonly<Record<string, JsMediaKind>>;
   columns?: 7 | 12;
+  customEmojiAction?: ReactNode;
   children?: ReactNode;
 }
 
@@ -111,6 +112,7 @@ export default function EmojiPicker({
   customEmojis: customEmojisProp,
   customMediaKinds: customMediaKindsProp,
   columns,
+  customEmojiAction,
   children,
 }: EmojiPickerProps) {
   const [query, setQuery] = useState('');
@@ -205,12 +207,13 @@ export default function EmojiPicker({
     ? 'h-[1.45em] w-[1.45em] object-contain'
     : 'h-8 w-8 object-contain';
 
-  const renderCustomSection = (title: string, entries: ReadonlyArray<CustomEmojiEntry>) => {
-    if (entries.length === 0) return null;
+  const renderCustomSection = (title: string, entries: ReadonlyArray<CustomEmojiEntry>, action?: ReactNode) => {
+    if (!action && entries.length === 0) return null;
     return (
       <div className="mb-2">
         <div className={sectionTitleClass}>{title}</div>
         <div className={gridClass}>
+          {action}
           {entries.map((e) => {
             const shortcode = `:${e.name}:`;
             const mine = disabled.has(shortcode);
@@ -320,6 +323,7 @@ export default function EmojiPicker({
           </>
         ) : (
           <>
+            {renderCustomSection("My emojis", [], customEmojiAction)}
             <div className="mb-2 scroll-mt-1" data-emoji-category="Recent">
                 <div className={sectionTitleClass}>Recent</div>
                 <div className={gridClass}>

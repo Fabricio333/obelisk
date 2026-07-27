@@ -36,6 +36,7 @@ describe('MessageMediaPicker', () => {
     );
 
     expect(screen.queryByRole('button', { name: 'Packs' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create emoji' })).toBeInTheDocument();
     expect(screen.getByRole('searchbox', { name: 'Search emoji' }).parentElement).toHaveClass('rounded-xl', 'border-lc-green/80');
     expect(screen.getByText('Server GIFs')).toBeInTheDocument();
     expect(screen.getByText('Server emojis')).toBeInTheDocument();
@@ -53,6 +54,7 @@ describe('MessageMediaPicker', () => {
     expect(screen.getByText('Smileys & people')).toHaveClass('sticky', 'border-b');
     expect(screen.getByText('Smileys & people').parentElement?.parentElement).toHaveClass('overflow-y-auto');
     fireEvent.click(screen.getByRole('button', { name: 'gif' }));
+    expect(screen.getByRole('button', { name: 'Create GIF' })).toBeInTheDocument();
     expect(screen.getByTestId('media-picker-shell')).toHaveAttribute('class', shellClass);
     const mediaCategories = screen.getByRole('navigation', { name: 'Media categories' });
     expect(within(mediaCategories).getAllByRole('button')).toHaveLength(9);
@@ -153,25 +155,26 @@ describe('MessageMediaPicker', () => {
     expect(screen.getByRole("button", { name: "GIFs" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("saves newly created stickers into the default user pack", async () => {
-    const savePack = vi.spyOn(nostrActions, "saveMediaPack").mockResolvedValue(undefined);
+  it.each([
+    ["emoji", "emoji", "Create emoji"],
+    ["gif", "gif", "Create GIF"],
+    ["sticker", "sticker", "Create sticker"],
+  ] as const)("creates an individual %s and opens favorites", async (initialTab, kind, buttonName) => {
     const saveFavorites = vi.spyOn(nostrActions, "saveMediaFavorites").mockResolvedValue(undefined);
-    render(<MessageMediaPicker initialTab="sticker" onPick={() => {}} onClose={() => {}} customEmojis={{}} />);
+    const savePack = vi.spyOn(nostrActions, "saveMediaPack").mockResolvedValue(undefined);
+    render(<MessageMediaPicker initialTab={initialTab} onPick={() => {}} onClose={() => {}} customEmojis={{}} />);
 
+    expect(screen.getByRole("button", { name: buttonName })).toBeInTheDocument();
     const input = document.querySelector<HTMLInputElement>("input[type=\"file\"]");
     expect(input).not.toBeNull();
     fireEvent.change(input!, { target: { files: [new File(["image"], "Party Cat.webp", { type: "image/webp" })] } });
 
-    await waitFor(() => expect(savePack).toHaveBeenCalledWith({
-      identifier: "obelisk-my-stickers",
-      title: "My stickers",
-      description: "Stickers created from the message picker.",
-      image: "",
-      items: [{ name: "party_cat", url: "https://cdn.example/mine.webp", kind: "sticker" }],
+    await waitFor(() => expect(saveFavorites).toHaveBeenCalledWith({
+      items: [{ name: "party_cat", url: "https://cdn.example/mine.webp", kind }],
+      packAddresses: [],
     }));
-    expect(saveFavorites).toHaveBeenCalledWith({
-      items: [],
-      packAddresses: ["30030:" + "a".repeat(64) + ":obelisk-my-stickers"],
-    });
+    expect(savePack).not.toHaveBeenCalled();
+    expect(screen.getByTestId("media-library-modal")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Favorites" }).some((button) => button.className.includes("text-lc-green"))).toBe(true);
   });
 });

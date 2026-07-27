@@ -7,11 +7,12 @@ import { isValidCustomEmojiName, normalizeCustomEmojiName } from '@/lib/custom-e
 import { nostrActions, useMediaPacks, useMyMediaFavorites, useMyPubkey } from '@/lib/nostr-bridge';
 import type { JsMediaItem, JsMediaKind, JsMediaPack } from '@/lib/nostr-bridge';
 import { publishRelayEmojiSet, type RelayEmojiSet } from '@/lib/relay-emojis';
+import { inferMediaKind } from '@/lib/media-kind';
 
 type LibraryTab = 'discover' | 'mine' | 'favorites' | 'server';
 type MediaFilter = 'all' | JsMediaKind;
 type EditablePack = Pick<JsMediaPack, 'identifier' | 'title' | 'description' | 'image' | 'items'>;
-type SelectedMedia = { pack: JsMediaPack; item: JsMediaItem };
+type SelectedMedia = { pack?: JsMediaPack; item: JsMediaItem };
 
 const fieldClass = 'w-full rounded-lg border border-lc-border bg-lc-black px-3 py-2 text-sm text-lc-white outline-none focus:border-lc-green';
 const tabClass = 'w-full rounded-lg px-3 py-2 text-left text-sm transition';
@@ -59,6 +60,7 @@ export default function MediaLibraryModal({
   initialSelection?: SelectedMedia;
 }) {
   const myPubkey = useMyPubkey();
+  const uploadRef = useRef<HTMLInputElement>(null);
   const launchedFromItem = !!initialSelection;
   const packsByAddress = useMediaPacks();
   const favorites = useMyMediaFavorites();
@@ -95,6 +97,31 @@ export default function MediaLibraryModal({
       await nostrActions.saveMediaFavorites(next);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not save favorites.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const uploadFavorite = async (file: File | undefined) => {
+    if (!file || server) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      if (!myPubkey) throw new Error("Log in to upload media.");
+      const url = await uploadToBlossom(file);
+      const name = normalizeCustomEmojiName(file.name) || "media";
+      const kind = kindFilter === "all" ? inferMediaKind(url) : kindFilter;
+      await nostrActions.saveMediaFavorites({
+        items: [
+          ...favorites.items.filter((item) => item.url !== url && item.name !== name),
+          { name, url, kind },
+        ],
+        packAddresses: favorites.packAddresses,
+      });
+      setTab("favorites");
+      setMessage("Uploaded :" + name + ": to individual favorites.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not upload media.");
     } finally {
       setBusy(false);
     }
@@ -166,7 +193,7 @@ export default function MediaLibraryModal({
       server={!!server}
       onClose={onClose}
       onViewPack={() => {
-        setViewingPack(selectedMedia.pack);
+        if (selectedMedia.pack) setViewingPack(selectedMedia.pack);
         setSelectedMedia(null);
       }}
       onFavorite={() => {
@@ -199,15 +226,17 @@ export default function MediaLibraryModal({
       testId="media-library-modal"
       panelClassName="lc-card mx-2 flex h-[calc(100dvh_-_1rem)] max-h-[calc(100%_-_1rem)] w-full max-w-6xl overflow-hidden bg-lc-dark sm:mx-3 sm:h-[min(780px,94vh)] sm:max-h-none"
     >
+      {!server && <input ref={uploadRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" onChange={(event) => { void uploadFavorite(event.target.files?.[0]); event.target.value = ""; }} />}
       <aside className="hidden w-52 shrink-0 flex-col border-r border-lc-border bg-lc-black/40 p-3 sm:flex">
         <div className="px-2 pb-4 pt-2">
           <div className="text-base font-bold text-lc-white">Media library</div>
           <div className="mt-1 text-xs text-lc-muted">Emoji · GIFs · Stickers</div>
         </div>
         <LibraryTabs tab={tab} setTab={setTab} server={!!server} />
-        {!server && <button type="button" onClick={() => setEditing(newPack())} className="mt-auto rounded-lg bg-lc-green px-3 py-2 text-sm font-semibold text-lc-black">
-          Create pack
-        </button>}
+        {!server && <div className="mt-auto grid gap-2">
+          <button type="button" disabled={busy} onClick={() => uploadRef.current?.click()} className="rounded-lg border border-lc-green px-3 py-2 text-sm font-semibold text-lc-green disabled:opacity-40">Upload media</button>
+          <button type="button" onClick={() => setEditing(newPack())} className="rounded-lg bg-lc-green px-3 py-2 text-sm font-semibold text-lc-black">Create pack</button>
+        </div>}
       </aside>
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -223,13 +252,17 @@ export default function MediaLibraryModal({
               className={`${fieldClass} mt-2 sm:mt-0`}
             />
           </div>
-          {!server && <button type="button" onClick={() => setEditing(newPack())} className="rounded-lg border border-lc-green px-3 py-2 text-sm text-lc-green sm:hidden">Create pack</button>}
           <button type="button" onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-lg text-lc-muted hover:bg-white/5 hover:text-lc-white" aria-label="Close media library">✕</button>
         </header>
 
         <div className="shrink-0 overflow-x-auto border-b border-lc-border p-2 sm:hidden">
           <div className="flex min-w-max gap-1"><LibraryTabs tab={tab} setTab={setTab} server={!!server} mobile /></div>
         </div>
+
+        {!server && <div className="grid shrink-0 grid-cols-2 gap-2 border-b border-lc-border p-2 sm:hidden">
+          <button type="button" disabled={busy} onClick={() => uploadRef.current?.click()} className="rounded-lg border border-lc-green px-3 py-2 text-sm text-lc-green disabled:opacity-40">Upload media</button>
+          <button type="button" onClick={() => setEditing(newPack())} className="rounded-lg bg-lc-green px-3 py-2 text-sm font-semibold text-lc-black">Create pack</button>
+        </div>}
 
         <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-lc-border px-4 py-2" role="group" aria-label="Filter packs by media type">
           {([['all', 'All'], ['emoji', 'Emoji'], ['gif', 'GIFs'], ['sticker', 'Stickers']] as Array<[MediaFilter, string]>).map(([value, label]) => (
@@ -252,7 +285,15 @@ export default function MediaLibraryModal({
           {tab === "favorites" && favorites.items.length > 0 && (
             <section className="mb-5">
               <h2 className="mb-2 text-sm font-semibold text-lc-white">Individual favorites</h2>
-              <MediaGrid items={favorites.items.filter((item) => kindFilter === "all" || item.kind === kindFilter)} favorites={favorites.items} onFavorite={toggleItem} />
+              <MediaGrid
+                items={favorites.items.filter((item) => kindFilter === "all" || item.kind === kindFilter)}
+                favorites={favorites.items}
+                onOpen={(item) => {
+                  const source = item.packAddress ? packsByAddress[item.packAddress] : packs.find((pack) => pack.items.some((value) => value.url === item.url));
+                  setSelectedMedia({ ...(source ? { pack: source } : {}), item });
+                }}
+                onFavorite={toggleItem}
+              />
             </section>
           )}
 
@@ -314,13 +355,18 @@ export default function MediaLibraryModal({
         server={!!server}
         onClose={launchedFromItem ? onClose : () => setSelectedMedia(null)}
         onViewPack={() => {
-          setViewingPack(selectedMedia.pack);
+          if (selectedMedia.pack) setViewingPack(selectedMedia.pack);
           setSelectedMedia(null);
         }}
         onFavorite={() => {
           toggleItem(selectedMedia.item);
           if (launchedFromItem) onClose();
           else setSelectedMedia(null);
+        }}
+        onCreatePack={() => {
+          const draft = newPack();
+          setEditing({ ...draft, title: selectedMedia.item.name + " pack", items: [selectedMedia.item] });
+          setSelectedMedia(null);
         }}
       />}
     </ModalShell>
@@ -419,7 +465,7 @@ function PackViewer({ pack, favorite, itemFavorites, busy, server, serverSelecte
   );
 }
 
-function MediaItemMenu({ selection, favorite, busy, server, onClose, onViewPack, onFavorite }: {
+function MediaItemMenu({ selection, favorite, busy, server, onClose, onViewPack, onFavorite, onCreatePack }: {
   selection: SelectedMedia;
   favorite: boolean;
   busy: boolean;
@@ -427,6 +473,7 @@ function MediaItemMenu({ selection, favorite, busy, server, onClose, onViewPack,
   onClose: () => void;
   onViewPack: () => void;
   onFavorite: () => void;
+  onCreatePack?: () => void;
 }) {
   const { item, pack } = selection;
   return (
@@ -434,7 +481,7 @@ function MediaItemMenu({ selection, favorite, busy, server, onClose, onViewPack,
       <header className="flex items-center justify-between border-b border-lc-border p-4">
         <div>
           <h2 className="font-semibold text-lc-white">:{item.name}:</h2>
-          <p className="mt-1 text-xs capitalize text-lc-muted">{item.kind} from {pack.title}</p>
+          <p className="mt-1 text-xs capitalize text-lc-muted">{item.kind}{pack ? " from " + pack.title : " · Individual favorite"}</p>
         </div>
         <button type="button" onClick={onClose} aria-label="Close media actions" className="text-lc-muted">✕</button>
       </header>
@@ -442,7 +489,8 @@ function MediaItemMenu({ selection, favorite, busy, server, onClose, onViewPack,
         <img src={item.url} alt={":" + item.name + ":"} className="max-h-full max-w-full object-contain" />
       </div>
       <div className="grid gap-2 p-4">
-        <button type="button" onClick={onViewPack} className="rounded-lg border border-lc-border px-3 py-2 text-sm text-lc-white">View {pack.title}</button>
+        {pack && <button type="button" onClick={onViewPack} className="rounded-lg border border-lc-border px-3 py-2 text-sm text-lc-white">View {pack.title}</button>}
+        {!server && onCreatePack && <button type="button" onClick={onCreatePack} className="rounded-lg border border-lc-green px-3 py-2 text-sm text-lc-green">Create pack with this item</button>}
         {!server && <button type="button" disabled={busy} onClick={onFavorite} className="rounded-lg bg-lc-green px-3 py-2 text-sm font-semibold text-lc-black">{favorite ? "Remove item from favorites" : "Add item to favorites"}</button>}
       </div>
     </ModalShell>
@@ -465,7 +513,7 @@ function MediaGrid({ items, favorites = [], busy = false, onOpen, onFavorite, on
           {onOpen ? (
             <button type="button" onClick={() => onOpen(item)} title={"Open :" + item.name + ": actions"} aria-label={"Open :" + item.name + ": actions"} className="relative flex aspect-square w-full items-center justify-center rounded-lg border border-lc-border bg-lc-dark p-2 hover:border-lc-green/50">
               <img src={item.url} alt={":" + item.name + ":"} className="max-h-full max-w-full object-contain" />
-              {favorite && <span className="absolute right-1 top-1 text-xs text-lc-green">★</span>}
+              {favorite && !onFavorite && <span className="absolute right-1 top-1 text-xs text-lc-green">★</span>}
             </button>
           ) : onFavorite ? (
             <button type="button" onClick={() => onFavorite(item)} title={(favorite ? "Remove favorite :" : "Favorite :") + item.name + ":"} className="relative flex aspect-square w-full items-center justify-center rounded-lg border border-lc-border bg-lc-dark p-2 hover:border-lc-green/50">
@@ -477,6 +525,7 @@ function MediaGrid({ items, favorites = [], busy = false, onOpen, onFavorite, on
               <img src={item.url} alt={":" + item.name + ":"} className="max-h-full max-w-full object-contain" />
             </div>
           )}
+          {onOpen && onFavorite && <button type="button" disabled={busy} onClick={() => onFavorite(item)} aria-label={(favorite ? "Remove :" : "Add :") + item.name + (favorite ? ": from favorites" : ": to favorites")} className="absolute right-1 top-1 flex h-7 w-7 items-center justify-center rounded-full border border-lc-green bg-lc-black/85 text-xs text-lc-green">{favorite ? "★" : "☆"}</button>}
           {onRemove && <button type="button" disabled={busy} onClick={() => onRemove(item)} aria-label={"Remove :" + item.name + ": from server"} className="absolute left-1 top-1 rounded bg-lc-black/80 px-1 text-xs text-red-300">✕</button>}
         </div>;
       })}
