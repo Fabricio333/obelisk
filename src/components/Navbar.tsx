@@ -11,7 +11,7 @@ import LanguageToggle from './LanguageToggle';
 import { guidesHref } from '@/lib/guide-urls';
 
 const SIMPLE_LINKS = [
-  { href: '/#features', key: 'nav.features' },
+  { href: '/features', key: 'nav.features' },
   { href: '/#how-it-works', key: 'nav.howItWorks' },
   { href: '/#roadmap', key: 'nav.roadmap' },
 ];
@@ -127,12 +127,12 @@ export default function Navbar(_props: { onLoginSuccess?: () => void } = {}) {
               )}
             </div>
 
-            <a
+            <Link
               href="/#faq"
               className="px-3 py-1.5 rounded-lg text-sm font-medium text-lc-muted hover:text-lc-white transition-colors"
             >
               {t('nav.faq')}
-            </a>
+            </Link>
           </div>
 
           {/* Right side */}
