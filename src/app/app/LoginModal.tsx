@@ -315,6 +315,7 @@ export default function LoginModal({
         flatLayout
         showRememberToggle
         profileSetup
+        nip46Relays={['wss://public.obelisk.ar']}
         methods={methods}
         modalClasses={{ modal: 'obelisk-login-modal' }}
         methodIcons={{

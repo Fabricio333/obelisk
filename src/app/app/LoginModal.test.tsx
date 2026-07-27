@@ -59,6 +59,7 @@ describe('LoginModal generated identity flow', () => {
 
     expect(sdkProps.profileSetup).toBe(true);
     expect(sdkProps.showRememberToggle).toBe(true);
+    expect(sdkProps.nip46Relays).toEqual(['wss://public.obelisk.ar']);
     act(() => updateDraft?.({
       name: 'Cosmic Fox',
       picture: 'https://cdn.example/avatar.jpg',
