@@ -29,6 +29,26 @@ import { useCallback, useEffect, useState, type ReactNode, type SVGProps } from 
 import { nostrActions } from '@/lib/nostr-bridge';
 import GeneratedProfileEnhancements from './GeneratedProfileEnhancements';
 
+const NIP46_PERMS = [
+  'get_public_key',
+  'nip04_encrypt',
+  'nip04_decrypt',
+  'nip44_encrypt',
+  'nip44_decrypt',
+  ...[
+    0, 1, 3, 4, 5, 6, 7, 9, 13, 14, 1059,
+    9000, 9001, 9002, 9003, 9005, 9007, 9021, 9022, 9734,
+    10000, 10002, 10030, 10050, 20078, 22242, 24242,
+    25050, 25051, 25052, 27235, 30030, 30078, 31314,
+  ].map((kind) => 'sign_event:' + kind),
+].join(',');
+
+const NIP46_METADATA = {
+  name: 'Obelisk',
+  url: 'https://obelisk.ar',
+  image: 'https://obelisk.ar/icon-192.png',
+};
+
 const iconBase = {
   fill: 'none' as const,
   stroke: 'currentColor',
@@ -316,7 +336,8 @@ export default function LoginModal({
         showRememberToggle
         profileSetup
         nip46Relays={['wss://public.obelisk.ar']}
-        nip46Perms="get_public_key,sign_event,nip04_encrypt,nip04_decrypt,nip44_encrypt,nip44_decrypt"
+        nip46Perms={NIP46_PERMS}
+        nip46Metadata={NIP46_METADATA}
         methods={methods}
         modalClasses={{ modal: 'obelisk-login-modal' }}
         methodIcons={{
