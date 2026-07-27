@@ -127,7 +127,7 @@ async function routeToBridge(args: {
  * NIP-46 QR view. The fork at `../nostr-wot-sdk` already implements this
  * (Nip46Method.tsx:323-331) but it's missing from the published npm v0.6.0
  * that we currently consume. This sidecar finds the rendered `nostrconnect://`
- * URI in the DOM and inserts a tappable `<a>` above the QR — useful on mobile
+ * URI in the DOM and inserts a tappable `<a>` below the QR — useful on mobile
  * where the user can't scan their own screen but can hand off to Amber, Nsec.app,
  * Keychat, etc. via the registered URL scheme.
  *
@@ -173,7 +173,9 @@ function Nip46SignerDeepLink(): null {
       const label = document.createElement('span');
       label.textContent = 'Open in signer app';
       a.append(arrow, label);
-      qrWrap.insertBefore(a, qrWrap.firstChild);
+      const qr = qrWrap.querySelector('.nui-qr');
+      if (qr) qr.insertAdjacentElement('afterend', a);
+      else qrWrap.append(a);
       injected = a;
     };
 

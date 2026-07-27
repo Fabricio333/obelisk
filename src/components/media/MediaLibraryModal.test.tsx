@@ -97,6 +97,13 @@ describe('MediaLibraryModal', () => {
     });
   });
 
+  it('renders inside an existing settings workspace without another modal', () => {
+    render(<MediaLibraryModal embedded onClose={() => {}} />);
+
+    expect(screen.getByTestId('media-library-embedded')).toBeInTheDocument();
+    expect(screen.queryByTestId('media-library-modal')).toBeNull();
+  });
+
   it('deletes an owned pack after confirmation', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(<MediaLibraryModal onClose={() => {}} initialTab="mine" />);

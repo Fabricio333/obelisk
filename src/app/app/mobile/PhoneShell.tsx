@@ -109,6 +109,7 @@ import AppearancePreferenceControls from '@/components/AppearancePreferenceContr
 import ProfileFeedRelaySettings from '@/components/settings/ProfileFeedRelaySettings';
 import AccountBackupExport from '@/components/settings/AccountBackupExport';
 import DeveloperSignatureTest from '@/components/settings/DeveloperSignatureTest';
+import { clearAllClientCacheExceptSession } from '@/lib/nostr-bridge/cache-clear';
 import NostrProfile from '@/components/chat/NostrProfile';
 import ProfilePopover from '@/components/chat/ProfilePopover';
 import MobileSigningIndicator from '@/components/MobileSigningIndicator';
@@ -5168,6 +5169,12 @@ export function SettingsPrefsScreen({ go }: { go: (s: ScreenName) => void }) {
   const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
   const [confirmingLogout, setConfirmingLogout] = useState(false);
 
+  const clearLocalCache = () => {
+    if (!window.confirm(t('preferences.localData.confirm.description'))) return;
+    clearAllClientCacheExceptSession();
+    setTimeout(() => window.location.reload(), 0);
+  };
+
   if (appearanceOpen) {
     return (
       <div className="screen active" data-screen="settings-appearance">
@@ -5258,6 +5265,14 @@ export function SettingsPrefsScreen({ go }: { go: (s: ScreenName) => void }) {
         <div className="settings-section">
           <div className="settings-section-title">{t("preferences.backup.advanced")}</div>
           <AccountBackupExport mobile />
+          <button
+            type="button"
+            className="settings-btn-danger"
+            onClick={clearLocalCache}
+            data-testid="mobile-clear-cache-button"
+          >
+            {t('preferences.localData.clear.button')}
+          </button>
         </div>
         <ProfileFeedRelaySettings mobile />
         <DeveloperSignatureTest mobile />

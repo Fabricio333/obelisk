@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import ModalShell from '@/components/ModalShell';
 import { uploadToBlossom } from '@/lib/blossom';
 import { isValidCustomEmojiName, normalizeCustomEmojiName } from '@/lib/custom-emoji-tags';
@@ -48,12 +48,14 @@ function validHttpUrl(value: string): boolean {
 
 export default function MediaLibraryModal({
   onClose,
+  embedded = false,
   server,
   initialTab = server ? 'server' : 'discover',
   initialKind = 'all',
   initialSelection,
 }: {
   onClose: () => void;
+  embedded?: boolean;
   server?: { relayUrl: string; emojiSet: RelayEmojiSet };
   initialTab?: LibraryTab;
   initialKind?: MediaFilter;
@@ -220,11 +222,10 @@ export default function MediaLibraryModal({
   }
 
   return (
-    <ModalShell
+    <MediaLibraryShell
+      embedded={embedded}
       onClose={onClose}
       closeOnEscape={!editing && !viewingPack && !selectedMedia}
-      testId="media-library-modal"
-      panelClassName="lc-card mx-2 flex h-[calc(100dvh_-_1rem)] max-h-[calc(100%_-_1rem)] w-full max-w-6xl overflow-hidden bg-lc-dark sm:mx-3 sm:h-[min(780px,94vh)] sm:max-h-none"
     >
       {!server && <input ref={uploadRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" onChange={(event) => { void uploadFavorite(event.target.files?.[0]); event.target.value = ""; }} />}
       <aside className="hidden w-52 shrink-0 flex-col border-r border-lc-border bg-lc-black/40 p-3 sm:flex">
@@ -369,6 +370,27 @@ export default function MediaLibraryModal({
           setSelectedMedia(null);
         }}
       />}
+    </MediaLibraryShell>
+  );
+}
+
+function MediaLibraryShell({ embedded, onClose, closeOnEscape, children }: {
+  embedded: boolean;
+  onClose: () => void;
+  closeOnEscape: boolean;
+  children: ReactNode;
+}) {
+  if (embedded) {
+    return <div data-testid="media-library-embedded" className="flex h-full min-h-0 w-full overflow-hidden bg-lc-dark">{children}</div>;
+  }
+  return (
+    <ModalShell
+      onClose={onClose}
+      closeOnEscape={closeOnEscape}
+      testId="media-library-modal"
+      panelClassName="lc-card mx-2 flex h-[calc(100dvh_-_1rem)] max-h-[calc(100%_-_1rem)] w-full max-w-6xl overflow-hidden bg-lc-dark sm:mx-3 sm:h-[min(780px,94vh)] sm:max-h-none"
+    >
+      {children}
     </ModalShell>
   );
 }

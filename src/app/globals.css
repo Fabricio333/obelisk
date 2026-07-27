@@ -1012,6 +1012,41 @@ button:not(:disabled),
   height: auto;
 }
 @media (max-width: 767px) {
+  .nui-modal-overlay:has(.obelisk-login-modal .nui-nip46),
+  .obelisk-login-modal:has(.nui-nip46) {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+  .obelisk-login-modal:has(.nui-nip46) {
+    max-height: calc(100dvh - 16px);
+  }
+  .obelisk-login-modal .nui-nip46 > .nui-back {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    width: 40px;
+    min-height: 40px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 50%;
+    font-size: 0;
+  }
+  .obelisk-login-modal .nui-nip46 > .nui-back::before {
+    content: '‹';
+    font-size: 28px;
+    line-height: 1;
+  }
+  .obelisk-login-modal .nui-modal-close {
+    width: 40px;
+    height: 40px;
+    border: 1px solid var(--color-lc-border);
+    border-radius: 12px;
+    background: color-mix(in oklab, var(--color-lc-dark) 88%, var(--color-lc-green) 12%);
+    color: var(--color-lc-white);
+  }
+  .obelisk-login-modal .nui-qr svg {
+    width: min(220px, calc(100vw - 64px));
+  }
   .nui-open-signer {
     display: inline-flex;
     align-items: center;

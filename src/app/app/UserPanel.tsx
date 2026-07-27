@@ -34,8 +34,7 @@ export default function UserPanel({ pubkey, isMe, onClose, onLogout, anchor, ini
   const { t } = useTranslation();
   const meta = useProfile(pubkey);
   const [editing, setEditing] = useState(initialEditing);
-  const [settingsTab, setSettingsTab] = useState<'profile' | 'preferences'>('profile');
-  const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'preferences' | 'media'>('profile');
 
   useEffect(() => {
     nostrActions.ensureUserMetadata(pubkey).catch(() => {});
@@ -43,7 +42,7 @@ export default function UserPanel({ pubkey, isMe, onClose, onLogout, anchor, ini
 
   useEffect(() => {
     if (!editing) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setEditing(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -51,7 +50,7 @@ export default function UserPanel({ pubkey, isMe, onClose, onLogout, anchor, ini
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prev;
     };
-  }, [editing]);
+  }, [editing, onClose]);
 
   const npub = (() => {
     try { return hexToNpub(pubkey); } catch { return null; }
@@ -125,8 +124,8 @@ export default function UserPanel({ pubkey, isMe, onClose, onLogout, anchor, ini
               </button>
               <button
                 type="button"
-                onClick={() => setMediaLibraryOpen(true)}
-                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-lc-white hover:bg-lc-border/40"
+                onClick={() => setSettingsTab('media')}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm ${settingsTab === 'media' ? 'bg-lc-green/15 text-lc-green' : 'text-lc-white hover:bg-lc-border/40'}`}
                 data-testid="desktop-media-library"
               >
                 <span aria-hidden="true">★</span>
@@ -137,7 +136,7 @@ export default function UserPanel({ pubkey, isMe, onClose, onLogout, anchor, ini
               <button
                 type="button"
                 onClick={logout}
-                className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-red-400 hover:bg-lc-border/40"
+                className="flex w-full items-center gap-2.5 rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-500"
                 data-testid="desktop-logout"
               >
                 <span aria-hidden="true">↪</span>
@@ -145,8 +144,10 @@ export default function UserPanel({ pubkey, isMe, onClose, onLogout, anchor, ini
               </button>
             </div>
           </aside>
-          <main className="flex-1 min-w-0 overflow-y-auto">
-            <div className="max-w-3xl mx-auto px-10 py-10">
+          <main className={`flex-1 min-w-0 ${settingsTab === 'media' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+            {settingsTab === 'media' ? (
+              <MediaLibraryModal embedded onClose={() => setSettingsTab('profile')} />
+            ) : <div className="max-w-3xl mx-auto px-10 py-10">
               {settingsTab === 'profile' ? (
                 <>
                   <div className="mb-6">
@@ -159,7 +160,7 @@ export default function UserPanel({ pubkey, isMe, onClose, onLogout, anchor, ini
                     onSaved={() => { setEditing(false); onClose(); }}
                   />
                 </>
-              ) : (
+              ) : settingsTab === 'preferences' ? (
                 <>
                   <div className="mb-6">
                     <div className="text-xs uppercase tracking-wider text-lc-muted font-semibold">{t('settings.preferences')}</div>
@@ -167,10 +168,9 @@ export default function UserPanel({ pubkey, isMe, onClose, onLogout, anchor, ini
                   </div>
                   <PreferencesPanel />
                 </>
-              )}
-            </div>
+              ) : null}
+            </div>}
           </main>
-          {mediaLibraryOpen && <MediaLibraryModal onClose={() => setMediaLibraryOpen(false)} />}
         </div>
       </div>,
       document.body,
@@ -426,7 +426,8 @@ function EditProfileForm({
         <button
           onClick={save}
           disabled={saving}
-          className="rounded-md bg-lc-green px-3 py-1.5 text-sm font-semibold text-lc-black hover:bg-lc-green/90 disabled:opacity-50"
+          className="lc-pill-primary px-4 py-2 text-sm disabled:opacity-50"
+          data-testid="save-profile-button"
         >
           {saving ? t('common.saving') : t('common.save')}
         </button>
@@ -445,16 +446,21 @@ function EditProfileForm({
 export function PreferencesPanel() {
   const prefs = usePreferences();
   const { t } = useTranslation();
-  const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   return (
     <div className="space-y-4 p-4">
       <LanguagePreference />
-      <AppearancePreferenceControls />
-      <button type="button" onClick={() => setMediaLibraryOpen(true)} className="flex w-full items-center justify-between rounded-lg border border-lc-border bg-lc-black p-4 text-left hover:border-lc-green/50">
-        <span><span className="block text-sm font-semibold text-lc-white">Emoji, GIFs &amp; stickers</span><span className="mt-1 block text-xs text-lc-muted">Create packs and manage favorites.</span></span>
-        <span className="text-lc-muted">›</span>
+      <button
+        type="button"
+        onClick={() => setAppearanceOpen((open) => !open)}
+        className="flex w-full items-center justify-between rounded-lg border border-lc-border bg-lc-black p-4 text-left hover:border-lc-green/50"
+        data-testid="desktop-appearance-submenu"
+        aria-expanded={appearanceOpen}
+      >
+        <span className="text-sm font-semibold text-lc-white">{t('preferences.appearance.title')}</span>
+        <span className="text-lc-muted" aria-hidden="true">{appearanceOpen ? '⌄' : '›'}</span>
       </button>
-      {mediaLibraryOpen && <MediaLibraryModal onClose={() => setMediaLibraryOpen(false)} />}
+      {appearanceOpen && <AppearancePreferenceControls />}
 
       <ProfileFeedRelaySettings />
       <section className="space-y-2 rounded-lg border border-lc-border bg-lc-dark/30 p-3">
@@ -463,13 +469,6 @@ export function PreferencesPanel() {
         </h3>
         <AccountBackupExport />
       </section>
-      <ToggleRow
-        label="Developer relay logs"
-        description="Log relay calls to the console."
-        checked={prefs.developerRelayDebug}
-        onChange={(v) => setPreference('developerRelayDebug', v)}
-      />
-      <DeveloperSignatureTest />
       <ToggleRow
         label={t('preferences.activity.label')}
         description={t('preferences.activity.description')}
@@ -484,6 +483,16 @@ export function PreferencesPanel() {
       />
       <WotSettings />
       <LocalDataSection />
+      <section className="space-y-3 border-t border-lc-border pt-4" data-testid="desktop-developer-settings">
+        <div className="text-xs font-semibold uppercase tracking-wider text-lc-muted">Developer</div>
+        <ToggleRow
+          label="Developer relay logs"
+          description="Log relay calls to the console."
+          checked={prefs.developerRelayDebug}
+          onChange={(v) => setPreference('developerRelayDebug', v)}
+        />
+        <DeveloperSignatureTest />
+      </section>
     </div>
   );
 }
@@ -526,7 +535,7 @@ function LocalDataSection() {
           type="button"
           onClick={() => setConfirming(true)}
           disabled={clearing}
-          className="shrink-0 rounded-md border border-lc-border bg-lc-black px-3 py-1.5 text-sm text-lc-white hover:bg-lc-border/40 disabled:opacity-50"
+          className="shrink-0 rounded-md bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-50"
           data-testid="clear-cache-button"
         >
           {t('preferences.localData.clear.button')}
@@ -555,7 +564,7 @@ function LocalDataSection() {
               type="button"
               onClick={onConfirm}
               disabled={clearing}
-              className="rounded-md bg-lc-green px-3 py-1.5 text-sm font-semibold text-lc-black hover:bg-lc-green/90 disabled:opacity-50"
+              className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-50"
               data-testid="clear-cache-confirm-button"
             >
               {clearing ? t('preferences.localData.confirm.clearing') : t('preferences.localData.confirm.action')}

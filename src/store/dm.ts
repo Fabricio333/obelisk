@@ -141,6 +141,20 @@ export const useDMStore = create<DMState>()(
         ({
           protocolOverrides: state.protocolOverrides,
         }) as DMPersistedState,
+      // Old app versions persisted decrypted threads/messages. Never merge
+      // those legacy fields back into memory, even if they remain on a PWA.
+      merge: (persisted, current) => ({
+        ...current,
+        isDMMode: false,
+        activeDMPubkey: null,
+        threads: [],
+        messages: [],
+        isLoadingMessages: false,
+        isLoadingThreads: false,
+        hasMoreHistory: false,
+        showProtocolPrompt: null,
+        protocolOverrides: (persisted as Partial<DMPersistedState> | undefined)?.protocolOverrides ?? {},
+      }),
     },
   ),
 );

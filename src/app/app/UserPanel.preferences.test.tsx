@@ -30,12 +30,12 @@ vi.mock('@/lib/nostr-bridge', () => ({
 }));
 
 vi.mock('@/components/media/MediaLibraryModal', () => ({
-  default: () => <div data-testid="media-library-stub" />,
+  default: ({ embedded }: { embedded?: boolean }) => <div data-testid="media-library-stub" data-embedded={embedded ? 'true' : 'false'} />,
 }));
 
 describe('UserPanel personal media access', () => {
   beforeEach(() => mockLogout.mockClear());
-  it('opens the media library directly from a normal user settings sidebar', async () => {
+  it('opens the media library inside the desktop settings workspace', async () => {
     const { default: UserPanel } = await import('./UserPanel');
     render(
       <LocaleProvider initialLocale="en">
@@ -44,7 +44,8 @@ describe('UserPanel personal media access', () => {
     );
 
     fireEvent.click(screen.getByTestId('desktop-media-library'));
-    expect(screen.getByTestId('media-library-stub')).toBeInTheDocument();
+    expect(screen.getByTestId('media-library-stub')).toHaveAttribute('data-embedded', 'true');
+    expect(screen.getByTestId('user-edit-modal')).toContainElement(screen.getByTestId('media-library-stub'));
   });
 
   it('shows the profile artwork together and logs out from settings', async () => {
@@ -59,10 +60,26 @@ describe('UserPanel personal media access', () => {
     const preview = screen.getByTestId('profile-appearance-preview');
     expect(preview.querySelector('img[alt="Banner"]')).toHaveAttribute('src', 'https://cdn.example/banner.jpg');
     expect(preview.querySelector('img[alt="Picture"]')).toHaveAttribute('src', 'https://cdn.example/alice.jpg');
+    expect(screen.getByTestId('save-profile-button')).toHaveClass('lc-pill-primary');
+    expect(screen.getByTestId('desktop-logout')).toHaveClass('bg-red-600', 'text-white');
 
     fireEvent.click(screen.getByTestId('desktop-logout'));
     expect(onClose).toHaveBeenCalledOnce();
     expect(mockLogout).toHaveBeenCalledOnce();
+  });
+
+  it('closes settings on Escape instead of falling back to the legacy profile card', async () => {
+    const { default: UserPanel } = await import('./UserPanel');
+    const onClose = vi.fn();
+    render(
+      <LocaleProvider initialLocale="en">
+        <UserPanel pubkey={'a'.repeat(64)} isMe initialEditing onClose={onClose} />
+      </LocaleProvider>,
+    );
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });
 
@@ -80,11 +97,15 @@ describe('PreferencesPanel appearance controls', () => {
       </LocaleProvider>,
     );
 
+    expect(screen.queryByTestId('appearance-accent-color')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('desktop-appearance-submenu'));
     expect(screen.getByTestId('appearance-accent-color')).toBeInTheDocument();
     expect(screen.getByTestId('appearance-background-color')).toBeInTheDocument();
     expect(screen.getByTestId('appearance-button-color')).toBeInTheDocument();
     expect(screen.getByTestId('desktop-download-backup')).toBeInTheDocument();
     expect(screen.getByTestId('developer-signature-test')).toBeInTheDocument();
+    expect(screen.getByTestId('clear-cache-button')).toHaveClass('bg-red-600', 'text-white');
+    expect(screen.getByTestId('desktop-developer-settings')).toBe(screen.getByTestId('desktop-developer-settings').parentElement?.lastElementChild);
   });
 
   it('includes a direct-message opt-in reset toggle', async () => {

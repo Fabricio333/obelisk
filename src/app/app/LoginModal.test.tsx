@@ -44,7 +44,14 @@ vi.mock('@nostr-wot/ui', async () => {
   return {
     LoginModal: (props: Record<string, unknown>) => {
       sdkProps = props;
-      return React.createElement('div', { 'data-testid': 'sdk-login' });
+      return React.createElement('div', { className: 'nui-modal-overlay' },
+        React.createElement('div', { className: 'nui-modal', 'data-testid': 'sdk-login' },
+          React.createElement('div', { className: 'nui-qr-wrap' },
+            React.createElement('div', { className: 'nui-qr', 'data-testid': 'sdk-qr' }),
+            React.createElement('div', { className: 'nui-key-display' }, 'nostrconnect://test'),
+          ),
+        ),
+      );
     },
     Modal: ({ children }: { children: React.ReactNode }) =>
       React.createElement('div', null, children),
@@ -150,5 +157,14 @@ describe('LoginModal generated identity flow', () => {
       'bunker://remote?relay=wss://relay.nsec.app',
       expect.objectContaining({ signer, clientSecretHex: '02'.repeat(32) }),
     );
+  });
+
+  it('places the mobile signer handoff directly below the QR', async () => {
+    render(<LoginModal />);
+
+    await waitFor(() => expect(screen.getByText('Open in signer app')).toBeInTheDocument());
+
+    expect(screen.getByText('Open in signer app').closest('a')?.previousElementSibling)
+      .toBe(screen.getByTestId('sdk-qr'));
   });
 });

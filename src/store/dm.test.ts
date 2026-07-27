@@ -168,4 +168,23 @@ describe('per-account DM store', () => {
     const persisted = localStorage.getItem('obelisk-dm-store:' + 'a'.repeat(64)) ?? '';
     expect(persisted).not.toContain('plain-text-payload');
   });
+
+  it('does not rehydrate plaintext left by an older app version', async () => {
+    const pubkey = 'c'.repeat(64);
+    localStorage.setItem(`obelisk-dm-store:${pubkey}`, JSON.stringify({
+      state: {
+        protocolOverrides: { ['d'.repeat(64)]: 'nip04' },
+        threads: [{ pubkey: 'old-peer', lastMessage: 'old preview' }],
+        messages: [makeMsg({ content: 'old decrypted message' })],
+      },
+      version: 0,
+    }));
+
+    ensureDMStoreForAccount(pubkey);
+    await useDMStore.persist.rehydrate();
+
+    expect(useDMStore.getState().threads).toEqual([]);
+    expect(useDMStore.getState().messages).toEqual([]);
+    expect(useDMStore.getState().protocolOverrides['d'.repeat(64)]).toBe('nip04');
+  });
 });

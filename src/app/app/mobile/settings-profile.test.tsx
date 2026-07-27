@@ -7,6 +7,11 @@ import { DM_OPT_IN_STORAGE_KEY, setDmOptInEnabled } from '@/lib/dm/opt-in';
 // drive the rendered values without a real relay connection.
 const mockLogout = vi.fn();
 const mockPublishProfile = vi.fn().mockResolvedValue(undefined);
+const mockClearCache = vi.fn();
+
+vi.mock('@/lib/nostr-bridge/cache-clear', () => ({
+  clearAllClientCacheExceptSession: () => mockClearCache(),
+}));
 
 let mockMeta: {
   pubkey: string;
@@ -133,6 +138,8 @@ beforeEach(() => {
 afterEach(() => {
   mockLogout.mockReset();
   mockPublishProfile.mockReset().mockResolvedValue(undefined);
+  mockClearCache.mockReset();
+  vi.clearAllTimers();
   vi.useRealTimers();
 });
 
@@ -180,6 +187,16 @@ describe("SettingsPrefsScreen", () => {
     expect(mockLogout).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("disconnect-confirm"));
     expect(mockLogout).toHaveBeenCalledTimes(1);
+  });
+
+  it('exposes the local cache wipe on mobile preferences', () => {
+    vi.useFakeTimers();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderWithLocale(<SettingsPrefsScreen go={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId('mobile-clear-cache-button'));
+
+    expect(mockClearCache).toHaveBeenCalledTimes(1);
   });
 
   it("lets users enable or reset DM opt-in from preferences", () => {
