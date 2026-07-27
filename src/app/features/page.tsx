@@ -23,9 +23,9 @@ const FEATURES = [
   {
     title: 'Sticker marketplace',
     description: 'Discover media packs, keep favorites, create personal stickers, and let relay operators publish server-wide emoji, GIF, and sticker collections.',
-    image: '/pictures-for-posts/desktop-forums-view.png',
-    alt: 'Obelisk desktop interface with the shared media library available in chat',
-    width: 1470, height: 799,
+    image: '/pictures-for-posts/stickers-marketplace.png',
+    alt: 'Obelisk desktop sticker, emoji, and GIF marketplace',
+    width: 2940, height: 1596,
   },
   {
     title: 'Mobile PWA',

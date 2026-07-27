@@ -13,6 +13,7 @@ describe('FeaturesPage', () => {
       expect(screen.getByRole('heading', { name: title })).toBeInTheDocument();
     }
     expect(screen.getAllByRole('img')).toHaveLength(7);
+    expect(screen.getByRole('img', { name: 'Obelisk desktop sticker, emoji, and GIF marketplace' })).toHaveAttribute('src', expect.stringContaining('stickers-marketplace.png'));
     expect(screen.getAllByRole('img').filter((image) => image.getAttribute('src')?.includes('voice-messages.png'))).toHaveLength(2);
     expect(screen.getAllByRole('img').filter((image) => image.getAttribute('src')?.includes('desktop-large-voice-channel-with-sfu-peer-trasmission-test.png'))).toHaveLength(2);
     expect(screen.getByText(/Choose which SFU server to use or host your own/)).toBeInTheDocument();

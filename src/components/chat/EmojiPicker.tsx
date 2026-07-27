@@ -337,7 +337,6 @@ export default function EmojiPicker({
                         onClick={() => custom ? handlePickCustom(custom) : handlePick(char)}
                         disabled={mine}
                         className={emojiBtnClass}
-                        title={mine ? 'Already reacted' : 'Recent'}
                       >
                         {custom ? (
                           <img src={custom.url} alt={char} className={customImageClass} />

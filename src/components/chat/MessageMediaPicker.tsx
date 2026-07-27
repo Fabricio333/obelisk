@@ -398,7 +398,6 @@ function MediaSection({ title, entries, onPick, favoriteUrls, onFavorite, onMedi
               <button
                 type="button"
                 onClick={() => onPick(entry)}
-                title={':' + entry.name + ':'}
                 className="flex h-full w-full min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-xl border border-lc-border/60 bg-lc-dark p-2 hover:border-lc-green/50 hover:bg-lc-card"
               >
                 <img src={entry.url} alt={':' + entry.name + ':'} onLoad={() => onMediaLoad(entry)} className="block max-h-full max-w-full object-contain" />

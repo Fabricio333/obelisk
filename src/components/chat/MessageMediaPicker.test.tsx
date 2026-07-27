@@ -97,7 +97,9 @@ describe('MessageMediaPicker', () => {
     expect(defaultSticker).toBeInTheDocument();
     fireEvent.click(defaultSticker);
     fireEvent.click(screen.getByRole('button', { name: 'Recent' }));
-    expect(within(screen.getByTestId('media-section-recent_stickers')).getByAltText(':laugh_cry:')).toBeInTheDocument();
+    const recentSticker = within(screen.getByTestId('media-section-recent_stickers')).getByAltText(':laugh_cry:');
+    expect(recentSticker).toBeInTheDocument();
+    expect(recentSticker.closest('button')).not.toHaveAttribute('title');
     fireEvent.click(screen.getByRole('button', { name: 'Trending' }));
     expect(screen.getByTestId('media-section-my_stickers')).toBeInTheDocument();
     expect(within(screen.getByTestId('media-grid')).getAllByRole('button')[0]).toHaveAccessibleName('Create sticker');
@@ -115,8 +117,10 @@ describe('MessageMediaPicker', () => {
     );
 
     expect(screen.getByRole('dialog', { name: 'Media picker' })).toHaveClass('bg-lc-black');
-    expect(screen.getByTitle(':wave:')).toHaveClass('min-w-0', 'overflow-hidden');
-    fireEvent.click(screen.getByTitle(':wave:'));
+    const waveButton = screen.getByRole('button', { name: ':wave:' });
+    expect(waveButton).toHaveClass('min-w-0', 'overflow-hidden');
+    expect(waveButton).not.toHaveAttribute('title');
+    fireEvent.click(waveButton);
     expect(onPick).toHaveBeenCalledWith(
       ':wave:',
       { name: 'wave', url: 'https://cdn.example/wave.webp' },

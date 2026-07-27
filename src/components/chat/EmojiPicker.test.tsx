@@ -85,7 +85,7 @@ describe('EmojiPicker', () => {
     expect(recentSection).toHaveTextContent('No recent emojis');
 
     fireEvent.click(screen.getByTitle('grinning'));
-    expect(within(recentSection).getByTitle('Recent')).toHaveTextContent('😀');
+    expect(within(recentSection).getByRole('button', { name: '😀' })).not.toHaveAttribute('title');
   });
 
   it('positions popovers above or below the trigger', () => {
