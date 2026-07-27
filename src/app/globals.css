@@ -1006,6 +1006,11 @@ button:not(:disabled),
 .nui-open-signer {
   display: none;
 }
+
+.obelisk-login-modal .nui-qr svg {
+  width: min(300px, calc(100vw - 64px));
+  height: auto;
+}
 @media (max-width: 767px) {
   .nui-open-signer {
     display: inline-flex;

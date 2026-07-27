@@ -30,23 +30,17 @@ import { nostrActions } from '@/lib/nostr-bridge';
 import GeneratedProfileEnhancements from './GeneratedProfileEnhancements';
 
 const NIP46_PERMS = [
-  'get_public_key',
   'nip04_encrypt',
   'nip04_decrypt',
   'nip44_encrypt',
   'nip44_decrypt',
-  ...[
-    0, 1, 3, 4, 5, 6, 7, 9, 13, 14, 1059,
-    9000, 9001, 9002, 9003, 9005, 9007, 9021, 9022, 9734,
-    10000, 10002, 10030, 10050, 20078, 22242, 24242,
-    25050, 25051, 25052, 27235, 30030, 30078, 31314,
-  ].map((kind) => 'sign_event:' + kind),
+  ...[1, 2, 9, 17, 18, 25, 29, 42, 51, 57, 59, 78, 98].map((nip) => 'nip:' + nip),
+  ...[20078, 24242, 25050, 25052].map((kind) => 'sign_event:' + kind),
 ].join(',');
 
 const NIP46_METADATA = {
   name: 'Obelisk',
   url: 'https://obelisk.ar',
-  image: 'https://obelisk.ar/icon-192.png',
 };
 
 const iconBase = {

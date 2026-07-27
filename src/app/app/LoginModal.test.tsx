@@ -72,13 +72,13 @@ describe('LoginModal generated identity flow', () => {
     expect(sdkProps.showRememberToggle).toBe(true);
     expect(sdkProps.nip46Relays).toEqual(['wss://public.obelisk.ar']);
     const permissions = (sdkProps.nip46Perms as string).split(',');
-    expect(permissions).toContain('sign_event:22242');
-    expect(permissions).toContain('sign_event:9');
+    expect(permissions).toContain('nip:42');
+    expect(permissions).toContain('nip:29');
+    expect(permissions).toContain('sign_event:25052');
     expect(permissions).not.toContain('sign_event');
     expect(sdkProps.nip46Metadata).toEqual({
       name: 'Obelisk',
       url: 'https://obelisk.ar',
-      image: 'https://obelisk.ar/icon-192.png',
     });
     act(() => updateDraft?.({
       name: 'Cosmic Fox',
@@ -116,7 +116,7 @@ describe('LoginModal generated identity flow', () => {
       relays: ['wss://public.obelisk.ar'],
       clientSecretKey: new Uint8Array(32).fill(3),
       perms: sdkProps.nip46Perms as string,
-      metadata: sdkProps.nip46Metadata as { name: string; url: string; image: string },
+      metadata: sdkProps.nip46Metadata as { name: string; url: string },
     });
 
     await handle.ready;
@@ -126,7 +126,8 @@ describe('LoginModal generated identity flow', () => {
     expect(params.get('perms')).toBe(sdkProps.nip46Perms);
     expect(params.get('name')).toBe('Obelisk');
     expect(params.get('url')).toBe('https://obelisk.ar');
-    expect(params.get('image')).toBe('https://obelisk.ar/icon-192.png');
+    expect(params.has('image')).toBe(false);
+    expect(handle.uri.length).toBeLessThan(600);
     expect(bunkerFromUri).toHaveBeenCalledOnce();
   });
 
