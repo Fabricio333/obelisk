@@ -6,8 +6,10 @@ import { uploadToBlossom } from '@/lib/blossom';
 import { loadPersonalStickers } from '@/lib/personal-stickers';
 import { normalizeCustomEmojiName, type CustomEmojiMap } from '@/lib/custom-emoji-tags';
 import { mediaItemsFromPacks, mediaPackAddress } from '@/lib/media-packs';
-import { nostrActions, useMediaPacks, useMyMediaFavorites, useMyPubkey, type JsMediaKind } from '@/lib/nostr-bridge';
+import { nostrActions, useMediaPacks, useMyMediaFavorites, useMyPubkey, type JsMediaItem, type JsMediaKind } from '@/lib/nostr-bridge';
 import { useChatStore } from '@/store/chat';
+import MediaLibraryModal from '@/components/media/MediaLibraryModal';
+import { detectGifPresentation, inferMediaKind } from '@/lib/media-kind';
 
 export type MediaPickerTab = 'emoji' | 'gif' | 'sticker';
 
@@ -120,6 +122,8 @@ export default function MessageMediaPicker({
   const [remote, setRemote] = useState<MediaEntry[]>([]);
   const [personal] = useState<CustomEmojiMap>(() => loadPersonalStickers());
   const [uploading, setUploading] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [kindOverrides, setKindOverrides] = useState<Record<string, JsMediaKind>>({});
   const mediaPacks = useMediaPacks();
   const mediaFavorites = useMyMediaFavorites();
   const myPubkey = useMyPubkey();
@@ -146,7 +150,7 @@ export default function MessageMediaPicker({
         setRemote((payload.data ?? []).flatMap((item) => {
           const mediaUrl = item.images?.fixed_height?.url;
           if (!mediaUrl) return [];
-          return [{ name: normalizeCustomEmojiName(item.title || item.id) || item.id, url: mediaUrl, categories: [category] }];
+          return [{ name: normalizeCustomEmojiName(item.title || item.id) || item.id, url: mediaUrl, kind: tab === 'sticker' ? 'sticker' : 'gif', categories: [category] }];
         }));
       } catch {
         if (!controller.signal.aborted) setRemote([]);
@@ -167,37 +171,46 @@ export default function MessageMediaPicker({
     for (const item of [
       ...mediaItemsFromPacks(mediaFavorites.packAddresses, mediaPacks),
       ...mediaFavorites.items,
-    ]) byUrl.set(item.url, item);
+    ]) byUrl.set(item.url, { ...item, kind: kindOverrides[item.url] ?? item.kind });
     return Array.from(byUrl.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [mediaFavorites, mediaPacks, personal]);
+  }, [kindOverrides, mediaFavorites, mediaPacks, personal]);
   const serverEntries = useMemo(() => {
     const personalUrls = new Set(personalEntries.map((entry) => entry.url));
     const starterUrls = new Set([...STARTER_GIFS, ...STARTER_STICKERS].map((entry) => entry.url));
     return Object.entries(customEmojis)
-      .map(([name, url]) => ({ name: normalizeCustomEmojiName(name), url, kind: serverMediaKinds[normalizeCustomEmojiName(name)] }))
+      .map(([name, url]) => {
+        const normalized = normalizeCustomEmojiName(name);
+        return { name: normalized, url, kind: kindOverrides[url] ?? serverMediaKinds[normalized] ?? (inferMediaKind(url) === 'gif' ? 'gif' : 'sticker') };
+      })
       .filter((entry) => entry.name && entry.url && !personalUrls.has(entry.url) && !starterUrls.has(entry.url))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [customEmojis, personalEntries, serverMediaKinds]);
-  const serverCustomEmojis = useMemo(
-    () => Object.fromEntries([
-      ...serverEntries,
-      ...personalEntries.filter((entry) => entry.kind !== 'sticker'),
-    ].map((entry) => [entry.name, entry.url])),
-    [personalEntries, serverEntries],
-  );
+  }, [customEmojis, kindOverrides, personalEntries, serverMediaKinds]);
+  const emojiEntries = [...serverEntries, ...personalEntries.filter((entry) => entry.kind !== 'sticker')];
+  const serverCustomEmojis = Object.fromEntries(emojiEntries.map((entry) => [entry.name, entry.url]));
+  const serverCustomMediaKinds = Object.fromEntries([
+    ...serverEntries.map((entry) => [entry.name, kindOverrides[entry.url] ?? serverMediaKinds[entry.name] ?? inferMediaKind(entry.url)]),
+    ...personalEntries.filter((entry) => entry.kind !== 'sticker').map((entry) => [entry.name, entry.kind]),
+  ]);
   const normalizedQuery = normalizeCustomEmojiName(query);
   const matchesQuery = (entry: MediaEntry) => !normalizedQuery || entry.name.includes(normalizedQuery);
-  const matchesTab = (entry: MediaEntry) => entry.kind
-    ? entry.kind === tab
-    : entry.url.split(/[?#]/, 1)[0].toLowerCase().endsWith('.gif') === (tab === 'gif');
-  const recentVisible = recentMedia.filter((entry) => entry.tab === tab && matchesQuery(entry));
+  const matchesTab = (entry: MediaEntry) => entry.kind === tab;
+  const recentVisible = recentMedia
+    .map((entry) => ({ ...entry, kind: kindOverrides[entry.url] ?? entry.kind ?? entry.tab }))
+    .filter((entry) => matchesTab(entry) && matchesQuery(entry));
   const serverVisible = serverEntries.filter((entry) => matchesTab(entry) && matchesQuery(entry));
   const personalVisible = personalEntries.filter((entry) => matchesTab(entry) && matchesQuery(entry));
-  const starter = tab === 'gif' ? STARTER_GIFS : STARTER_STICKERS;
-  const defaultCatalog = [...remote, ...starter].filter(matchesQuery);
+  const starterEntries: MediaEntry[] = [
+    ...STARTER_GIFS.map((entry) => ({ ...entry, kind: kindOverrides[entry.url] ?? 'gif' as const })),
+    ...STARTER_STICKERS.map((entry) => ({ ...entry, kind: 'sticker' as const })),
+  ];
+  const defaultCatalog = [
+    ...remote.map((entry) => ({ ...entry, kind: kindOverrides[entry.url] ?? entry.kind ?? tab })),
+    ...starterEntries,
+  ].filter((entry) => matchesTab(entry) && matchesQuery(entry));
   const defaultVisible = category === 'Trending' || category === 'Recent' || normalizedQuery
     ? defaultCatalog
     : defaultCatalog.filter((entry) => entry.categories?.includes(category));
+  const favoriteUrls = new Set(mediaFavorites.items.map((item) => item.url));
   const isSheet = variant === 'sheet';
   const placementClass = placement === 'below' ? 'top-full mt-1' : 'bottom-full mb-1';
   const shellClass = isSheet
@@ -212,6 +225,7 @@ export default function MessageMediaPicker({
             variant="sheet"
             showClose={false}
             customEmojis={serverCustomEmojis}
+            customMediaKinds={serverCustomMediaKinds}
             columns={isSheet ? 7 : 12}
             onPick={onPick}
             onClose={onClose}
@@ -223,11 +237,40 @@ export default function MessageMediaPicker({
     );
   }
 
+  const classifyEntry = (entry: MediaEntry) => {
+    if ((entry.kind ?? inferMediaKind(entry.url)) !== 'gif') return;
+    void detectGifPresentation(entry.url).then((kind) => {
+      if (kind === 'sticker') setKindOverrides((current) => current[entry.url] === kind ? current : { ...current, [entry.url]: kind });
+    });
+  };
+
+  const toggleFavorite = async (entry: MediaEntry) => {
+    const kind = kindOverrides[entry.url] ?? entry.kind ?? (tab === 'gif' ? 'gif' : 'sticker');
+    const item: JsMediaItem = {
+      name: entry.name,
+      url: entry.url,
+      kind,
+      ...(entry.packAddress ? { packAddress: entry.packAddress } : {}),
+    };
+    const selected = favoriteUrls.has(entry.url);
+    await nostrActions.saveMediaFavorites({
+      items: selected
+        ? mediaFavorites.items.filter((favorite) => favorite.url !== entry.url)
+        : [...mediaFavorites.items, item],
+      packAddresses: mediaFavorites.packAddresses,
+    });
+  };
+  const favoriteMedia = (entry: MediaEntry) => {
+    void toggleFavorite(entry).catch(() => {});
+  };
+
   const pickMedia = (entry: MediaEntry) => {
-    const recent = { ...entry, tab } as RecentMediaEntry;
+    const kind = kindOverrides[entry.url] ?? entry.kind ?? (tab === 'gif' ? 'gif' : 'sticker');
+    const presentation = kind === 'gif' ? 'gif' : 'sticker';
+    const recent = { ...entry, kind, tab: presentation } as RecentMediaEntry;
     setRecentMedia(saveRecentMedia(recent));
-    if (tab === 'gif') onPick(entry.url, undefined, tab);
-    else onPick(':' + entry.name + ':', entry, tab);
+    if (presentation === 'gif') onPick(entry.url, undefined, presentation);
+    else onPick(':' + entry.name + ':', { name: entry.name, url: entry.url, ...(entry.packAddress ? { packAddress: entry.packAddress } : {}) }, presentation);
   };
 
   const createSticker = async (file: File | undefined) => {
@@ -286,11 +329,11 @@ export default function MessageMediaPicker({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto pr-1" data-testid="media-grid">
         {category === 'Recent' ? (
-          <MediaSection title={tab === 'gif' ? 'Recent GIFs' : 'Recent stickers'} entries={recentVisible} onPick={pickMedia} />
+          <MediaSection title={tab === 'gif' ? 'Recent GIFs' : 'Recent stickers'} entries={recentVisible} onPick={pickMedia} favoriteUrls={favoriteUrls} onFavorite={favoriteMedia} onMediaLoad={classifyEntry} />
         ) : (
           <>
             {(tab === 'sticker' || personalVisible.length > 0) && (
-              <MediaSection title={tab === 'gif' ? 'My GIFs' : 'My stickers'} entries={personalVisible} onPick={pickMedia}>
+              <MediaSection title={tab === 'gif' ? 'My GIFs' : 'My stickers'} entries={personalVisible} onPick={pickMedia} favoriteUrls={favoriteUrls} onFavorite={favoriteMedia} onMediaLoad={classifyEntry}>
                 {tab === 'sticker' && (
                   <>
                     <input
@@ -317,9 +360,9 @@ export default function MessageMediaPicker({
                 )}
               </MediaSection>
             )}
-            <MediaSection title={tab === 'gif' ? 'Default GIFs' : 'Default stickers'} entries={defaultVisible} onPick={pickMedia} />
+            <MediaSection title={tab === 'gif' ? 'Default GIFs' : 'Default stickers'} entries={defaultVisible} onPick={pickMedia} favoriteUrls={favoriteUrls} onFavorite={favoriteMedia} onMediaLoad={classifyEntry} />
             {serverVisible.length > 0 && (
-              <MediaSection title={tab === 'gif' ? 'Server GIFs' : 'Server stickers'} entries={serverVisible} onPick={pickMedia} />
+              <MediaSection title={tab === 'gif' ? 'Server GIFs' : 'Server stickers'} entries={serverVisible} onPick={pickMedia} favoriteUrls={favoriteUrls} onFavorite={favoriteMedia} onMediaLoad={classifyEntry} />
             )}
           </>
         )}
@@ -327,18 +370,26 @@ export default function MessageMediaPicker({
           <div className="py-12 text-center text-sm text-lc-muted">No recent {tab === 'gif' ? 'GIFs' : 'stickers'}</div>
         )}
       </div>
-      {tab === 'gif' && <div className="pb-1 text-right text-[10px] text-lc-muted">Powered by GIPHY</div>}
-      {tab === 'sticker' && <div className="pb-1 text-right text-[10px] text-lc-muted">Stickers by Twemoji</div>}
+      <div className="flex items-center justify-between gap-2 pb-1">
+        <button type="button" onClick={() => setLibraryOpen(true)} className="text-xs font-medium text-lc-green hover:underline" data-testid="manage-media-packs">
+          Favorites &amp; packs
+        </button>
+        <span className="text-right text-[10px] text-lc-muted">{tab === 'gif' ? 'Powered by GIPHY' : 'Stickers by Twemoji'}</span>
+      </div>
       <PickerTabs tab={tab} onTab={setTab} />
+      {libraryOpen && <MediaLibraryModal onClose={() => setLibraryOpen(false)} initialTab="mine" initialKind={tab} />}
       </div>
     </div>
   );
 }
 
-function MediaSection({ title, entries, onPick, children }: {
+function MediaSection({ title, entries, onPick, favoriteUrls, onFavorite, onMediaLoad, children }: {
   title: string;
   entries: readonly MediaEntry[];
   onPick: (entry: MediaEntry) => void;
+  favoriteUrls: ReadonlySet<string>;
+  onFavorite: (entry: MediaEntry) => void;
+  onMediaLoad: (entry: MediaEntry) => void;
   children?: ReactNode;
 }) {
   if (!children && entries.length === 0) return null;
@@ -347,17 +398,29 @@ function MediaSection({ title, entries, onPick, children }: {
       <h3 className="sticky top-0 z-10 mb-2 border-b border-lc-border bg-lc-black/95 py-2 text-[11px] font-bold uppercase tracking-wider text-lc-muted backdrop-blur">{title}</h3>
       <div className="grid grid-cols-4 auto-rows-[82px] content-start gap-2">
         {children}
-        {entries.map((entry) => (
-          <button
-            type="button"
-            key={entry.url}
-            onClick={() => onPick(entry)}
-            title={':' + entry.name + ':'}
-            className="flex h-full min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-xl border border-lc-border/60 bg-lc-dark p-2 hover:border-lc-green/50 hover:bg-lc-card"
-          >
-            <img src={entry.url} alt={':' + entry.name + ':'} className="block max-h-full max-w-full object-contain" />
-          </button>
-        ))}
+        {entries.map((entry) => {
+          const favorite = favoriteUrls.has(entry.url);
+          return (
+            <div key={entry.url} className="relative h-full min-h-0 min-w-0">
+              <button
+                type="button"
+                onClick={() => onPick(entry)}
+                title={':' + entry.name + ':'}
+                className="flex h-full w-full min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-xl border border-lc-border/60 bg-lc-dark p-2 hover:border-lc-green/50 hover:bg-lc-card"
+              >
+                <img src={entry.url} alt={':' + entry.name + ':'} onLoad={() => onMediaLoad(entry)} className="block max-h-full max-w-full object-contain" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onFavorite(entry)}
+                aria-label={(favorite ? 'Remove :' : 'Add :') + entry.name + ': ' + (favorite ? 'from favorites' : 'to favorites')}
+                className={"absolute right-1 top-1 flex h-7 w-7 items-center justify-center rounded-full border bg-lc-black/85 text-sm " + (favorite ? "border-lc-green text-lc-green" : "border-white/20 text-lc-white")}
+              >
+                {favorite ? '★' : '☆'}
+              </button>
+            </div>
+          );
+        })}
       </div>
     </section>
   );

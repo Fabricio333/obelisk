@@ -9,6 +9,7 @@ import type {
   JsMediaKind,
   JsMediaPack,
 } from './nostr-bridge/types';
+import { inferMediaKind } from './media-kind';
 
 export const EMPTY_MEDIA_FAVORITES: JsMediaFavorites = {
   items: [],
@@ -25,10 +26,6 @@ function validUrl(value: string | undefined): string {
   } catch {
     return '';
   }
-}
-
-function inferredKind(url: string): JsMediaKind {
-  return /\.gif(?:$|[?#])/i.test(url) ? 'gif' : 'emoji';
 }
 
 function mediaKinds(tags: ReadonlyArray<ReadonlyArray<string>>): Map<string, JsMediaKind> {
@@ -54,7 +51,7 @@ function mediaItems(tags: ReadonlyArray<ReadonlyArray<string>>, fallbackAddress?
     byName.set(name, {
       name,
       url,
-      kind: kinds.get(name) ?? inferredKind(url),
+      kind: kinds.get(name) ?? inferMediaKind(url),
       ...(packAddress ? { packAddress } : {}),
     });
   }

@@ -13,6 +13,7 @@ import {
 } from '@/lib/custom-emoji-tags';
 import type { JsMediaKind, JsMediaPack } from '@/lib/nostr-bridge/types';
 import { mediaItemsFromPacks } from '@/lib/media-packs';
+import { inferMediaKind } from '@/lib/media-kind';
 
 export interface RelayEmoji {
   readonly name: string;
@@ -55,7 +56,7 @@ export function relayEmojiMap(set: RelayEmojiSet): CustomEmojiMap {
 
 export function relayMediaKindMap(set: RelayEmojiSet): Record<string, JsMediaKind> {
   return Object.fromEntries(
-    set.emojis.map((emoji) => [emoji.name, emoji.kind ?? inferredKind(emoji.url)]),
+    set.emojis.map((emoji) => [emoji.name, emoji.kind ?? inferMediaKind(emoji.url)]),
   );
 }
 
@@ -66,10 +67,6 @@ export function resolveRelayEmojiSet(
   const byName = new Map(set.emojis.map((item) => [item.name, item]));
   for (const item of mediaItemsFromPacks(set.packAddresses ?? [], packs)) byName.set(item.name, item);
   return { ...set, emojis: Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name)) };
-}
-
-function inferredKind(url: string): JsMediaKind {
-  return /\.gif(?:$|[?#])/i.test(url) ? 'gif' : 'emoji';
 }
 
 export function parseRelayEmojiSet(ev: NostrEvent): RelayEmojiSet {
@@ -93,7 +90,7 @@ export function parseRelayEmojiSet(ev: NostrEvent): RelayEmojiSet {
     const name = normalizeCustomEmojiName(tag[1] ?? '');
     const url = tag[2]?.trim();
     if (!isValidCustomEmojiName(name) || !url) continue;
-    byName.set(name, { name, url, kind: kinds.get(name) ?? inferredKind(url) });
+    byName.set(name, { name, url, kind: kinds.get(name) ?? inferMediaKind(url) });
   }
   return {
     title,
@@ -135,7 +132,7 @@ export function relayEmojiSetFromMap(
       .map(([name, url]) => ({
         name: normalizeCustomEmojiName(name),
         url,
-        kind: inferredKind(url),
+        kind: inferMediaKind(url),
       }))
       .filter((emoji) => isValidCustomEmojiName(emoji.name) && !!emoji.url)
       .sort((a, b) => a.name.localeCompare(b.name)),

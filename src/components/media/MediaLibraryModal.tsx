@@ -8,6 +8,7 @@ import { nostrActions, useMediaPacks, useMyMediaFavorites, useMyPubkey } from '@
 import type { JsMediaItem, JsMediaKind, JsMediaPack } from '@/lib/nostr-bridge';
 import { publishRelayEmojiSet, type RelayEmojiSet } from '@/lib/relay-emojis';
 import { mediaPackAddress } from '@/lib/media-packs';
+import { inferMediaKind } from '@/lib/media-kind';
 
 type LibraryTab = 'discover' | 'mine' | 'favorites' | 'server';
 type MediaFilter = 'all' | JsMediaKind;
@@ -16,10 +17,6 @@ type SelectedMedia = { pack: JsMediaPack; item: JsMediaItem };
 
 const fieldClass = 'w-full rounded-lg border border-lc-border bg-lc-black px-3 py-2 text-sm text-lc-white outline-none focus:border-lc-green';
 const tabClass = 'w-full rounded-lg px-3 py-2 text-left text-sm transition';
-
-function inferredKind(url: string): JsMediaKind {
-  return /\.gif(?:$|[?#])/i.test(url) ? 'gif' : 'emoji';
-}
 
 function uniqueName(raw: string, used: Set<string>): string {
   const base = normalizeCustomEmojiName(raw) || 'media';
@@ -60,11 +57,13 @@ export default function MediaLibraryModal({
   onClose,
   server,
   initialTab = server ? 'server' : 'discover',
+  initialKind = 'all',
   initialSelection,
 }: {
   onClose: () => void;
   server?: { relayUrl: string; emojiSet: RelayEmojiSet };
   initialTab?: LibraryTab;
+  initialKind?: MediaFilter;
   initialSelection?: SelectedMedia;
 }) {
   const myPubkey = useMyPubkey();
@@ -72,7 +71,7 @@ export default function MediaLibraryModal({
   const packsByAddress = useMediaPacks();
   const favorites = useMyMediaFavorites();
   const [tab, setTab] = useState<LibraryTab>(initialTab);
-  const [kindFilter, setKindFilter] = useState<MediaFilter>('all');
+  const [kindFilter, setKindFilter] = useState<MediaFilter>(initialKind);
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<EditablePack | null>(null);
   const [viewingPack, setViewingPack] = useState<JsMediaPack | null>(null);
@@ -177,7 +176,9 @@ export default function MediaLibraryModal({
     const packNames = new Set(pack.items.map((item) => item.name));
     const packUrls = new Set(pack.items.map((item) => item.url));
     await updateServerItems(
-      server.emojiSet.emojis.filter((item) => !packNames.has(item.name) && !packUrls.has(item.url)),
+      server.emojiSet.emojis
+        .filter((item) => !packNames.has(item.name) && !packUrls.has(item.url))
+        .map((item) => ({ ...item, kind: item.kind ?? inferMediaKind(item.url) })),
       "Added pack “" + pack.title + "” to this server.",
       [...(server.emojiSet.packAddresses ?? []), address],
     );
@@ -186,7 +187,7 @@ export default function MediaLibraryModal({
   const removePackFromServer = async (pack: JsMediaPack) => {
     if (!server) return;
     await updateServerItems(
-      server.emojiSet.emojis,
+      server.emojiSet.emojis.map((item) => ({ ...item, kind: item.kind ?? inferMediaKind(item.url) })),
       "Removed pack “" + pack.title + "” from this server.",
       (server.emojiSet.packAddresses ?? []).filter((address) => address !== pack.address),
     );
@@ -202,7 +203,7 @@ export default function MediaLibraryModal({
     const byName = new Map(server.emojiSet.emojis.map((value) => [value.name, value]));
     byName.set(item.name, item);
     await updateServerItems(
-      Array.from(byName.values()).map((value) => ({ ...value, kind: value.kind ?? inferredKind(value.url) })),
+      Array.from(byName.values()).map((value) => ({ ...value, kind: value.kind ?? inferMediaKind(value.url) })),
       "Added :" + item.name + ": from “" + packTitle + "” to this server.",
     );
   };
@@ -212,7 +213,7 @@ export default function MediaLibraryModal({
     await updateServerItems(
       server.emojiSet.emojis
         .filter((value) => value.name !== item.name)
-        .map((value) => ({ ...value, kind: value.kind ?? inferredKind(value.url) })),
+        .map((value) => ({ ...value, kind: value.kind ?? inferMediaKind(value.url) })),
       "Removed :" + item.name + ": from this server.",
     );
   };
@@ -231,7 +232,7 @@ export default function MediaLibraryModal({
         items: server.emojiSet.emojis.map((item) => ({
           name: item.name,
           url: item.url,
-          kind: item.kind ?? inferredKind(item.url),
+          kind: item.kind ?? inferMediaKind(item.url),
         })),
       });
       setMessage(`Imported all ${server.emojiSet.emojis.length} existing server items into an editable pack.`);
@@ -241,6 +242,44 @@ export default function MediaLibraryModal({
       setBusy(false);
     }
   };
+
+  if (launchedFromItem && selectedMedia) {
+    return <MediaItemMenu
+      selection={selectedMedia}
+      favorite={favorites.items.some((item) => item.url === selectedMedia.item.url)}
+      busy={busy}
+      server={!!server}
+      onClose={onClose}
+      onViewPack={() => {
+        setViewingPack(selectedMedia.pack);
+        setSelectedMedia(null);
+      }}
+      onFavorite={() => {
+        toggleItem(selectedMedia.item);
+        onClose();
+      }}
+      onServer={() => {
+        const { item, pack } = selectedMedia;
+        void addServerItem(item, pack.title).then(onClose).catch(() => {});
+      }}
+    />;
+  }
+
+  if (launchedFromItem && viewingPack) {
+    return <PackViewer
+      pack={viewingPack}
+      favorite={favorites.packAddresses.includes(viewingPack.address)}
+      itemFavorites={favorites.items}
+      busy={busy}
+      server={!!server}
+      serverSelected={server?.emojiSet.packAddresses?.includes(viewingPack.address) ?? false}
+      closeOnEscape
+      onClose={onClose}
+      onOpenItem={(item) => setSelectedMedia({ pack: viewingPack, item })}
+      onFavorite={() => togglePack(viewingPack)}
+      onServer={() => void toggleServerPack(viewingPack).catch(() => {})}
+    />;
+  }
 
   return (
     <ModalShell
@@ -303,7 +342,7 @@ export default function MediaLibraryModal({
               </div>
               <MediaGrid
                 items={server.emojiSet.emojis
-                  .map((item) => ({ ...item, kind: item.kind ?? inferredKind(item.url) }))
+                  .map((item) => ({ ...item, kind: item.kind ?? inferMediaKind(item.url) }))
                   .filter((item) => kindFilter === "all" || item.kind === kindFilter)}
                 busy={busy}
                 onRemove={(item) => void removeServerItem(item).catch(() => {})}

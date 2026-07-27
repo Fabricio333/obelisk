@@ -66,9 +66,12 @@ describe('MediaLibraryModal', () => {
     render(<MediaLibraryModal onClose={onClose} initialSelection={{ pack, item: pack.items[0] }} />);
 
     expect(screen.getByTestId('media-item-menu')).toBeInTheDocument();
+    expect(screen.queryByTestId('media-library-modal')).toBeNull();
+    expect(screen.queryByText('Marketplace')).toBeNull();
     expect(screen.getByRole('button', { name: 'Add item to favorites' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'View Cat pack' }));
     expect(within(screen.getByTestId('media-pack-viewer')).getByAltText(':cat_6:')).toBeInTheDocument();
+    expect(screen.queryByTestId('media-library-modal')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Close pack viewer' }));
     expect(onClose).toHaveBeenCalledOnce();
   });

@@ -38,6 +38,21 @@ describe('EmojiPicker', () => {
     );
   });
 
+  it("honors explicit sticker metadata even when the asset is a GIF", () => {
+    render(
+      <EmojiPicker
+        onPick={() => {}}
+        onClose={() => {}}
+        customEmojis={{ stamp: "https://cdn.example/stamp.gif", clip: "https://cdn.example/clip.webp" }}
+        customMediaKinds={{ stamp: "sticker", clip: "gif" }}
+      />,
+    );
+
+    expect(screen.getByText("Server stickers")).toBeInTheDocument();
+    expect(within(screen.getByText("Server stickers").parentElement!).getByAltText(":stamp:")).toBeInTheDocument();
+    expect(within(screen.getByText("Server GIFs").parentElement!).getByAltText(":clip:")).toBeInTheDocument();
+  });
+
   it("jumps directly to classified emoji sections", () => {
     const { container } = render(
       <EmojiPicker onPick={() => {}} onClose={() => {}} skipRecent customEmojis={{}} />,

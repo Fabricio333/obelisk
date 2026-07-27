@@ -134,6 +134,25 @@ describe('MessageMediaPicker', () => {
     expect(screen.queryByAltText(':clip:')).not.toBeInTheDocument();
   });
 
+  it("favorites GIFs and opens pack creation in GIF mode", async () => {
+    const saveFavorites = vi.spyOn(nostrActions, "saveMediaFavorites").mockResolvedValue(undefined);
+    render(<MessageMediaPicker initialTab="gif" onPick={() => {}} onClose={() => {}} customEmojis={{}} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add :applause: to favorites" }));
+    await waitFor(() => expect(saveFavorites).toHaveBeenCalledWith({
+      items: [{
+        name: "applause",
+        url: "https://media.giphy.com/media/l3q2XhfQ8oCkm1Ts4/giphy.gif",
+        kind: "gif",
+      }],
+      packAddresses: [],
+    }));
+
+    fireEvent.click(screen.getByTestId("manage-media-packs"));
+    expect(screen.getByTestId("media-library-modal")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "GIFs" })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("saves newly created stickers into the default user pack", async () => {
     const savePack = vi.spyOn(nostrActions, "saveMediaPack").mockResolvedValue(undefined);
     const saveFavorites = vi.spyOn(nostrActions, "saveMediaFavorites").mockResolvedValue(undefined);

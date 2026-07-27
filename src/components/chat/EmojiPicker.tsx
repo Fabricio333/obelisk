@@ -9,6 +9,8 @@ import {
 import { loadRecentEmojis, pushRecentEmoji } from '@/lib/recent-emojis';
 import { normalizeCustomEmojiName, type CustomEmojiMap } from '@/lib/custom-emoji-tags';
 import { useChatStore } from '@/store/chat';
+import { inferMediaKind } from '@/lib/media-kind';
+import type { JsMediaKind } from '@/lib/nostr-bridge';
 
 const EMOJI_SECTIONS = [
   { name: 'Smileys', icon: '😀', label: 'Smileys & people', categories: ['Smileys', 'Gestures'] },
@@ -33,15 +35,7 @@ export interface PickedCustomEmoji {
 }
 
 interface CustomEmojiEntry extends PickedCustomEmoji {
-  readonly isGif: boolean;
-}
-
-function isGifEmojiUrl(url: string): boolean {
-  try {
-    return /\.gif$/i.test(new URL(url).pathname);
-  } catch {
-    return /\.gif(?:$|[?#])/i.test(url);
-  }
+  readonly kind: JsMediaKind;
 }
 
 export interface EmojiPickerProps {
@@ -61,6 +55,7 @@ export interface EmojiPickerProps {
   showClose?: boolean;
   className?: string;
   customEmojis?: CustomEmojiMap;
+  customMediaKinds?: Readonly<Record<string, JsMediaKind>>;
   columns?: 7 | 12;
   children?: ReactNode;
 }
@@ -114,6 +109,7 @@ export default function EmojiPicker({
   showClose = true,
   className,
   customEmojis: customEmojisProp,
+  customMediaKinds: customMediaKindsProp,
   columns,
   children,
 }: EmojiPickerProps) {
@@ -122,7 +118,9 @@ export default function EmojiPicker({
   const [activeCategory, setActiveCategory] = useState('Recent');
   const scrollRef = useRef<HTMLDivElement>(null);
   const storeCustomEmojis = useChatStore((s) => s.serverEmojis);
+  const storeMediaKinds = useChatStore((s) => s.serverMediaKinds);
   const customEmojis = customEmojisProp ?? storeCustomEmojis;
+  const customMediaKinds = customMediaKindsProp ?? storeMediaKinds;
 
   const q = normalizeEmojiKeyword(query.trim());
   const filtered = useMemo(() => {
@@ -131,32 +129,39 @@ export default function EmojiPicker({
   }, [q]);
   const customEntries = useMemo<CustomEmojiEntry[]>(
     () => Object.entries(customEmojis)
-      .map(([name, url]) => ({
-        name: normalizeCustomEmojiName(name),
-        url,
-        isGif: isGifEmojiUrl(url),
-      }))
-      .filter((e) => e.name && e.url)
+      .map(([name, url]) => {
+        const normalized = normalizeCustomEmojiName(name);
+        return { name: normalized, url, kind: customMediaKinds[normalized] ?? inferMediaKind(url) };
+      })
+      .filter((entry) => entry.name && entry.url)
       .sort((a, b) => a.name.localeCompare(b.name)),
-    [customEmojis],
+    [customEmojis, customMediaKinds],
   );
   const customGifEntries = useMemo(
-    () => customEntries.filter((e) => e.isGif),
+    () => customEntries.filter((entry) => entry.kind === "gif"),
+    [customEntries],
+  );
+  const customStickerEntries = useMemo(
+    () => customEntries.filter((entry) => entry.kind === "sticker"),
     [customEntries],
   );
   const customEmojiEntries = useMemo(
-    () => customEntries.filter((e) => !e.isGif),
+    () => customEntries.filter((entry) => entry.kind === "emoji"),
     [customEntries],
   );
   const filteredCustomGifEntries = useMemo(() => {
-    const list = q ? customGifEntries.filter((e) => e.name.includes(q)) : customGifEntries;
+    const list = q ? customGifEntries.filter((entry) => entry.name.includes(q)) : customGifEntries;
     return list.slice(0, 80);
   }, [customGifEntries, q]);
+  const filteredCustomStickerEntries = useMemo(() => {
+    const list = q ? customStickerEntries.filter((entry) => entry.name.includes(q)) : customStickerEntries;
+    return list.slice(0, 80);
+  }, [customStickerEntries, q]);
   const filteredCustomEmojiEntries = useMemo(() => {
-    const list = q ? customEmojiEntries.filter((e) => e.name.includes(q)) : customEmojiEntries;
+    const list = q ? customEmojiEntries.filter((entry) => entry.name.includes(q)) : customEmojiEntries;
     return list.slice(0, 80);
   }, [customEmojiEntries, q]);
-  const filteredCustomCount = filteredCustomGifEntries.length + filteredCustomEmojiEntries.length;
+  const filteredCustomCount = filteredCustomGifEntries.length + filteredCustomStickerEntries.length + filteredCustomEmojiEntries.length;
 
   const disabled = disabledEmojis ?? new Set<string>();
 
@@ -291,6 +296,7 @@ export default function EmojiPicker({
         {filtered ? (
           <>
             {renderCustomSection('Server GIFs', filteredCustomGifEntries)}
+            {renderCustomSection('Server stickers', filteredCustomStickerEntries)}
             {renderCustomSection('Server emojis', filteredCustomEmojiEntries)}
             <div className={gridClass}>
               {filtered.length === 0 && filteredCustomCount === 0 && (
@@ -339,6 +345,7 @@ export default function EmojiPicker({
                 {recents.length === 0 && <div className="px-1 py-3 text-xs text-lc-muted">No recent emojis</div>}
               </div>
             {renderCustomSection('Server GIFs', customGifEntries)}
+            {renderCustomSection('Server stickers', customStickerEntries)}
             {renderCustomSection('Server emojis', customEmojiEntries)}
             {EMOJI_SECTIONS.map((section) => (
               <div key={section.name} className="mb-2 scroll-mt-1" data-emoji-category={section.name}>
