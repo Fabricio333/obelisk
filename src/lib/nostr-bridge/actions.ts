@@ -2,7 +2,7 @@
  * Promise-returning action wrappers around the bridge. Components import
  * from here instead of touching getBridge() directly.
  */
-import { getBridge } from './client';
+import { getBridge, type RemoteSigner } from './client';
 
 export const nostrActions = {
   loginWithNsec: async (privKeyHex: string, pubKeyHex: string) =>
@@ -13,7 +13,7 @@ export const nostrActions = {
 
   loginWithBunker: async (
     bunkerUrl: string,
-    options?: { onAuthUrl?: (url: string) => void; clientSecretHex?: string },
+    options?: { onAuthUrl?: (url: string) => void; clientSecretHex?: string; signer?: RemoteSigner },
   ) => (await getBridge()).loginWithBunker(bunkerUrl, options),
 
   createNostrConnectSession: async (options?: { relay?: string; onAuthUrl?: (url: string) => void }) =>

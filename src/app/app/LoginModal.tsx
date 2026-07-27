@@ -7,7 +7,7 @@
  *
  * The SDK builds its own `NostrSigner` and now hands the bridging
  * material directly through `onLogin` (`nsec` for generate/import,
- * `bunkerUri` for nip46). We route each method to the existing bridge
+ * `bunkerUri` and its paired signer for nip46). We route each method to the existing bridge
  * entrypoint without touching the SDK's localStorage:
  *   - nip07              → bridge.loginWithNip07(pubkey)
  *   - import / generate  → bridge.loginWithNsec(skHex, pkHex) using args.nsec
@@ -83,8 +83,9 @@ async function routeToBridge(args: {
   nsec?: string;
   bunkerUri?: string;
   clientNsec?: string;
+  signer?: unknown;
 }): Promise<void> {
-  const { method, pubkey, nsec, bunkerUri, clientNsec } = args;
+  const { method, pubkey, nsec, bunkerUri, clientNsec, signer } = args;
   switch (method) {
     case 'nip07':
       await nostrActions.loginWithNip07(pubkey);
@@ -100,11 +101,13 @@ async function routeToBridge(args: {
 
     case 'nip46': {
       if (!bunkerUri) throw new Error('SDK did not provide a bunker URI');
+      if (!signer) throw new Error('SDK did not provide the paired remote signer');
       // The SDK has already paired the remote signer with `clientNsec`.
       // We must reuse that client identity — a fresh key would be
       // rejected by the signer ("no secret") since it never authorized it.
       await nostrActions.loginWithBunker(bunkerUri, {
         ...(clientNsec ? { clientSecretHex: nsecToSkHex(clientNsec) } : {}),
+        signer: signer as NonNullable<Parameters<typeof nostrActions.loginWithBunker>[1]>['signer'],
       });
       return;
     }
@@ -321,13 +324,14 @@ export default function LoginModal({
           import: <KeyIcon />,
         }}
         {...(headerSlot ? { slots: { header: headerSlot } } : {})}
-        onLogin={async ({ pubkey, method, nsec, bunkerUri, clientNsec }) => {
+        onLogin={async ({ pubkey, method, nsec, bunkerUri, clientNsec, signer }) => {
           const args: LoginArgs = {
             method,
             pubkey,
             ...(nsec ? { nsec } : {}),
             ...(bunkerUri ? { bunkerUri } : {}),
             ...(clientNsec ? { clientNsec } : {}),
+            ...(signer ? { signer } : {}),
           };
           if (method === 'generate') {
             if (nsec) await publishGeneratedProfile(nsec, generatedProfile);

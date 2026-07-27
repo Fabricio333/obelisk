@@ -41,6 +41,11 @@ import type {
   Unsubscribe,
 } from './types';
 
+export type RemoteSigner = Pick<
+  BunkerSigner,
+  'getPublicKey' | 'signEvent' | 'nip04Encrypt' | 'nip04Decrypt' | 'nip44Encrypt' | 'nip44Decrypt' | 'close'
+>;
+
 /**
  * Map a CLOSED reason or publish-rejection message to a RelayAccessState.
  * Returns `null` if the reason is benign (e.g. local close) so callers leave
@@ -719,7 +724,7 @@ export class BridgeImpl {
   private subs: Array<{ close: () => void; markClosed?: () => void }> = [];
   private activeGroupId: string | null = null;
   /** Active NIP-46 signer (when loginMethod === 'bunker'). Reconstructed lazily. */
-  private bunkerSigner: BunkerSigner | null = null;
+  private bunkerSigner: RemoteSigner | null = null;
   /** Set by the modal so it can show the auth-challenge URL. */
   private bunkerOnAuth: ((url: string) => void) | null = null;
 
@@ -1844,21 +1849,22 @@ export class BridgeImpl {
    */
   async loginWithBunker(
     bunkerUrl: string,
-    options?: { onAuthUrl?: (url: string) => void; clientSecretHex?: string },
+    options?: { onAuthUrl?: (url: string) => void; clientSecretHex?: string; signer?: RemoteSigner },
   ): Promise<string> {
     const bp = await parseBunkerInput(bunkerUrl);
     if (!bp) throw new Error('Invalid bunker URL');
+    if (options?.signer && !options.clientSecretHex) throw new Error('Paired remote signer is missing its client secret');
     // When a host pre-paired the remote signer (e.g. the @nostr-wot/ui
     // QR / paste flow), it must hand us the SAME client secret it paired
     // with — otherwise the bunker rejects our connect request because
     // this client pubkey was never authorized. Falling back to a fresh
     // key is correct when we *are* the pairing party.
-    const pairedByHost = Boolean(options?.clientSecretHex);
+    const pairedByHost = Boolean(options?.signer || options?.clientSecretHex);
     const localSecret = options?.clientSecretHex
       ? hexToBytes(options.clientSecretHex)
       : generateSecretKey();
     this.bunkerOnAuth = options?.onAuthUrl ?? null;
-    const signer = BunkerSigner.fromBunker(localSecret, bp, {
+    const signer = options?.signer ?? BunkerSigner.fromBunker(localSecret, bp, {
       onauth: (url) => {
         if (this.bunkerOnAuth) this.bunkerOnAuth(url);
         else if (typeof window !== 'undefined') window.open(url, '_blank', 'width=600,height=700');
@@ -1871,7 +1877,7 @@ export class BridgeImpl {
       // NostrConnect/bunker pairing with that client identity. Re-running
       // `connect()` here can send an empty/mismatched secret for QR-created
       // bunker URLs and make remote signers reject with "no secret".
-      if (!pairedByHost) await signer.connect();
+      if (!pairedByHost) await (signer as BunkerSigner).connect();
       pubKeyHex = await signer.getPublicKey();
     } catch (e) {
       failActivity(connectId, e instanceof Error ? e.message : String(e));
@@ -1976,7 +1982,7 @@ export class BridgeImpl {
    *     then sign. This adds 1-3s of latency but is the fallback of last
    *     resort.
    */
-  private async ensureBunkerSigner(): Promise<BunkerSigner> {
+  private async ensureBunkerSigner(): Promise<RemoteSigner> {
     if (this.bunkerSigner) return this.bunkerSigner;
     if (!this.session || this.session.loginMethod !== 'bunker' || !this.session.bunkerUrl || !this.session.bunkerLocalSecretHex) {
       throw new Error('No bunker session to rehydrate');

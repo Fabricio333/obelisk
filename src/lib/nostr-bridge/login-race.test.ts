@@ -18,6 +18,7 @@ const fake = vi.hoisted(() => {
     connectOrder: [] as string[],
     bunkerConnectCount: 0,
     bunkerGetPublicKeyCount: 0,
+    bunkerFromBunkerCount: 0,
   };
 
   function matches(f: Record<string, unknown>, ev: { kind: number; pubkey: string; tags: string[][] }): boolean {
@@ -78,6 +79,7 @@ vi.mock('nostr-tools/nip46', () => {
       this.bp = bp;
     }
     static fromBunker(_secret: Uint8Array, bp: { pubkey: string; relays: string[]; secret: string | null }, _opts: unknown) {
+      fake.state.bunkerFromBunkerCount++;
       return new BunkerSigner(bp);
     }
     static async fromURI(): Promise<BunkerSigner> { return new BunkerSigner(); }
@@ -125,6 +127,7 @@ beforeEach(() => {
   fake.state.connectOrder = [];
   fake.state.bunkerConnectCount = 0;
   fake.state.bunkerGetPublicKeyCount = 0;
+  fake.state.bunkerFromBunkerCount = 0;
   vi.resetModules();
   if (typeof window !== 'undefined') window.localStorage.clear();
 });
@@ -303,6 +306,26 @@ describe('Fix C — bunker pre-warm on initialize', () => {
     expect(bridge.getPublicKey()).toBe('a'.repeat(64));
     expect(fake.state.bunkerConnectCount).toBe(0);
     expect(fake.state.bunkerGetPublicKeyCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it('keeps the exact SDK-paired signer instead of reconstructing it', async () => {
+    const { getBridge } = await import('./client');
+    const bridge = await getBridge();
+    const { BunkerSigner } = await import('nostr-tools/nip46');
+    const signer = BunkerSigner.fromBunker(
+      new Uint8Array(32),
+      { pubkey: 'a'.repeat(64), relays: ['wss://relay.nsec.app'], secret: null },
+    );
+    fake.state.bunkerFromBunkerCount = 0;
+
+    await bridge.loginWithBunker('bunker://abc?relay=wss://relay.nsec.app', {
+      clientSecretHex: 'b'.repeat(64),
+      signer,
+    });
+
+    expect(fake.state.bunkerFromBunkerCount).toBe(0);
+    expect(fake.state.bunkerConnectCount).toBe(0);
+    expect(fake.state.bunkerGetPublicKeyCount).toBe(1);
   });
 
   it('does NOT pre-warm BunkerSigner for nsec sessions', async () => {

@@ -4,7 +4,8 @@ import { nip19 } from 'nostr-tools';
 import LoginModal from './LoginModal';
 
 const loginWithNsec = vi.fn();
-const publish = vi.fn(() => [Promise.resolve('ok')]);
+const loginWithBunker = vi.fn();
+const publish = vi.fn((_relays: string[], _event: unknown) => [Promise.resolve('ok')]);
 let updateDraft: ((patch: Record<string, string>) => void) | undefined;
 let sdkProps: Record<string, unknown> = {};
 
@@ -12,7 +13,7 @@ vi.mock('@/lib/nostr-bridge', () => ({
   nostrActions: {
     loginWithNsec: (...args: unknown[]) => loginWithNsec(...args),
     loginWithNip07: vi.fn(),
-    loginWithBunker: vi.fn(),
+    loginWithBunker: (...args: unknown[]) => loginWithBunker(...args),
   },
 }));
 
@@ -46,6 +47,7 @@ describe('LoginModal generated identity flow', () => {
     updateDraft = undefined;
     publish.mockClear();
     loginWithNsec.mockReset().mockResolvedValue(undefined);
+    loginWithBunker.mockReset().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: { writeText: vi.fn().mockResolvedValue(undefined) },
@@ -85,5 +87,25 @@ describe('LoginModal generated identity flow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Enter Obelisk' }));
     await waitFor(() => expect(loginWithNsec).toHaveBeenCalledOnce());
+  });
+
+  it('hands the SDK-paired remote signer to the bridge', async () => {
+    render(<LoginModal />);
+    const signer = { getPublicKey: vi.fn(), signEvent: vi.fn() };
+
+    await act(async () => {
+      await (sdkProps.onLogin as (args: unknown) => Promise<void>)({
+        method: 'nip46',
+        pubkey: '1'.repeat(64),
+        bunkerUri: 'bunker://remote?relay=wss://relay.nsec.app',
+        clientNsec: nip19.nsecEncode(new Uint8Array(32).fill(2)),
+        signer,
+      });
+    });
+
+    expect(loginWithBunker).toHaveBeenCalledWith(
+      'bunker://remote?relay=wss://relay.nsec.app',
+      expect.objectContaining({ signer, clientSecretHex: '02'.repeat(32) }),
+    );
   });
 });
