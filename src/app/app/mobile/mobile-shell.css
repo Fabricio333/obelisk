@@ -326,7 +326,8 @@
  * but are pulled out of the carousel viewport. They keep their subscriptions
  * warm without ever flashing into view. */
 .obelisk-mobile .drag-slot.drag-hidden {
-  transform: translateX(0);
+  transform: translateX(200%);
+  opacity: 0;
   visibility: hidden;
   pointer-events: none;
 }
@@ -425,13 +426,13 @@
   z-index: 30;
   margin-top: auto;
   border-top: 1px solid var(--app-line-soft);
-  padding: 8px 8px calc(10px + env(safe-area-inset-bottom));
+  padding: 8px 8px calc(10px + env(safe-area-max-inset-bottom, env(safe-area-inset-bottom, 0px)));
   background: var(--app-bg);
   display: flex;
   justify-content: space-around;
   align-items: center;
   flex-shrink: 0;
-  min-height: calc(64px + env(safe-area-inset-bottom));
+  min-height: calc(64px + env(safe-area-max-inset-bottom, env(safe-area-inset-bottom, 0px)));
 }
 .obelisk-mobile .nav-item {
   flex: 1;

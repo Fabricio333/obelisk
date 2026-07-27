@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { nip19 } from 'nostr-tools';
 import { Nip46Signer } from '@nostr-wot/signers';
-import LoginModal from './LoginModal';
+import LoginModal, { signerAppHref } from './LoginModal';
 
 const bunkerFromUri = vi.hoisted(() => vi.fn());
 const loginWithNsec = vi.fn();
@@ -53,8 +53,8 @@ vi.mock('@nostr-wot/ui', async () => {
         ),
       );
     },
-    Modal: ({ children }: { children: React.ReactNode }) =>
-      React.createElement('div', null, children),
+    Modal: ({ children, classes }: { children: React.ReactNode; classes?: { modal?: string } }) =>
+      React.createElement('div', { className: classes?.modal }, children),
   };
 });
 
@@ -166,5 +166,31 @@ describe('LoginModal generated identity flow', () => {
 
     expect(screen.getByText('Open in signer app').closest('a')?.previousElementSibling)
       .toBe(screen.getByTestId('sdk-qr'));
+  });
+
+  it('hands Android the complete QR URI through Amber', () => {
+    const uri = 'nostrconnect://abc123?relay=wss%3A%2F%2Fpublic.obelisk.ar&name=Obelisk&perms=sign_event%3A1';
+
+    expect(signerAppHref(uri, 'Mozilla/5.0 (Linux; Android 15)')).toBe(
+      'intent://abc123?relay=wss%3A%2F%2Fpublic.obelisk.ar&name=Obelisk&perms=sign_event%3A1#Intent;scheme=nostrconnect;package=com.greenart7c3.nostrsigner;end',
+    );
+    expect(signerAppHref(uri, 'Mozilla/5.0 (iPhone)')).toBe(uri);
+  });
+
+  it('shows an aligned back control on the final generated-profile screen', async () => {
+    render(<LoginModal />);
+
+    await act(async () => {
+      await (sdkProps.onLogin as (args: unknown) => Promise<void>)({
+        method: 'generate',
+        pubkey: '1'.repeat(64),
+        nsec: nip19.nsecEncode(new Uint8Array(32).fill(1)),
+      });
+    });
+
+    expect(screen.getByTestId('generated-npub-step').parentElement)
+      .toHaveClass('obelisk-login-modal', 'obelisk-share-modal');
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByTestId('sdk-login')).toBeInTheDocument();
   });
 });

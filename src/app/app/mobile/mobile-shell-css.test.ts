@@ -33,6 +33,14 @@ describe('mobile shell CSS', () => {
     expect(css).not.toContain('@keyframes obelisk-slide-from-left');
   });
 
+  it('parks hidden carousel screens off-canvas so their controls cannot flash over DMs', () => {
+    const hidden = ruleBody('.obelisk-mobile .drag-slot.drag-hidden');
+    expect(hidden).toContain('transform: translateX(200%)');
+    expect(hidden).toContain('opacity: 0');
+    expect(hidden).toContain('visibility: hidden');
+    expect(hidden).toContain('pointer-events: none');
+  });
+
   it('locks the mobile PWA shell to native-feeling touch and viewport behavior', () => {
     const root = ruleBody('.obelisk-mobile');
     expect(root).toContain('height: calc(100dvh - var(--kb-inset, 0px))');
@@ -46,6 +54,9 @@ describe('mobile shell CSS', () => {
     expect(host).toContain('min-width: 0');
     expect(host).toContain('min-height: 0');
     expect(host).toContain('overflow: hidden');
+
+    const nav = ruleBody('.obelisk-mobile .bottom-nav');
+    expect(nav).toContain('env(safe-area-max-inset-bottom, env(safe-area-inset-bottom, 0px))');
   });
 
   it('keeps scroll surfaces momentum-friendly without blocking vertical pans in horizontal lists', () => {

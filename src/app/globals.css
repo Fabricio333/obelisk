@@ -1020,7 +1020,10 @@ button:not(:disabled),
   .obelisk-login-modal:has(.nui-nip46) {
     max-height: calc(100dvh - 16px);
   }
-  .obelisk-login-modal .nui-nip46 > .nui-back {
+  :is(
+    .obelisk-login-modal .nui-widget > div > .nui-back:first-child,
+    .obelisk-login-modal > .obelisk-flow-back
+  ) {
     position: absolute;
     top: 16px;
     left: 16px;
@@ -1031,12 +1034,17 @@ button:not(:disabled),
     border-radius: 50%;
     font-size: 0;
   }
-  .obelisk-login-modal .nui-nip46 > .nui-back::before {
+  :is(
+    .obelisk-login-modal .nui-widget > div > .nui-back:first-child,
+    .obelisk-login-modal > .obelisk-flow-back
+  )::before {
     content: '‹';
     font-size: 28px;
     line-height: 1;
   }
   .obelisk-login-modal .nui-modal-close {
+    top: 16px;
+    right: 16px;
     width: 40px;
     height: 40px;
     border: 1px solid var(--color-lc-border);

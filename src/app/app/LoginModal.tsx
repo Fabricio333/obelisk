@@ -85,6 +85,11 @@ function nsecToSkHex(nsec: string): string {
   return skHex;
 }
 
+export function signerAppHref(uri: string, userAgent: string): string {
+  if (!/Android/i.test(userAgent)) return uri;
+  return `intent://${uri.slice('nostrconnect://'.length)}#Intent;scheme=nostrconnect;package=com.greenart7c3.nostrsigner;end`;
+}
+
 async function routeToBridge(args: {
   method: LoginMethodId;
   pubkey: string;
@@ -160,11 +165,12 @@ function Nip46SignerDeepLink(): null {
         removeInjected();
         return;
       }
-      if (injected && injected.isConnected && injected.getAttribute('href') === uri) return;
+      if (injected && injected.isConnected && injected.dataset.nostrconnect === uri) return;
 
       removeInjected();
       const a = document.createElement('a');
-      a.href = uri;
+      a.href = signerAppHref(uri, navigator.userAgent);
+      a.dataset.nostrconnect = uri;
       a.className = 'nui-open-signer';
       a.rel = 'noopener noreferrer';
       const arrow = document.createElement('span');
@@ -285,8 +291,18 @@ export default function LoginModal({
       }
     };
 
+    const backFromGenerated = () => setGeneratedLogin(null);
+
     return (
-      <Modal open onClose={() => {}} aria-label="Share your Nostr profile" classes={{ modal: 'obelisk-share-modal' }}>
+      <Modal
+        open
+        onClose={onClose ?? backFromGenerated}
+        aria-label="Share your Nostr profile"
+        classes={{ modal: 'obelisk-login-modal obelisk-share-modal' }}
+      >
+        <button type="button" className="nui-back obelisk-flow-back" aria-label="Back" onClick={backFromGenerated}>
+          ‹
+        </button>
         <div className="nui-form obelisk-npub-share" data-testid="generated-npub-step">
           <div className="nui-form-head">
             <span className="obelisk-step-done" aria-hidden="true">✓</span>

@@ -61,7 +61,7 @@ describe('UserPanel personal media access', () => {
     expect(preview.querySelector('img[alt="Banner"]')).toHaveAttribute('src', 'https://cdn.example/banner.jpg');
     expect(preview.querySelector('img[alt="Picture"]')).toHaveAttribute('src', 'https://cdn.example/alice.jpg');
     expect(screen.getByTestId('save-profile-button')).toHaveClass('lc-pill-primary');
-    expect(screen.getByTestId('desktop-logout')).toHaveClass('bg-red-600', 'text-white');
+    expect(screen.getByTestId('desktop-logout')).toHaveClass('bg-red-500/20', 'text-red-300', 'hover:bg-red-500/30');
 
     fireEvent.click(screen.getByTestId('desktop-logout'));
     expect(onClose).toHaveBeenCalledOnce();

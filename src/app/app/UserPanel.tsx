@@ -136,7 +136,7 @@ export default function UserPanel({ pubkey, isMe, onClose, onLogout, anchor, ini
               <button
                 type="button"
                 onClick={logout}
-                className="flex w-full items-center gap-2.5 rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-500"
+                className="flex w-full items-center gap-2.5 rounded-md bg-red-500/20 px-3 py-2 text-sm font-semibold text-red-300 hover:bg-red-500/30"
                 data-testid="desktop-logout"
               >
                 <span aria-hidden="true">↪</span>
