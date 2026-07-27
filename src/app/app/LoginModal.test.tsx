@@ -1,8 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { nip19 } from 'nostr-tools';
+import { Nip46Signer } from '@nostr-wot/signers';
 import LoginModal from './LoginModal';
 
+const bunkerFromUri = vi.hoisted(() => vi.fn());
 const loginWithNsec = vi.fn();
 const loginWithBunker = vi.fn();
 const publish = vi.fn((_relays: string[], _event: unknown) => [Promise.resolve('ok')]);
@@ -16,6 +18,14 @@ vi.mock('@/lib/nostr-bridge', () => ({
     loginWithBunker: (...args: unknown[]) => loginWithBunker(...args),
   },
 }));
+
+vi.mock('nostr-tools/nip46', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('nostr-tools/nip46')>();
+  return {
+    ...actual,
+    BunkerSigner: { fromURI: (...args: unknown[]) => bunkerFromUri(...args) },
+  };
+});
 
 vi.mock('@nostr-wot/data', async (importOriginal) => ({
   ...await importOriginal<typeof import('@nostr-wot/data')>(),
@@ -48,6 +58,7 @@ describe('LoginModal generated identity flow', () => {
     publish.mockClear();
     loginWithNsec.mockReset().mockResolvedValue(undefined);
     loginWithBunker.mockReset().mockResolvedValue(undefined);
+    bunkerFromUri.mockReset().mockResolvedValue({ close: vi.fn() });
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: { writeText: vi.fn().mockResolvedValue(undefined) },
@@ -88,6 +99,18 @@ describe('LoginModal generated identity flow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Enter Obelisk' }));
     await waitFor(() => expect(loginWithNsec).toHaveBeenCalledOnce());
+  });
+
+  it('uses the nostr-tools handshake and advertises the Obelisk relay', async () => {
+    const handle = Nip46Signer.startNostrConnect({
+      relays: ['wss://public.obelisk.ar'],
+      clientSecretKey: new Uint8Array(32).fill(3),
+    });
+
+    await handle.ready;
+
+    expect(handle.uri).toContain('relay=wss%3A%2F%2Fpublic.obelisk.ar');
+    expect(bunkerFromUri).toHaveBeenCalledOnce();
   });
 
   it('hands the SDK-paired remote signer to the bridge', async () => {
