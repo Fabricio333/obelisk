@@ -19,9 +19,8 @@ const fake = vi.hoisted(() => {
     bunkerConnectCount: 0,
     bunkerGetPublicKeyCount: 0,
     bunkerFromBunkerCount: 0,
-    bunkerSignInFlight: 0,
-    bunkerSignMaxInFlight: 0,
-    bunkerSignDelayMs: 0,
+    bunkerSignPending: false,
+    bunkerSignCount: 0,
   };
 
   function matches(f: Record<string, unknown>, ev: { kind: number; pubkey: string; tags: string[][] }): boolean {
@@ -96,20 +95,15 @@ vi.mock('nostr-tools/nip46', () => {
     }
     async signEvent(evt: { kind: number; tags: string[][]; content: string; created_at?: number; pubkey?: string }) {
       if (this.closed) throw new Error('this signer is not open anymore, create a new one');
-      fake.state.bunkerSignInFlight++;
-      fake.state.bunkerSignMaxInFlight = Math.max(fake.state.bunkerSignMaxInFlight, fake.state.bunkerSignInFlight);
-      try {
-        if (fake.state.bunkerSignDelayMs) await new Promise((resolve) => setTimeout(resolve, fake.state.bunkerSignDelayMs));
-        return {
-          ...evt,
-          id: 'mocked-id',
-          sig: 'mocked-sig',
-          pubkey: 'a'.repeat(64),
-          created_at: evt.created_at ?? Math.floor(Date.now() / 1000),
-        };
-      } finally {
-        fake.state.bunkerSignInFlight--;
-      }
+      fake.state.bunkerSignCount++;
+      if (fake.state.bunkerSignPending) return new Promise(() => {});
+      return {
+        ...evt,
+        id: 'mocked-id',
+        sig: 'mocked-sig',
+        pubkey: 'a'.repeat(64),
+        created_at: evt.created_at ?? Math.floor(Date.now() / 1000),
+      };
     }
     close(): void { this.closed = true; }
   }
@@ -140,9 +134,8 @@ beforeEach(() => {
   fake.state.bunkerConnectCount = 0;
   fake.state.bunkerGetPublicKeyCount = 0;
   fake.state.bunkerFromBunkerCount = 0;
-  fake.state.bunkerSignInFlight = 0;
-  fake.state.bunkerSignMaxInFlight = 0;
-  fake.state.bunkerSignDelayMs = 0;
+  fake.state.bunkerSignPending = false;
+  fake.state.bunkerSignCount = 0;
   vi.resetModules();
   if (typeof window !== 'undefined') window.localStorage.clear();
 });
@@ -347,20 +340,31 @@ describe('Fix C — bunker pre-warm on initialize', () => {
       .resolves.toMatchObject({ kind: 20078, pubkey: 'a'.repeat(64) });
   });
 
-  it('serializes concurrent remote-signing operations', async () => {
-    const { getBridge } = await import('./client');
+  it('evicts a timed-out NIP-42 signature so the same challenge can retry', async () => {
+    const { BUNKER_AUTH_SIGNATURE_TIMEOUT_MS, getBridge } = await import('./client');
     const bridge = await getBridge();
     await bridge.loginWithBunker('bunker://abc?relay=wss://relay.nsec.app', {
       clientSecretHex: 'b'.repeat(64),
     });
-    fake.state.bunkerSignDelayMs = 10;
+    const signAuthEvent = (bridge as unknown as {
+      signAuthEvent: (event: { kind: number; content: string; tags: string[][]; created_at: number }) => Promise<NostrEvent>;
+    }).signAuthEvent.bind(bridge);
+    const challenge = { kind: 22242, content: 'challenge', tags: [['relay', 'wss://relay.test']], created_at: 1 };
 
-    await Promise.all([
-      bridge.publishEvent({ kind: 20078, content: '', tags: [['e', 'voice']] }),
-      bridge.publishEvent({ kind: 25050, content: '{}', tags: [['e', 'voice']] }),
-    ]);
+    vi.useFakeTimers();
+    try {
+      fake.state.bunkerSignPending = true;
+      const first = signAuthEvent(challenge);
+      const timedOut = expect(first).rejects.toThrow(/did not answer NIP-42/i);
+      await vi.advanceTimersByTimeAsync(BUNKER_AUTH_SIGNATURE_TIMEOUT_MS);
+      await timedOut;
 
-    expect(fake.state.bunkerSignMaxInFlight).toBe(1);
+      fake.state.bunkerSignPending = false;
+      await expect(signAuthEvent(challenge)).resolves.toMatchObject({ kind: 22242 });
+      expect(fake.state.bunkerSignCount).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does NOT pre-warm BunkerSigner for nsec sessions', async () => {

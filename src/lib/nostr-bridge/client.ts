@@ -573,6 +573,22 @@ function updatePending<T extends { clientTag?: string }>(
   });
 }
 
+export const BUNKER_AUTH_SIGNATURE_TIMEOUT_MS = 45_000;
+
+async function withDeadline<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export class BridgeImpl {
   private pool: SimplePool;
   private relays: string[] = [DEFAULT_RELAY];
@@ -726,7 +742,6 @@ export class BridgeImpl {
   /** Active NIP-46 signer (when loginMethod === 'bunker'). Reconstructed lazily. */
   private bunkerSigner: RemoteSigner | null = null;
   private bunkerSignerRecovery: Promise<RemoteSigner> | null = null;
-  private bunkerOperationQueue: Promise<void> = Promise.resolve();
   /** Set by the modal so it can show the auth-challenge URL. */
   private bunkerOnAuth: ((url: string) => void) | null = null;
 
@@ -2020,27 +2035,19 @@ export class BridgeImpl {
   }
 
   private async withBunkerSigner<T>(operation: (signer: RemoteSigner) => Promise<T>): Promise<T> {
-    const previous = this.bunkerOperationQueue;
-    let release!: () => void;
-    this.bunkerOperationQueue = new Promise<void>((resolve) => { release = resolve; });
-    await previous.catch(() => undefined);
+    const signer = await this.ensureBunkerSigner();
     try {
-      const signer = await this.ensureBunkerSigner();
-      try {
-        return await operation(signer);
-      } catch (error) {
-        if (!(error instanceof Error) || !/signer is not open anymore/i.test(error.message)) throw error;
-        if (this.bunkerSigner === signer) {
-          this.bunkerSigner = null;
-          this.bunkerSignerReady.set(false);
-        }
-        this.bunkerSignerRecovery ??= this.ensureBunkerSigner().finally(() => {
-          this.bunkerSignerRecovery = null;
-        });
-        return operation(await this.bunkerSignerRecovery);
+      return await operation(signer);
+    } catch (error) {
+      if (!(error instanceof Error) || !/signer is not open anymore/i.test(error.message)) throw error;
+      if (this.bunkerSigner === signer) {
+        this.bunkerSigner = null;
+        this.bunkerSignerReady.set(false);
       }
-    } finally {
-      release();
+      this.bunkerSignerRecovery ??= this.ensureBunkerSigner().finally(() => {
+        this.bunkerSignerRecovery = null;
+      });
+      return operation(await this.bunkerSignerRecovery);
     }
   }
 
@@ -4185,7 +4192,11 @@ export class BridgeImpl {
       if (session.loginMethod === 'bunker') {
         return trackActivity(
           'Waiting for bunker signature',
-          () => this.withBunkerSigner((b) => b.signEvent(unsigned) as Promise<VerifiedEvent>),
+          () => withDeadline(
+            this.withBunkerSigner((b) => b.signEvent(unsigned) as Promise<VerifiedEvent>),
+            BUNKER_AUTH_SIGNATURE_TIMEOUT_MS,
+            'Remote signer did not answer NIP-42 relay authentication',
+          ),
           'NIP-42 relay auth',
           { operation: 'sign', eventKind: evt.kind, description: eventKindDescription(evt.kind) },
         );
