@@ -224,7 +224,6 @@ export default async function RootLayout({
                   if (nextVersion && localStorage.getItem(key) === nextVersion) return;
                   if (nextVersion) localStorage.setItem(key, nextVersion);
                 } catch (e) {}
-                if (document.querySelector('.nui-modal-overlay')) return;
                 window.location.reload();
               });
               window.addEventListener('load', function () {

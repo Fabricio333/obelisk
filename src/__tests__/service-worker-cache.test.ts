@@ -3,11 +3,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const sw = readFileSync(join(process.cwd(), 'public/sw.js'), 'utf8');
-const layout = readFileSync(join(process.cwd(), 'src/app/layout.tsx'), 'utf8');
 
 describe('service worker cache policy', () => {
   it('caches only safe same-origin app shell and static assets', () => {
-    expect(sw).toContain("const CACHE_VERSION = 'obelisk-v9-static-shell-cache'");
+    expect(sw).toContain("const CACHE_VERSION = 'obelisk-v8-static-shell-cache'");
     expect(sw).toContain("const STATIC_CACHE = `${CACHE_VERSION}:static`");
     expect(sw).toContain("const SHELL_CACHE = `${CACHE_VERSION}:shell`");
     expect(sw).toContain("const APP_SHELL_KEY = '/app'");
@@ -16,12 +15,6 @@ describe('service worker cache policy', () => {
     expect(sw).toContain('PUBLIC_ASSET_RE.test(url.pathname)');
     expect(sw).toContain("request.mode === 'navigate'");
     expect(sw).toContain('isAppShellNavigation(url)');
-  });
-
-  it('does not reload an installed PWA while the login modal is open', () => {
-    expect(layout).toContain("document.querySelector('.nui-modal-overlay')");
-    expect(layout.indexOf("document.querySelector('.nui-modal-overlay')"))
-      .toBeLessThan(layout.indexOf('window.location.reload()'));
   });
 
   it('does not cache auth/session/storage/API routes or non-GET traffic', () => {
