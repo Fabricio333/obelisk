@@ -38,6 +38,31 @@ describe('Peer lifecycle recovery hooks', () => {
     peer.close();
   });
 
+  it('supports a longer non-trickle handshake for remote signers', () => {
+    const onPeerDead = vi.fn();
+    const peer = new Peer({
+      remotePubkey: 'b'.repeat(64),
+      polite: false,
+      sessionId: 'session',
+      trickle: false,
+      connectTimeoutMs: 45_000,
+      send: vi.fn(),
+      events: {
+        onRemoteTrack: vi.fn(),
+        onRemoteTrackEnded: vi.fn(),
+        onConnectionStateChange: vi.fn(),
+        onPeerDead,
+      },
+    });
+    const simple = (peer as unknown as { simple: { trickle: boolean } }).simple;
+    expect(simple.trickle).toBe(false);
+    vi.advanceTimersByTime(INITIAL_CONNECT_TIMEOUT_MS);
+    expect(onPeerDead).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(45_000 - INITIAL_CONNECT_TIMEOUT_MS);
+    expect(onPeerDead).toHaveBeenCalledWith('open-timeout');
+    peer.close();
+  });
+
   it('emits established/lost edges from the underlying connection', () => {
     const onConnectionEstablished = vi.fn();
     const onConnectionLost = vi.fn();

@@ -19,6 +19,9 @@ const fake = vi.hoisted(() => {
     bunkerConnectCount: 0,
     bunkerGetPublicKeyCount: 0,
     bunkerFromBunkerCount: 0,
+    bunkerSignInFlight: 0,
+    bunkerSignMaxInFlight: 0,
+    bunkerSignDelayMs: 0,
   };
 
   function matches(f: Record<string, unknown>, ev: { kind: number; pubkey: string; tags: string[][] }): boolean {
@@ -93,13 +96,20 @@ vi.mock('nostr-tools/nip46', () => {
     }
     async signEvent(evt: { kind: number; tags: string[][]; content: string; created_at?: number; pubkey?: string }) {
       if (this.closed) throw new Error('this signer is not open anymore, create a new one');
-      return {
-        ...evt,
-        id: 'mocked-id',
-        sig: 'mocked-sig',
-        pubkey: 'a'.repeat(64),
-        created_at: evt.created_at ?? Math.floor(Date.now() / 1000),
-      };
+      fake.state.bunkerSignInFlight++;
+      fake.state.bunkerSignMaxInFlight = Math.max(fake.state.bunkerSignMaxInFlight, fake.state.bunkerSignInFlight);
+      try {
+        if (fake.state.bunkerSignDelayMs) await new Promise((resolve) => setTimeout(resolve, fake.state.bunkerSignDelayMs));
+        return {
+          ...evt,
+          id: 'mocked-id',
+          sig: 'mocked-sig',
+          pubkey: 'a'.repeat(64),
+          created_at: evt.created_at ?? Math.floor(Date.now() / 1000),
+        };
+      } finally {
+        fake.state.bunkerSignInFlight--;
+      }
     }
     close(): void { this.closed = true; }
   }
@@ -130,6 +140,9 @@ beforeEach(() => {
   fake.state.bunkerConnectCount = 0;
   fake.state.bunkerGetPublicKeyCount = 0;
   fake.state.bunkerFromBunkerCount = 0;
+  fake.state.bunkerSignInFlight = 0;
+  fake.state.bunkerSignMaxInFlight = 0;
+  fake.state.bunkerSignDelayMs = 0;
   vi.resetModules();
   if (typeof window !== 'undefined') window.localStorage.clear();
 });
@@ -332,6 +345,22 @@ describe('Fix C — bunker pre-warm on initialize', () => {
     signer.close();
     await expect(bridge.publishEvent({ kind: 20078, content: '', tags: [['e', 'voice']] }))
       .resolves.toMatchObject({ kind: 20078, pubkey: 'a'.repeat(64) });
+  });
+
+  it('serializes concurrent remote-signing operations', async () => {
+    const { getBridge } = await import('./client');
+    const bridge = await getBridge();
+    await bridge.loginWithBunker('bunker://abc?relay=wss://relay.nsec.app', {
+      clientSecretHex: 'b'.repeat(64),
+    });
+    fake.state.bunkerSignDelayMs = 10;
+
+    await Promise.all([
+      bridge.publishEvent({ kind: 20078, content: '', tags: [['e', 'voice']] }),
+      bridge.publishEvent({ kind: 25050, content: '{}', tags: [['e', 'voice']] }),
+    ]);
+
+    expect(fake.state.bunkerSignMaxInFlight).toBe(1);
   });
 
   it('does NOT pre-warm BunkerSigner for nsec sessions', async () => {

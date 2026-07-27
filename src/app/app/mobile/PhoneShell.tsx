@@ -379,7 +379,6 @@ function BottomNav({
 
 export function shouldHideMobileBottomNav(screen: ScreenName, kbInset: number): boolean {
   return (
-    screen === 'voice-room' ||
     screen === 'profile-view' ||
     screen === 'search' ||
     screen === 'compose-dm' ||
@@ -3232,6 +3231,9 @@ function VoiceRoomScreen({ groupId, back, openChat }: { groupId: string; back: (
           </div>
           {sub && <div className="voice-room-sub">{sub}</div>}
         </div>
+        <button className="back-btn" onClick={back} aria-label="Minimize call" data-testid="minimize-call-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 12h12" /></svg>
+        </button>
       </div>
       <div className="voice-room-stage">
         <VoiceRoom
@@ -6189,10 +6191,10 @@ export default function MobileShell() {
       body = <EmptyScreen go={go} title={t('mobile.empty.unknownScreen')} />;
   }
 
-  // Bottom nav visibility — hide on: voice-room (full-bleed), profile-view,
+  // Bottom nav visibility — hide on: profile-view,
   // dm-thread (composer takes the bar role), search/compose-dm/member-list
   // (modal-ish flows), forum (back-nav). Hide nav only when the screen owns
-  // the full viewport (voice-room takes the whole stage; sheets float over
+  // the full viewport (sheets float over
   // the previous screen so the nav under them stays meaningful but covered
   // by the sheet backdrop). Also hide when the on-screen keyboard is open
   // so the nav doesn't wedge between the composer and the keyboard.

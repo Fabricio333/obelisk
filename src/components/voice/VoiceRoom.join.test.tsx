@@ -71,6 +71,7 @@ vi.mock('@/lib/nostr-bridge/client', () => ({
 vi.mock('@/lib/nostr-bridge', () => ({
   useGroups: () => bridgeHarness.groups,
   useCurrentRelayUrl: () => 'wss://relay.test',
+  useMyLoginMethod: () => 'nsec',
   useUserMetadata: (pubkey: string) => bridgeHarness.profiles[pubkey] ?? null,
   useActiveCall: (channelId: string | null) => (channelId ? bridgeHarness.activeCalls[channelId] ?? null : null),
 }));

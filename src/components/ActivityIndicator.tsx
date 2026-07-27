@@ -17,8 +17,9 @@ export default function ActivityIndicator({ hideSigning = false }: { hideSigning
   const visible = !showActivityIndicator ? [] : pendingSign ? [pendingSign] : candidates.slice(0, 1);
   return (
     <div
-      className="pointer-events-none fixed bottom-3 right-3 z-[60] flex max-w-[min(22rem,calc(100vw-1.5rem))] flex-col gap-2"
+      className="pointer-events-none fixed bottom-3 right-3 z-[60] hidden max-w-[min(22rem,calc(100vw-1.5rem))] flex-col gap-2 lg:flex"
       aria-live="polite"
+      data-testid="activity-indicator"
     >
       <RelayStatusBanner hideAuthenticating={hideSigning} />
       {visible.map((e) => (

@@ -873,6 +873,26 @@ describe('VoiceClient quality propagation', () => {
 });
 
 describe('VoiceClient bring-up beacon burst', () => {
+  it('skips the burst and uses a 30 s cadence with a remote signer', async () => {
+    vi.useFakeTimers();
+    try {
+      const client = new VoiceClient('ch1', { members: [SELF], remoteSigning: true });
+      await client.join();
+      expect(transportFake.publishPresenceBeacon).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(29_999);
+      await flushMicrotasks(2);
+      expect(transportFake.publishPresenceBeacon).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(1);
+      await flushMicrotasks(2);
+      expect(transportFake.publishPresenceBeacon).toHaveBeenCalledTimes(2);
+      await client.leave();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('schedules extra publishes during the first ~18 s after join', async () => {
     vi.useFakeTimers();
     try {

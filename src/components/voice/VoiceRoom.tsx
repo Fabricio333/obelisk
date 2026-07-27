@@ -20,7 +20,7 @@ import { setActiveVoiceClient, getActiveVoiceClient } from '@/lib/voice/active-c
 import { getBridge } from '@/lib/nostr-bridge/client';
 import type { BridgeImpl } from '@/lib/nostr-bridge/client';
 import { useVoiceStore } from '@/store/voice';
-import { useActiveCall, useGroups, useCurrentRelayUrl } from '@/lib/nostr-bridge';
+import { useActiveCall, useGroups, useCurrentRelayUrl, useMyLoginMethod } from '@/lib/nostr-bridge';
 import { useUserMetadata as useProfile } from '@/lib/nostr-bridge';
 import { ensureSfuRoomStarted } from '@/lib/voice/sfu-control';
 import { shouldUseSfuTopology } from '@/lib/voice/topology';
@@ -48,6 +48,7 @@ export default function VoiceRoom({ channelId, channelName, chatSlot, isChatOpen
   const router = useRouter();
   const groups = useGroups();
   const currentRelayUrl = useCurrentRelayUrl();
+  const loginMethod = useMyLoginMethod();
   const channelKind = useMemo(
     () => groups.find((g) => g.id === channelId)?.kind ?? null,
     [groups, channelId],
@@ -343,6 +344,7 @@ export default function VoiceRoom({ channelId, channelName, chatSlot, isChatOpen
           admins: gate.admins,
           open: gate.open,
           expectSfu: expectSfu,
+          remoteSigning: loginMethod === 'bunker',
           originRelayUrl: currentRelayUrl,
           events,
         });
@@ -380,7 +382,7 @@ export default function VoiceRoom({ channelId, channelName, chatSlot, isChatOpen
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gate.phase, channelId, joined, expectSfu]);
+  }, [gate.phase, channelId, joined, expectSfu, loginMethod]);
 
   // Feed the joined mesh client with the same passive live-call roster used
   // by the pre-join UI. This gives mesh bootstrap a second source when an

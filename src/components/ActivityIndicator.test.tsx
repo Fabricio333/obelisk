@@ -22,6 +22,7 @@ describe('ActivityIndicator', () => {
 
     render(<ActivityIndicator />);
 
+    expect(screen.getByTestId('activity-indicator')).toHaveClass('hidden', 'lg:flex');
     expect(screen.getByText('Waiting for extension signature')).toBeInTheDocument();
     expect(screen.getByText('NIP-42 relay auth · kind 22242')).toBeInTheDocument();
     expect(screen.queryByText('Publishing to relays')).toBeNull();

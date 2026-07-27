@@ -726,6 +726,7 @@ export class BridgeImpl {
   /** Active NIP-46 signer (when loginMethod === 'bunker'). Reconstructed lazily. */
   private bunkerSigner: RemoteSigner | null = null;
   private bunkerSignerRecovery: Promise<RemoteSigner> | null = null;
+  private bunkerOperationQueue: Promise<void> = Promise.resolve();
   /** Set by the modal so it can show the auth-challenge URL. */
   private bunkerOnAuth: ((url: string) => void) | null = null;
 
@@ -2019,19 +2020,27 @@ export class BridgeImpl {
   }
 
   private async withBunkerSigner<T>(operation: (signer: RemoteSigner) => Promise<T>): Promise<T> {
-    const signer = await this.ensureBunkerSigner();
+    const previous = this.bunkerOperationQueue;
+    let release!: () => void;
+    this.bunkerOperationQueue = new Promise<void>((resolve) => { release = resolve; });
+    await previous.catch(() => undefined);
     try {
-      return await operation(signer);
-    } catch (error) {
-      if (!(error instanceof Error) || !/signer is not open anymore/i.test(error.message)) throw error;
-      if (this.bunkerSigner === signer) {
-        this.bunkerSigner = null;
-        this.bunkerSignerReady.set(false);
+      const signer = await this.ensureBunkerSigner();
+      try {
+        return await operation(signer);
+      } catch (error) {
+        if (!(error instanceof Error) || !/signer is not open anymore/i.test(error.message)) throw error;
+        if (this.bunkerSigner === signer) {
+          this.bunkerSigner = null;
+          this.bunkerSignerReady.set(false);
+        }
+        this.bunkerSignerRecovery ??= this.ensureBunkerSigner().finally(() => {
+          this.bunkerSignerRecovery = null;
+        });
+        return operation(await this.bunkerSignerRecovery);
       }
-      this.bunkerSignerRecovery ??= this.ensureBunkerSigner().finally(() => {
-        this.bunkerSignerRecovery = null;
-      });
-      return operation(await this.bunkerSignerRecovery);
+    } finally {
+      release();
     }
   }
 

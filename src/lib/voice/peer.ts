@@ -41,6 +41,9 @@ export interface PeerOptions {
   /** Preserved public name: the polite side is the non-initiator. */
   polite: boolean;
   sessionId: string;
+  /** Disable trickle for remote signers so ICE candidates share one signed SDP. */
+  trickle?: boolean;
+  connectTimeoutMs?: number;
   bootstrapRecvOnlyMedia?: boolean;
   send: (payload: VoiceSignalPayload) => Promise<void> | void;
   events: PeerEvents;
@@ -128,6 +131,8 @@ export class Peer {
   private readonly control: PeerOptions['control'];
   private readonly iceTransportPolicy: RTCIceTransportPolicy;
   private readonly initiator: boolean;
+  private readonly trickle: boolean;
+  private readonly connectTimeoutMs: number;
   private recvOnlyBootstrapped = false;
   private readonly simple: SimplePeerInstance;
   private localMedia = new Map<VoiceTrackKind, LocalMedia>();
@@ -155,6 +160,8 @@ export class Peer {
     this.control = opts.control;
     this.iceTransportPolicy = opts.iceTransportPolicy ?? ICE_TRANSPORT_POLICY;
     this.initiator = !this.polite;
+    this.trickle = opts.trickle ?? true;
+    this.connectTimeoutMs = opts.connectTimeoutMs ?? INITIAL_CONNECT_TIMEOUT_MS;
     this.simple = this.createSimplePeer();
     this.pc = this.rawPc();
   }
@@ -162,7 +169,7 @@ export class Peer {
   private createSimplePeer(): SimplePeerInstance {
     const simple = new SimplePeer({
       initiator: this.initiator,
-      trickle: true,
+      trickle: this.trickle,
       wrtc: browserWrtc(),
       config: {
         iceServers: ICE_SERVERS,
@@ -200,7 +207,7 @@ export class Peer {
     this.connectWatchdog = setTimeout(() => {
       this.connectWatchdog = null;
       if (!this.closed && !this.connected) this.events.onPeerDead?.('open-timeout');
-    }, INITIAL_CONNECT_TIMEOUT_MS);
+    }, this.connectTimeoutMs);
     console.log('[voice] simple-peer PC', this.remotePubkey.slice(0, 8), 'initiator=', this.initiator);
     return simple;
   }

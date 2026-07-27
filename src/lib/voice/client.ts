@@ -61,6 +61,7 @@ import {
 const SELF_BUILD_TAG = '2026-05-24T01:00:00Z-voice-video-autoplay-retry';
 
 const BEACON_INTERVAL_MS = 10_000;
+const REMOTE_SIGNER_BEACON_INTERVAL_MS = 30_000;
 /**
  * Aggressive beacon burst right after `join()`. NIP-29 voice beacons are
  * ephemeral — relays don't backfill them — so a peer who joined a few
@@ -209,6 +210,8 @@ export interface VoiceClientOptions {
   /** Relay where this call was joined. Mesh voice traffic remains pinned here
    *  even when the user browses another server. */
   originRelayUrl?: string | null;
+  /** NIP-46 adds a human/relay round trip to every signed mesh event. */
+  remoteSigning?: boolean;
   events?: VoiceClientEvents;
 }
 
@@ -231,6 +234,7 @@ export class VoiceClient {
    * topology without forcing the user to rejoin.
    */
   private expectSfu: boolean;
+  private readonly remoteSigning: boolean;
 
   private peers = new Map<string, Peer>();
   private openingPeers = new Set<string>();
@@ -418,6 +422,7 @@ export class VoiceClient {
     // `expectSfu: channelKind === 'voice-sfu'`, so the default only
     // affects ad-hoc / test constructions which should be mesh.
     this.expectSfu = options.expectSfu === true;
+    this.remoteSigning = options.remoteSigning === true;
     const pk = getSelfPubkey();
     if (!pk) throw new Error('Not logged in to nostr');
     this.selfPubkey = pk;
@@ -923,14 +928,14 @@ export class VoiceClient {
     // session was still completing NIP-42 AUTH on our first beacon needs
     // several more chances within the user's "is this stuck?" window
     // before we let the 15 s steady-state cadence take over.
-    for (const delay of BEACON_BRINGUP_DELAYS_MS) {
+    for (const delay of this.remoteSigning ? [] : BEACON_BRINGUP_DELAYS_MS) {
       this.bringupTimers.push(
         setTimeout(() => { void this.publishBeacon().catch(() => {}); }, delay),
       );
     }
     this.beaconTimer = setInterval(() => {
       void this.publishBeacon().catch(() => {});
-    }, BEACON_INTERVAL_MS);
+    }, this.remoteSigning ? REMOTE_SIGNER_BEACON_INTERVAL_MS : BEACON_INTERVAL_MS);
   }
 
   /**
@@ -1650,6 +1655,8 @@ export class VoiceClient {
         remotePubkey,
         polite,
         sessionId: this.sessionId,
+        trickle: !this.remoteSigning,
+        ...(this.remoteSigning ? { connectTimeoutMs: 45_000 } : {}),
         bootstrapRecvOnlyMedia: shouldKickRecvOnly,
         send: (payload) => withRateLimitBackoff(
           () => this.transport.sendSignal(this.channelId, remotePubkey, payload),

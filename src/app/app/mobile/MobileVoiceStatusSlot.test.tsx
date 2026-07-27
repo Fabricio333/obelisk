@@ -54,7 +54,6 @@ describe('MobileVoiceStatusSlot', () => {
 
 describe('shouldHideMobileBottomNav', () => {
   it('hides on full-screen/transient mobile routes and while the keyboard is open', () => {
-    expect(shouldHideMobileBottomNav('voice-room', 0)).toBe(true);
     expect(shouldHideMobileBottomNav('search', 0)).toBe(true);
     expect(shouldHideMobileBottomNav('channel', 280)).toBe(true);
   });
@@ -63,5 +62,6 @@ describe('shouldHideMobileBottomNav', () => {
     expect(shouldHideMobileBottomNav('server', 0)).toBe(false);
     expect(shouldHideMobileBottomNav('dms-list', 0)).toBe(false);
     expect(shouldHideMobileBottomNav('inbox', 0)).toBe(false);
+    expect(shouldHideMobileBottomNav('voice-room', 0)).toBe(false);
   });
 });
