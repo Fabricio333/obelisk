@@ -182,6 +182,29 @@ describe('nostr-bridge', () => {
     expect(bridge.getPublicKey()).toBe(pkHex);
   });
 
+  it("exports authored events and resolves favorited media-pack events", async () => {
+    const { getBridge } = await import("./client");
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+
+    const creatorSk = generateSecretKey();
+    const creatorPubkey = getPublicKey(creatorSk);
+    const address = "30030:" + creatorPubkey + ":cats";
+    const ownSk = Uint8Array.from(skHex.match(/.{2}/g)!.map((byte) => parseInt(byte, 16)));
+    const profile = finalizeEvent({ kind: 0, created_at: 10, content: JSON.stringify({ name: "Alice" }), tags: [] }, ownSk);
+    const favorites = finalizeEvent({ kind: 10030, created_at: 11, content: "", tags: [["a", address]] }, ownSk);
+    const pack = finalizeEvent({ kind: 30030, created_at: 12, content: "", tags: [["d", "cats"], ["emoji", "party", "https://cdn.example/cat.webp"]] }, creatorSk);
+    fake.state.published.push(profile, favorites, pack);
+
+    const backup = await bridge.exportAccountData();
+
+    expect(backup.pubkey).toBe(pkHex);
+    expect(backup.events.map((event) => event.id)).toEqual([profile.id, favorites.id]);
+    expect(backup.referencedMediaPackEvents.map((event) => event.id)).toEqual([pack.id]);
+    expect(backup.complete).toBe(true);
+  });
+
   it('subscribes, caches, and publishes NIP-51 media packs and favorites', async () => {
     const { getBridge } = await import('./client');
     const { cacheGet } = await import('./cache');

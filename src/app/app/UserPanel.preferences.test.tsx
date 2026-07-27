@@ -83,6 +83,7 @@ describe('PreferencesPanel appearance controls', () => {
     expect(screen.getByTestId('appearance-accent-color')).toBeInTheDocument();
     expect(screen.getByTestId('appearance-background-color')).toBeInTheDocument();
     expect(screen.getByTestId('appearance-button-color')).toBeInTheDocument();
+    expect(screen.getByTestId('desktop-download-backup')).toBeInTheDocument();
   });
 
   it('includes a direct-message opt-in reset toggle', async () => {

@@ -29,6 +29,7 @@ const EMOJI_NAV = [
 export interface PickedCustomEmoji {
   readonly name: string;
   readonly url: string;
+  readonly packAddress?: string;
 }
 
 interface CustomEmojiEntry extends PickedCustomEmoji {

@@ -107,6 +107,7 @@ import LanguagePreference from '@/components/LanguagePreference';
 import MediaLibraryModal from '@/components/media/MediaLibraryModal';
 import AppearancePreferenceControls from '@/components/AppearancePreferenceControls';
 import ProfileFeedRelaySettings from '@/components/settings/ProfileFeedRelaySettings';
+import AccountBackupExport from '@/components/settings/AccountBackupExport';
 import NostrProfile from '@/components/chat/NostrProfile';
 import ProfilePopover from '@/components/chat/ProfilePopover';
 import MobileSigningIndicator from '@/components/MobileSigningIndicator';
@@ -5365,6 +5366,10 @@ export function SettingsPrefsScreen({ go }: { go: (s: ScreenName) => void }) {
             <span>{t("preferences.mobile.version")}</span>
             <span className="settings-row-meta muted">obelisk · mobile</span>
           </div>
+        </div>
+        <div className="settings-section">
+          <div className="settings-section-title">{t("preferences.backup.advanced")}</div>
+          <AccountBackupExport mobile />
         </div>
         <ProfileFeedRelaySettings mobile />
       </div>

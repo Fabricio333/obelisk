@@ -228,6 +228,7 @@ describe('SettingsPrefsScreen', () => {
 
     expect(screen.getByTestId('language-preference')).toBeTruthy();
     expect(screen.getByTestId('language-option-en')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('mobile-download-backup')).toBeInTheDocument();
   });
 
   it('lets users enable or reset DM opt-in from preferences', () => {

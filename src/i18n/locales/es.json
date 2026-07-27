@@ -123,6 +123,14 @@
   "footer.lacrypta": "La Crypta",
   "footer.nostr": "Nostr",
 
+  "preferences.backup.advanced": "Avanzado",
+  "preferences.backup.action": "Descargar backup de la cuenta",
+  "preferences.backup.description": "Eventos, perfil, seguidos, packs, favoritos y archivos subidos recuperables. Nunca incluye claves privadas.",
+  "preferences.backup.working": "Preparando backup…",
+  "preferences.backup.done": "Backup descargado.",
+  "preferences.backup.partial": "Backup descargado. No se pudieron incluir {{count}} archivo(s); sus URLs y hashes Blossom siguen guardados.",
+  "preferences.backup.error": "Falló el backup.",
+
   "profile.title": "Perfil",
   "profile.nostrSection": "Perfil Nostr",
   "profile.obeliskSection": "Ajustes Obelisk",

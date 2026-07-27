@@ -123,6 +123,14 @@
   "footer.lacrypta": "La Crypta",
   "footer.nostr": "Nostr",
 
+  "preferences.backup.advanced": "Advanced",
+  "preferences.backup.action": "Download account backup",
+  "preferences.backup.description": "Events, profile, follows, media packs, favorites, and recoverable uploaded media. Private keys are never included.",
+  "preferences.backup.working": "Preparing backup…",
+  "preferences.backup.done": "Backup downloaded.",
+  "preferences.backup.partial": "Backup downloaded. {{count}} media file(s) could not be embedded; their URLs and Blossom hashes are still included.",
+  "preferences.backup.error": "Backup failed.",
+
   "profile.title": "Profile",
   "profile.nostrSection": "Nostr Profile",
   "profile.obeliskSection": "Obelisk Settings",

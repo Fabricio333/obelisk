@@ -7,7 +7,7 @@ import remarkSpoiler from '@/lib/remark-spoiler';
 import { preprocessForMarkdown, MENTION_PLACEHOLDER_REGEX, EVERYONE_PLACEHOLDER, isImageUrl, extractYouTubeId, extractUrls } from '@/lib/markdown';
 import { isUploadUrl, filenameFromUrl, isVideoUrl, isAudioUrl } from '@/lib/attachments';
 import { useChatStore } from '@/store/chat';
-import { useGroupMemberInfo } from '@/lib/nostr-bridge';
+import { useGroupMemberInfo, useMediaPacks, type JsMediaItem, type JsMediaPack } from '@/lib/nostr-bridge';
 import {
   replaceShortcodes,
   CUSTOM_EMOJI_PLACEHOLDER_REGEX,
@@ -22,6 +22,7 @@ import LinkPreview from './LinkPreview';
 import AttachmentCard from './AttachmentCard';
 import ImageGallery from './ImageGallery';
 import InvoiceCard from './InvoiceCard';
+import MediaLibraryModal from '@/components/media/MediaLibraryModal';
 import { INVOICE_REGEX } from '@/lib/bolt11';
 import ShootingStars from '../ShootingStars';
 import type { Components } from 'react-markdown';
@@ -227,21 +228,46 @@ function VideoMedia({
 }
 
 function StickerImg({ sticker }: { sticker: MessageSticker }) {
+  const packsByAddress = useMediaPacks();
+  const [open, setOpen] = useState(false);
+  const selection = useMemo(() => {
+    const pack = (sticker.packAddress ? packsByAddress[sticker.packAddress] : undefined)
+      ?? Object.values(packsByAddress).find((candidate) => candidate.items.some((item) => item.url === sticker.url));
+    const fallbackItem: JsMediaItem = { name: sticker.name, url: sticker.url, kind: 'sticker', ...(sticker.packAddress ? { packAddress: sticker.packAddress } : {}) };
+    const fallbackPack: JsMediaPack = {
+      address: sticker.packAddress ?? '',
+      identifier: '',
+      author: '',
+      title: sticker.packAddress ? 'Sticker pack' : 'Shared sticker',
+      description: '',
+      image: '',
+      items: [fallbackItem],
+      createdAt: 0,
+    };
+    return {
+      pack: pack ?? fallbackPack,
+      item: pack?.items.find((item) => item.url === sticker.url) ?? fallbackItem,
+    };
+  }, [packsByAddress, sticker.name, sticker.packAddress, sticker.url]);
+
   return (
-    <a
-      href={sticker.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="mt-1 block h-44 w-44 max-w-full overflow-hidden rounded-2xl bg-transparent p-1"
-      data-testid="message-sticker"
-    >
-      <img
-        src={sticker.url}
-        alt={`Sticker :${sticker.name}:`}
-        loading="lazy"
-        className="block h-full w-full object-contain"
-      />
-    </a>
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-1 block h-44 w-44 max-w-full overflow-hidden rounded-2xl bg-transparent p-1"
+        data-testid="message-sticker"
+        aria-label={'Open :' + sticker.name + ': details'}
+      >
+        <img
+          src={sticker.url}
+          alt={'Sticker :' + sticker.name + ':'}
+          loading="lazy"
+          className="block h-full w-full object-contain"
+        />
+      </button>
+      {open && <MediaLibraryModal onClose={() => setOpen(false)} initialSelection={selection} />}
+    </>
   );
 }
 

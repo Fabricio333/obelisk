@@ -11,6 +11,7 @@ import WotSettings from '@/components/settings/WotSettings';
 import LanguagePreference from '@/components/LanguagePreference';
 import AppearancePreferenceControls from '@/components/AppearancePreferenceControls';
 import ProfileFeedRelaySettings from '@/components/settings/ProfileFeedRelaySettings';
+import AccountBackupExport from '@/components/settings/AccountBackupExport';
 import UserAvatar from '@/components/UserAvatar';
 import ModalShell from '@/components/ModalShell';
 import MediaLibraryModal from '@/components/media/MediaLibraryModal';
@@ -455,6 +456,12 @@ export function PreferencesPanel() {
       {mediaLibraryOpen && <MediaLibraryModal onClose={() => setMediaLibraryOpen(false)} />}
 
       <ProfileFeedRelaySettings />
+      <section className="space-y-2 rounded-lg border border-lc-border bg-lc-dark/30 p-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-lc-muted">
+          {t("preferences.backup.advanced")}
+        </h3>
+        <AccountBackupExport />
+      </section>
       <ToggleRow
         label="Developer relay logs"
         description="Log relay calls to the console."

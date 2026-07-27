@@ -61,6 +61,18 @@ describe('MediaLibraryModal', () => {
     mocks.publishRelayEmojiSet.mockClear();
   });
 
+  it('opens directly on a sticker detail and explores its source pack', () => {
+    const onClose = vi.fn();
+    render(<MediaLibraryModal onClose={onClose} initialSelection={{ pack, item: pack.items[0] }} />);
+
+    expect(screen.getByTestId('media-item-menu')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add item to favorites' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'View Cat pack' }));
+    expect(within(screen.getByTestId('media-pack-viewer')).getByAltText(':cat_6:')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close pack viewer' }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   it('explores a complete pack in place and favorites either the pack or one item', async () => {
     render(<MediaLibraryModal onClose={() => {}} />);
 

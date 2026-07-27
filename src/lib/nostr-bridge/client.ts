@@ -3656,6 +3656,71 @@ export class BridgeImpl {
     return () => this.closeTrackedSub(sub);
   }
 
+  async exportAccountData(): Promise<{
+    pubkey: string;
+    relays: string[];
+    events: NostrEvent[];
+    referencedMediaPackEvents: NostrEvent[];
+    complete: boolean;
+  }> {
+    const pubkey = this.getPublicKey();
+    if (!pubkey) throw new Error("Log in before creating a backup.");
+    const relays = uniqueRelayUrls([
+      ...this.relays,
+      ...this.configuredRelays.get(),
+      ...PROFILE_RELAYS,
+    ]);
+    const byId = new Map<string, NostrEvent>();
+    let until: number | undefined;
+    let complete = true;
+
+    // Relays cap query results independently, so walk backwards until a page
+    // contributes no new events. This also stops broken relays that ignore until.
+    while (true) {
+      const filter: Filter = { authors: [pubkey], limit: 1000 };
+      if (until !== undefined) filter.until = until;
+      const page = await this.queryRelaysWithConfidence(relays, filter, 6000);
+      complete = complete && page.complete;
+      let added = 0;
+      for (const event of page.events) {
+        if (!byId.has(event.id)) added += 1;
+        byId.set(event.id, event);
+      }
+      if (page.events.length === 0 || added === 0) break;
+      until = Math.min(...page.events.map((event) => event.created_at)) - 1;
+    }
+
+    const packIdsByAuthor = new Map<string, Set<string>>();
+    const favoriteEvents = Array.from(byId.values())
+      .filter((event) => event.kind === KIND_EMOJI_FAVORITES)
+      .sort((a, b) => b.created_at - a.created_at);
+    for (const tag of favoriteEvents[0]?.tags ?? []) {
+      if (tag[0] !== "a") continue;
+      const [kind, author, ...identifierParts] = (tag[1] ?? "").split(":");
+      if (kind !== "30030" || author.length !== 64 || !/^[0-9a-f]+/i.test(author) || identifierParts.length === 0) continue;
+      const identifiers = packIdsByAuthor.get(author) ?? new Set<string>();
+      identifiers.add(identifierParts.join(":"));
+      packIdsByAuthor.set(author, identifiers);
+    }
+
+    const referencedById = new Map<string, NostrEvent>();
+    for (const [author, identifiers] of packIdsByAuthor) {
+      const filter: Filter = { kinds: [KIND_EMOJI_SET], authors: [author] };
+      (filter as Record<string, unknown>)["#d"] = Array.from(identifiers);
+      const result = await this.queryRelaysWithConfidence(relays, filter, 6000);
+      complete = complete && result.complete;
+      for (const event of result.events) referencedById.set(event.id, event);
+    }
+
+    return {
+      pubkey,
+      relays,
+      events: Array.from(byId.values()).sort((a, b) => a.created_at - b.created_at),
+      referencedMediaPackEvents: Array.from(referencedById.values()),
+      complete,
+    };
+  }
+
   // -- Internals ---------------------------------------------------------
 
   private async queryRelaysWithConfidence(

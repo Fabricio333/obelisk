@@ -3,7 +3,10 @@ import { isValidCustomEmojiName, normalizeCustomEmojiName } from './custom-emoji
 export interface MessageSticker {
   readonly name: string;
   readonly url: string;
+  readonly packAddress?: string;
 }
+
+const PACK_ADDRESS_RE = /^30030:[0-9a-f]{64}:.+$/;
 
 function isHttpUrl(value: string): boolean {
   try {
@@ -22,7 +25,10 @@ export function stickerFromTags(
   const name = normalizeCustomEmojiName(tag?.[1] ?? '');
   const url = tag?.[2]?.trim() ?? '';
   if (!isValidCustomEmojiName(name) || !isHttpUrl(url)) return null;
-  return content.trim() === `:${name}:` ? { name, url } : null;
+  const packAddress = tag?.[3]?.trim() ?? '';
+  return content.trim() === ':' + name + ':'
+    ? { name, url, ...(PACK_ADDRESS_RE.test(packAddress) ? { packAddress } : {}) }
+    : null;
 }
 
 export function stickerTagsForContent(
@@ -32,9 +38,10 @@ export function stickerTagsForContent(
   if (!sticker) return [];
   const name = normalizeCustomEmojiName(sticker.name);
   const url = sticker.url.trim();
-  if (!isValidCustomEmojiName(name) || !isHttpUrl(url) || content.trim() !== `:${name}:`) return [];
+  if (!isValidCustomEmojiName(name) || !isHttpUrl(url) || content.trim() !== ':' + name + ':') return [];
+  const packAddress = PACK_ADDRESS_RE.test(sticker.packAddress ?? '') ? sticker.packAddress : undefined;
   return [
-    ['emoji', name, url],
-    ['sticker', name, url],
+    ['emoji', name, url, ...(packAddress ? [packAddress] : [])],
+    ['sticker', name, url, ...(packAddress ? [packAddress] : [])],
   ];
 }

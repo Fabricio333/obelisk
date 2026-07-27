@@ -60,12 +60,15 @@ export default function MediaLibraryModal({
   onClose,
   server,
   initialTab = server ? 'server' : 'discover',
+  initialSelection,
 }: {
   onClose: () => void;
   server?: { relayUrl: string; emojiSet: RelayEmojiSet };
   initialTab?: LibraryTab;
+  initialSelection?: SelectedMedia;
 }) {
   const myPubkey = useMyPubkey();
+  const launchedFromItem = !!initialSelection;
   const packsByAddress = useMediaPacks();
   const favorites = useMyMediaFavorites();
   const [tab, setTab] = useState<LibraryTab>(initialTab);
@@ -73,7 +76,7 @@ export default function MediaLibraryModal({
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<EditablePack | null>(null);
   const [viewingPack, setViewingPack] = useState<JsMediaPack | null>(null);
-  const [selectedMedia, setSelectedMedia] = useState<SelectedMedia | null>(null);
+  const [selectedMedia, setSelectedMedia] = useState<SelectedMedia | null>(initialSelection ?? null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const packs = useMemo(() => Object.values(packsByAddress)
@@ -363,7 +366,7 @@ export default function MediaLibraryModal({
         server={!!server}
         serverSelected={server?.emojiSet.packAddresses?.includes(viewingPack.address) ?? false}
         closeOnEscape={!selectedMedia}
-        onClose={() => setViewingPack(null)}
+        onClose={launchedFromItem ? onClose : () => setViewingPack(null)}
         onOpenItem={(item) => setSelectedMedia({ pack: viewingPack, item })}
         onFavorite={() => togglePack(viewingPack)}
         onServer={() => void toggleServerPack(viewingPack).catch(() => {})}
@@ -373,14 +376,15 @@ export default function MediaLibraryModal({
         favorite={favorites.items.some((item) => item.url === selectedMedia.item.url)}
         busy={busy}
         server={!!server}
-        onClose={() => setSelectedMedia(null)}
+        onClose={launchedFromItem ? onClose : () => setSelectedMedia(null)}
         onViewPack={() => {
           setViewingPack(selectedMedia.pack);
           setSelectedMedia(null);
         }}
         onFavorite={() => {
           toggleItem(selectedMedia.item);
-          setSelectedMedia(null);
+          if (launchedFromItem) onClose();
+          else setSelectedMedia(null);
         }}
         onServer={() => {
           const { item, pack } = selectedMedia;

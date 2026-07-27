@@ -101,6 +101,7 @@ export const nostrActions = {
   searchMessages: async (
     opts: Parameters<Awaited<ReturnType<typeof getBridge>>['searchMessages']>[0],
   ) => (await getBridge()).searchMessages(opts),
+  exportAccountData: async () => (await getBridge()).exportAccountData(),
 
   setMuted: async (pubkey: string, muted: boolean) =>
     (await getBridge()).setMuted(pubkey, muted),

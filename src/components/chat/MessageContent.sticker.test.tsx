@@ -46,6 +46,10 @@ describe('MessageContent stickers', () => {
     expect(screen.getByTestId('message-sticker')).toHaveClass('h-44', 'w-44');
     expect(screen.getByAltText('Sticker :party_cat:')).toHaveAttribute('src', 'https://cdn.example/party.webp');
     expect(screen.queryByTestId('custom-emoji')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('message-sticker'));
+    expect(screen.getByTestId('media-item-menu')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'View Shared sticker' })).toBeInTheDocument();
   });
 
   it("renders tagged voice notes with the compact player and no video canvas", () => {
