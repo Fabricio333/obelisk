@@ -7,8 +7,6 @@ import { isValidCustomEmojiName, normalizeCustomEmojiName } from '@/lib/custom-e
 import { nostrActions, useMediaPacks, useMyMediaFavorites, useMyPubkey } from '@/lib/nostr-bridge';
 import type { JsMediaItem, JsMediaKind, JsMediaPack } from '@/lib/nostr-bridge';
 import { publishRelayEmojiSet, type RelayEmojiSet } from '@/lib/relay-emojis';
-import { mediaPackAddress } from '@/lib/media-packs';
-import { inferMediaKind } from '@/lib/media-kind';
 
 type LibraryTab = 'discover' | 'mine' | 'favorites' | 'server';
 type MediaFilter = 'all' | JsMediaKind;
@@ -36,12 +34,6 @@ function newPack(): EditablePack {
     image: '',
     items: [],
   };
-}
-
-function serverImport(relayUrl: string): { host: string; identifier: string } {
-  let host = 'server';
-  try { host = new URL(relayUrl).host; } catch { /* use fallback */ }
-  return { host, identifier: 'server-' + (normalizeCustomEmojiName(host) || 'emojis') };
 }
 
 function validHttpUrl(value: string): boolean {
@@ -81,9 +73,6 @@ export default function MediaLibraryModal({
   const packs = useMemo(() => Object.values(packsByAddress)
     .filter((pack) => pack.items.length > 0)
     .sort((a, b) => b.createdAt - a.createdAt), [packsByAddress]);
-  const importedServerPack = server && myPubkey
-    ? packsByAddress[mediaPackAddress(myPubkey, serverImport(server.relayUrl).identifier)]
-    : undefined;
   const visiblePacks = useMemo(() => {
     const value = query.trim().toLowerCase();
     const source = tab === 'mine'
@@ -145,99 +134,25 @@ export default function MediaLibraryModal({
     }
   };
 
-  const updateServerItems = async (
-    items: readonly JsMediaItem[],
-    success: string,
-    packAddresses = server?.emojiSet.packAddresses ?? [],
-  ) => {
+  const toggleServerPack = async (pack: JsMediaPack) => {
     if (!server) return;
+    const selected = server.emojiSet.packAddresses?.includes(pack.address) ?? false;
+    const packAddresses = selected
+      ? (server.emojiSet.packAddresses ?? []).filter((address) => address !== pack.address)
+      : [...(server.emojiSet.packAddresses ?? []), pack.address];
     setBusy(true);
     setMessage(null);
     try {
       await publishRelayEmojiSet(server.relayUrl, {
         ...server.emojiSet,
-        title: server.emojiSet.title || "Server favorites",
-        emojis: items,
+        title: server.emojiSet.title || "Server packs",
+        emojis: [],
         packAddresses,
       });
-      setMessage(success);
+      setMessage((selected ? "Removed “" : "Added “") + pack.title + (selected ? "” from" : "” to") + " this server.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not update server favorites.");
+      setMessage(error instanceof Error ? error.message : "Could not update server packs.");
       throw error;
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const addPackToServer = async (pack: Pick<JsMediaPack, "title" | "items"> & { address?: string; identifier?: string }) => {
-    if (!server) return;
-    const address = pack.address ?? (myPubkey && pack.identifier ? mediaPackAddress(myPubkey, pack.identifier) : "");
-    if (!address || server.emojiSet.packAddresses?.includes(address)) return;
-    const packNames = new Set(pack.items.map((item) => item.name));
-    const packUrls = new Set(pack.items.map((item) => item.url));
-    await updateServerItems(
-      server.emojiSet.emojis
-        .filter((item) => !packNames.has(item.name) && !packUrls.has(item.url))
-        .map((item) => ({ ...item, kind: item.kind ?? inferMediaKind(item.url) })),
-      "Added pack “" + pack.title + "” to this server.",
-      [...(server.emojiSet.packAddresses ?? []), address],
-    );
-  };
-
-  const removePackFromServer = async (pack: JsMediaPack) => {
-    if (!server) return;
-    await updateServerItems(
-      server.emojiSet.emojis.map((item) => ({ ...item, kind: item.kind ?? inferMediaKind(item.url) })),
-      "Removed pack “" + pack.title + "” from this server.",
-      (server.emojiSet.packAddresses ?? []).filter((address) => address !== pack.address),
-    );
-  };
-
-  const toggleServerPack = async (pack: JsMediaPack) => {
-    if (server?.emojiSet.packAddresses?.includes(pack.address)) await removePackFromServer(pack);
-    else await addPackToServer(pack);
-  };
-
-  const addServerItem = async (item: JsMediaItem, packTitle: string) => {
-    if (!server) return;
-    const byName = new Map(server.emojiSet.emojis.map((value) => [value.name, value]));
-    byName.set(item.name, item);
-    await updateServerItems(
-      Array.from(byName.values()).map((value) => ({ ...value, kind: value.kind ?? inferMediaKind(value.url) })),
-      "Added :" + item.name + ": from “" + packTitle + "” to this server.",
-    );
-  };
-
-  const removeServerItem = async (item: JsMediaItem) => {
-    if (!server) return;
-    await updateServerItems(
-      server.emojiSet.emojis
-        .filter((value) => value.name !== item.name)
-        .map((value) => ({ ...value, kind: value.kind ?? inferMediaKind(value.url) })),
-      "Removed :" + item.name + ": from this server.",
-    );
-  };
-
-  const migrateLegacy = async () => {
-    if (!server || server.emojiSet.emojis.length === 0) return;
-    const imported = serverImport(server.relayUrl);
-    setBusy(true);
-    setMessage(null);
-    try {
-      await nostrActions.saveMediaPack({
-        identifier: imported.identifier,
-        title: server.emojiSet.title || imported.host + ' media',
-        description: 'Imported from ' + imported.host + '.',
-        image: '',
-        items: server.emojiSet.emojis.map((item) => ({
-          name: item.name,
-          url: item.url,
-          kind: item.kind ?? inferMediaKind(item.url),
-        })),
-      });
-      setMessage(`Imported all ${server.emojiSet.emojis.length} existing server items into an editable pack.`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not migrate the server list.');
     } finally {
       setBusy(false);
     }
@@ -257,10 +172,6 @@ export default function MediaLibraryModal({
       onFavorite={() => {
         toggleItem(selectedMedia.item);
         onClose();
-      }}
-      onServer={() => {
-        const { item, pack } = selectedMedia;
-        void addServerItem(item, pack.title).then(onClose).catch(() => {});
       }}
     />;
   }
@@ -294,9 +205,9 @@ export default function MediaLibraryModal({
           <div className="mt-1 text-xs text-lc-muted">Emoji · GIFs · Stickers</div>
         </div>
         <LibraryTabs tab={tab} setTab={setTab} server={!!server} />
-        <button type="button" onClick={() => setEditing(newPack())} className="mt-auto rounded-lg bg-lc-green px-3 py-2 text-sm font-semibold text-lc-black">
+        {!server && <button type="button" onClick={() => setEditing(newPack())} className="mt-auto rounded-lg bg-lc-green px-3 py-2 text-sm font-semibold text-lc-black">
           Create pack
-        </button>
+        </button>}
       </aside>
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -312,7 +223,7 @@ export default function MediaLibraryModal({
               className={`${fieldClass} mt-2 sm:mt-0`}
             />
           </div>
-          <button type="button" onClick={() => setEditing(newPack())} className="rounded-lg border border-lc-green px-3 py-2 text-sm text-lc-green sm:hidden">Create pack</button>
+          {!server && <button type="button" onClick={() => setEditing(newPack())} className="rounded-lg border border-lc-green px-3 py-2 text-sm text-lc-green sm:hidden">Create pack</button>}
           <button type="button" onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-lg text-lc-muted hover:bg-white/5 hover:text-lc-white" aria-label="Close media library">✕</button>
         </header>
 
@@ -329,28 +240,16 @@ export default function MediaLibraryModal({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          {tab === 'server' && server && (
-            <section className="mb-5 rounded-xl border border-lc-border bg-lc-black/40 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="font-semibold text-lc-white">This server’s favorites</h2>
-                  <p className="mt-1 text-xs text-lc-muted">{server.emojiSet.emojis.length} items selected for this server.</p>
-                </div>
-                {!importedServerPack && <button type="button" disabled={busy || server.emojiSet.emojis.length === 0} onClick={() => void migrateLegacy()} className="rounded-lg border border-lc-green px-3 py-2 text-sm text-lc-green disabled:opacity-40">
-                  Import existing list once
-                </button>}
-              </div>
-              <MediaGrid
-                items={server.emojiSet.emojis
-                  .map((item) => ({ ...item, kind: item.kind ?? inferMediaKind(item.url) }))
-                  .filter((item) => kindFilter === "all" || item.kind === kindFilter)}
-                busy={busy}
-                onRemove={(item) => void removeServerItem(item).catch(() => {})}
-              />
+          {tab === "server" && server && (
+            <section data-testid="server-pack-summary" className="mb-5 rounded-xl border border-lc-border bg-lc-black/40 p-4">
+              <h2 className="font-semibold text-lc-white">Server packs</h2>
+              <p className="mt-1 text-xs text-lc-muted">{(server.emojiSet.packAddresses ?? []).length} packs selected. Add or remove existing packs below.</p>
+              <p className="mt-2 text-xs text-lc-muted">Create and edit packs from My packs in your personal media settings.</p>
+              {server.emojiSet.emojis.length > 0 && <p className="mt-2 text-xs text-amber-300">Legacy individual items will be removed on the next pack change.</p>}
             </section>
           )}
 
-          {tab === 'favorites' && favorites.items.length > 0 && (
+          {tab === "favorites" && favorites.items.length > 0 && (
             <section className="mb-5">
               <h2 className="mb-2 text-sm font-semibold text-lc-white">Individual favorites</h2>
               <MediaGrid items={favorites.items.filter((item) => kindFilter === "all" || item.kind === kindFilter)} favorites={favorites.items} onFavorite={toggleItem} />
@@ -386,15 +285,13 @@ export default function MediaLibraryModal({
         {message && <div className="shrink-0 border-t border-lc-border px-4 py-2 text-xs text-lc-green">{message}</div>}
       </main>
 
-      {editing && <PackEditor
+      {editing && !server && <PackEditor
         pack={editing}
-        initialKind={kindFilter === 'all' ? 'sticker' : kindFilter}
-        addToServer={!!server}
+        initialKind={kindFilter === "all" ? "sticker" : kindFilter}
         onClose={() => setEditing(null)}
-        onSaved={async (saved) => {
-          if (server) await addPackToServer(saved);
+        onSaved={async () => {
           setEditing(null);
-          setTab(server ? 'server' : 'mine');
+          setTab("mine");
         }}
       />}
       {viewingPack && <PackViewer
@@ -425,12 +322,6 @@ export default function MediaLibraryModal({
           if (launchedFromItem) onClose();
           else setSelectedMedia(null);
         }}
-        onServer={() => {
-          const { item, pack } = selectedMedia;
-          void addServerItem(item, pack.title)
-            .then(() => setSelectedMedia(null))
-            .catch(() => {});
-        }}
       />}
     </ModalShell>
   );
@@ -445,7 +336,7 @@ function LibraryTabs({ tab, setTab, server, mobile = false }: {
   return <>{([
     ['discover', 'Marketplace'],
     ['mine', 'My packs'],
-    ...(server ? [['server', 'Server favorites']] : [['favorites', 'Favorites']]),
+    ...(server ? [["server", "Server packs"]] : [['favorites', 'Favorites']]),
   ] as Array<[LibraryTab, string]>).map(([value, label]) => (
     <button key={value} type="button" onClick={() => setTab(value)} className={`${mobile ? 'rounded-lg px-3 py-2 text-sm' : tabClass} ${tab === value ? 'bg-lc-green/15 text-lc-green' : 'text-lc-muted hover:bg-white/5 hover:text-lc-white'}`}>
       {label}
@@ -528,7 +419,7 @@ function PackViewer({ pack, favorite, itemFavorites, busy, server, serverSelecte
   );
 }
 
-function MediaItemMenu({ selection, favorite, busy, server, onClose, onViewPack, onFavorite, onServer }: {
+function MediaItemMenu({ selection, favorite, busy, server, onClose, onViewPack, onFavorite }: {
   selection: SelectedMedia;
   favorite: boolean;
   busy: boolean;
@@ -536,7 +427,6 @@ function MediaItemMenu({ selection, favorite, busy, server, onClose, onViewPack,
   onClose: () => void;
   onViewPack: () => void;
   onFavorite: () => void;
-  onServer: () => void;
 }) {
   const { item, pack } = selection;
   return (
@@ -553,9 +443,7 @@ function MediaItemMenu({ selection, favorite, busy, server, onClose, onViewPack,
       </div>
       <div className="grid gap-2 p-4">
         <button type="button" onClick={onViewPack} className="rounded-lg border border-lc-border px-3 py-2 text-sm text-lc-white">View {pack.title}</button>
-        {server
-          ? <button type="button" disabled={busy} onClick={onServer} className="rounded-lg bg-lc-green px-3 py-2 text-sm font-semibold text-lc-black">Add item to server</button>
-          : <button type="button" disabled={busy} onClick={onFavorite} className="rounded-lg bg-lc-green px-3 py-2 text-sm font-semibold text-lc-black">{favorite ? "Remove item from favorites" : "Add item to favorites"}</button>}
+        {!server && <button type="button" disabled={busy} onClick={onFavorite} className="rounded-lg bg-lc-green px-3 py-2 text-sm font-semibold text-lc-black">{favorite ? "Remove item from favorites" : "Add item to favorites"}</button>}
       </div>
     </ModalShell>
   );
@@ -596,10 +484,9 @@ function MediaGrid({ items, favorites = [], busy = false, onOpen, onFavorite, on
   );
 }
 
-function PackEditor({ pack, initialKind, addToServer, onClose, onSaved }: {
+function PackEditor({ pack, initialKind, onClose, onSaved }: {
   pack: EditablePack;
   initialKind: JsMediaKind;
-  addToServer: boolean;
   onClose: () => void;
   onSaved: (pack: EditablePack) => Promise<void>;
 }) {
@@ -692,7 +579,7 @@ function PackEditor({ pack, initialKind, addToServer, onClose, onSaved }: {
       {error && <div className="border-t border-lc-border px-4 py-2 text-xs text-red-300" role="alert">{error}</div>}
       <footer className="flex justify-end gap-2 border-t border-lc-border p-4">
         <button type="button" onClick={onClose} className="rounded-lg border border-lc-border px-4 py-2 text-sm text-lc-white">Cancel</button>
-        <button type="button" disabled={busy} onClick={() => void save()} className="rounded-lg bg-lc-green px-4 py-2 text-sm font-semibold text-lc-black disabled:opacity-40">{busy ? 'Saving…' : addToServer ? 'Save & add to server' : 'Save pack'}</button>
+        <button type="button" disabled={busy} onClick={() => void save()} className="rounded-lg bg-lc-green px-4 py-2 text-sm font-semibold text-lc-black disabled:opacity-40">{busy ? "Saving…" : "Save pack"}</button>
       </footer>
     </ModalShell>
   );

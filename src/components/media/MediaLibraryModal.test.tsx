@@ -22,7 +22,6 @@ const mocks = vi.hoisted(() => ({
   saveMediaPack: vi.fn().mockResolvedValue(undefined),
   saveMediaFavorites: vi.fn().mockResolvedValue(undefined),
   deleteMediaPack: vi.fn().mockResolvedValue(undefined),
-  imported: false,
   publishRelayEmojiSet: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -34,13 +33,6 @@ vi.mock('@/lib/nostr-bridge', () => ({
   },
   useMediaPacks: () => ({
     [pack.address]: pack,
-    ...(mocks.imported ? {
-      [`${pack.address.split(':').slice(0, 2).join(':')}:server-relay_example`]: {
-        ...pack,
-        address: `30030:${author}:server-relay_example`,
-        identifier: 'server-relay_example',
-      },
-    } : {}),
   }),
   useMyMediaFavorites: () => ({ items: [], packAddresses: [], createdAt: 0 }),
   useMyPubkey: () => author,
@@ -57,7 +49,6 @@ describe('MediaLibraryModal', () => {
     mocks.saveMediaPack.mockClear();
     mocks.saveMediaFavorites.mockClear();
     mocks.deleteMediaPack.mockClear();
-    mocks.imported = false;
     mocks.publishRelayEmojiSet.mockClear();
   });
 
@@ -130,110 +121,47 @@ describe('MediaLibraryModal', () => {
     }));
   });
 
-  it('creates a typed pack from server settings and adds it to that server', async () => {
+  it("server settings only track existing whole packs", async () => {
     render(<MediaLibraryModal onClose={() => {}} server={{
-      relayUrl: 'wss://relay.example',
-      emojiSet: { title: 'Server favorites', emojis: [], updatedAt: 1 },
-    }} />);
-
-    expect(screen.queryByRole('button', { name: 'Favorites' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Save Cat pack' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Add pack to server' })).toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole('button', { name: 'Open :party_cat: actions' })[0]);
-    const menu = screen.getByTestId('media-item-menu');
-    expect(within(menu).queryByRole('button', { name: 'Add item to favorites' })).toBeNull();
-    expect(within(menu).getByRole('button', { name: 'Add item to server' })).toBeInTheDocument();
-    fireEvent.click(within(menu).getByRole('button', { name: 'Close media actions' }));
-    fireEvent.click(screen.getByRole('button', { name: 'GIFs' }));
-    fireEvent.click(screen.getAllByRole('button', { name: 'Create pack' })[0]);
-    const editor = screen.getByTestId('media-pack-editor');
-    expect(within(editor).getByRole('combobox', { name: 'New item type' })).toHaveValue('gif');
-    fireEvent.change(within(editor).getByRole('textbox', { name: 'Pack name' }), { target: { value: 'Server GIFs' } });
-    fireEvent.click(within(editor).getByRole('button', { name: 'Add URL' }));
-    fireEvent.change(within(editor).getByRole('textbox', { name: 'Item 1 shortcode' }), { target: { value: 'dance' } });
-    fireEvent.change(within(editor).getByRole('textbox', { name: 'Item 1 URL' }), { target: { value: 'https://cdn.example/dance.gif' } });
-    fireEvent.click(within(editor).getByRole('button', { name: 'Save & add to server' }));
-
-    await waitFor(() => expect(mocks.publishRelayEmojiSet).toHaveBeenCalledWith(
-      'wss://relay.example',
-      expect.objectContaining({
-        emojis: [],
-        packAddresses: [expect.stringMatching(new RegExp('^30030:' + author + ':'))],
-      }),
-    ));
-    expect(mocks.saveMediaPack).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Server GIFs',
-      items: [{ name: 'dance', url: 'https://cdn.example/dance.gif', kind: 'gif' }],
-    }));
-  });
-
-  it('removes a selected live pack from the server', async () => {
-    render(<MediaLibraryModal onClose={() => {}} server={{
-      relayUrl: 'wss://relay.example',
-      emojiSet: { title: 'Server favorites', emojis: [], packAddresses: [pack.address], updatedAt: 1 },
-    }} />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Remove pack from server' }));
-    await waitFor(() => expect(mocks.publishRelayEmojiSet).toHaveBeenCalledWith(
-      'wss://relay.example',
-      expect.objectContaining({ packAddresses: [] }),
-    ));
-  });
-
-  it('removes an item from the current server favorites', async () => {
-    render(<MediaLibraryModal onClose={() => {}} server={{
-      relayUrl: 'wss://relay.example',
+      relayUrl: "wss://relay.example",
       emojiSet: {
-        title: 'Server favorites',
-        emojis: [{ name: 'wave', url: 'https://cdn.example/wave.webp', kind: 'sticker' }],
+        title: "Legacy server favorites",
+        emojis: [{ name: "wave", url: "https://cdn.example/wave.webp", kind: "sticker" }],
         updatedAt: 1,
       },
     }} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Remove :wave: from server' }));
+    expect(within(screen.getByTestId("server-pack-summary")).getByRole("heading", { name: "Server packs" })).toBeInTheDocument();
+    expect(screen.getByText("0 packs selected. Add or remove existing packs below.")).toBeInTheDocument();
+    expect(screen.getByText("Legacy individual items will be removed on the next pack change.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create pack" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save Cat pack" })).toBeNull();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Open :party_cat: actions" })[0]);
+    const menu = screen.getByTestId("media-item-menu");
+    expect(within(menu).getByRole("button", { name: "View Cat pack" })).toBeInTheDocument();
+    expect(within(menu).queryByRole("button", { name: "Add item to favorites" })).toBeNull();
+    expect(within(menu).queryByRole("button", { name: "Add item to server" })).toBeNull();
+    fireEvent.click(within(menu).getByRole("button", { name: "Close media actions" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Add pack to server" }));
     await waitFor(() => expect(mocks.publishRelayEmojiSet).toHaveBeenCalledWith(
-      'wss://relay.example',
-      expect.objectContaining({ emojis: [] }),
+      "wss://relay.example",
+      expect.objectContaining({ emojis: [], packAddresses: [pack.address] }),
     ));
+    expect(mocks.saveMediaPack).not.toHaveBeenCalled();
   });
 
-  it('migrates every legacy server item into an editable pack without deleting the old list', () => {
+  it("removes a selected live pack from the server", async () => {
     render(<MediaLibraryModal onClose={() => {}} server={{
-      relayUrl: 'wss://relay.example',
-      emojiSet: {
-        title: 'Old server list',
-        emojis: [
-          { name: 'wave', url: 'https://cdn.example/wave.webp' },
-          { name: 'dance', url: 'https://cdn.example/dance.gif' },
-        ],
-        updatedAt: 1,
-      },
+      relayUrl: "wss://relay.example",
+      emojiSet: { title: "Server packs", emojis: [], packAddresses: [pack.address], updatedAt: 1 },
     }} />);
 
-    expect(screen.getByText('2 items selected for this server.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Import existing list once' }));
-
-    expect(mocks.saveMediaPack).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Old server list',
-      items: [
-        { name: 'wave', url: 'https://cdn.example/wave.webp', kind: 'emoji' },
-        { name: 'dance', url: 'https://cdn.example/dance.gif', kind: 'gif' },
-      ],
-    }));
-    expect(mocks.publishRelayEmojiSet).not.toHaveBeenCalled();
-  });
-
-  it('hides the one-time import after its deterministic pack exists', () => {
-    mocks.imported = true;
-    render(<MediaLibraryModal onClose={() => {}} server={{
-      relayUrl: 'wss://relay.example',
-      emojiSet: {
-        title: 'Old server list',
-        emojis: [{ name: 'wave', url: 'https://cdn.example/wave.webp' }],
-        updatedAt: 1,
-      },
-    }} />);
-
-    expect(screen.queryByRole('button', { name: 'Import existing list once' })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Remove pack from server" }));
+    await waitFor(() => expect(mocks.publishRelayEmojiSet).toHaveBeenCalledWith(
+      "wss://relay.example",
+      expect.objectContaining({ emojis: [], packAddresses: [] }),
+    ));
   });
 });

@@ -133,7 +133,28 @@ describe('relay emoji sets', () => {
     expect(toRelayEmojiSetTags(set, 'wss://relay.example')).toContainEqual(['a', address]);
   });
 
-  it('publishes every server-list replacement with a strictly newer timestamp', async () => {
+  it("notifies active server-list subscribers immediately after publishing", async () => {
+    const stopRelaySubscription = vi.fn();
+    bridgeMocks.subscribeFilterWatched.mockReturnValue(stopRelaySubscription);
+    const onChange = vi.fn();
+    const stop = subscribeRelayEmojiSet("wss://live.example", ["b".repeat(64)], onChange);
+
+    await publishRelayEmojiSet("wss://live.example", {
+      title: "Server favorites",
+      emojis: [{ name: "party_cat", url: "https://example.com/party.webp", kind: "sticker" }],
+      packAddresses: [],
+      updatedAt: 0,
+    });
+
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      emojis: [{ name: "party_cat", url: "https://example.com/party.webp", kind: "sticker" }],
+      eventId: "published-id",
+    }));
+    stop();
+    expect(stopRelaySubscription).toHaveBeenCalledOnce();
+  });
+
+  it("publishes every server-list replacement with a strictly newer timestamp", async () => {
     const updatedAt = Math.floor(Date.now() / 1000) + 100;
     const set = { title: 'Server favorites', emojis: [], packAddresses: [], updatedAt };
 

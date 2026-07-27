@@ -640,6 +640,20 @@ describe('nostr-bridge', () => {
         createdAt: 1,
       }],
     });
+    const { useDMStore } = await import("@/store/dm");
+    useDMStore.setState({
+      isDMMode: true,
+      activeDMPubkey: peer.pkHex,
+      threads: [{ pubkey: peer.pkHex, displayName: "Peer", lastMessage: "alice preview" }],
+      messages: [{
+        id: "alice-store-message",
+        senderPubkey: peer.pkHex,
+        recipientPubkey: alice.pkHex,
+        content: "alice store plaintext",
+        createdAt: 1,
+        protocol: "nip04",
+      }],
+    });
 
     let finishDecrypt!: (plaintext: string) => void;
     const decrypting = new Promise<string>((resolve) => { finishDecrypt = resolve; });
@@ -660,6 +674,10 @@ describe('nostr-bridge', () => {
 
     await bridge.loginWithNsec(bob.skHex, bob.pkHex);
     expect(impl.dmsByPeer.get()).toEqual({});
+    expect(useDMStore.getState().messages).toEqual([]);
+    expect(useDMStore.getState().threads).toEqual([]);
+    expect(useDMStore.getState().activeDMPubkey).toBeNull();
+    expect(useDMStore.getState().isDMMode).toBe(false);
     finishDecrypt('late alice plaintext');
     await lateIngest;
     expect(impl.dmsByPeer.get()).toEqual({});

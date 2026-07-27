@@ -153,4 +153,9 @@ describe('mobile shell CSS', () => {
       .toContain("background: rgba(96, 165, 250, 0.18)");
   });
 
+  it("fills the mobile viewport with every login modal step", () => {
+    expect(ruleBody(".nui-modal")).toContain("min-height: 100dvh");
+    expect(css).not.toContain(".obelisk-share-modal { min-height: 100dvh; }");
+  });
+
 });

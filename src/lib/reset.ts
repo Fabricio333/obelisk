@@ -1,6 +1,7 @@
 import { useChatStore } from '@/store/chat';
 import { useReadStateStore } from '@/store/read-state';
-import { useVoiceStore } from '@/store/voice';
+import { useVoiceStore } from "@/store/voice";
+import { useDMStore } from "@/store/dm";
 
 // Clears all per-identity client state. Called from `BridgeImpl.logout()`
 // so the next user never sees the previous account's servers, channels,
@@ -12,6 +13,16 @@ export function resetAllClientState(): void {
   useChatStore.getState().reset();
   useReadStateStore.getState().reset();
   useVoiceStore.getState().leaveVoice();
+  useDMStore.setState({
+    isDMMode: false,
+    activeDMPubkey: null,
+    threads: [],
+    messages: [],
+    isLoadingMessages: false,
+    isLoadingThreads: false,
+    hasMoreHistory: false,
+    showProtocolPrompt: null,
+  });
 
   if (typeof window === 'undefined') return;
   try {

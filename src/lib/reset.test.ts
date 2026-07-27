@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
+const dmSetState = vi.hoisted(() => vi.fn());
 
 // Mock the stores so reset() doesn't pull in their full initialization.
 vi.mock('@/store/chat', () => ({
@@ -7,14 +9,18 @@ vi.mock('@/store/chat', () => ({
 vi.mock('@/store/read-state', () => ({
   useReadStateStore: { getState: () => ({ reset: vi.fn() }) },
 }));
-vi.mock('@/store/voice', () => ({
+vi.mock("@/store/voice", () => ({
   useVoiceStore: { getState: () => ({ leaveVoice: vi.fn() }) },
+}));
+vi.mock("@/store/dm", () => ({
+  useDMStore: { setState: (...args: unknown[]) => dmSetState(...args) },
 }));
 
 import { resetAllClientState } from './reset';
 
 beforeEach(() => {
   localStorage.clear();
+  dmSetState.mockClear();
 });
 
 describe('resetAllClientState — localStorage wipe', () => {
@@ -43,4 +49,19 @@ describe('resetAllClientState — localStorage wipe', () => {
     expect(localStorage.getItem('obelisk:followed-migrated')).toBeNull();
     expect(localStorage.getItem('obelisk:followed-posts')).toBeNull();
   });
+  it("clears decrypted DM messages and thread previews", () => {
+    resetAllClientState();
+
+    expect(dmSetState).toHaveBeenCalledWith(expect.objectContaining({
+      isDMMode: false,
+      activeDMPubkey: null,
+      threads: [],
+      messages: [],
+      isLoadingMessages: false,
+      isLoadingThreads: false,
+      hasMoreHistory: false,
+      showProtocolPrompt: null,
+    }));
+  });
+
 });

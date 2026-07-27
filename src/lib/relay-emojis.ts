@@ -39,6 +39,11 @@ export const EMPTY_RELAY_EMOJI_SET: RelayEmojiSet = {
 };
 
 const relayEmojiLatestAt = new Map<string, number>();
+const relayEmojiListeners = new Map<string, Set<(set: RelayEmojiSet) => void>>();
+
+function notifyRelayEmojiSet(relayUrl: string, set: RelayEmojiSet): void {
+  for (const listener of relayEmojiListeners.get(relayUrl) ?? []) listener(set);
+}
 function isPackAddress(value: string): boolean {
   const [kind, author, identifier] = value.split(":", 3);
   return kind === "30030" && author?.length === 64 && /^[0-9a-f]+/.test(author) && !!identifier;
@@ -162,25 +167,33 @@ export function subscribeRelayEmojiSet(
   if (authors.length === 0) return () => {};
   const d = relayEmojiSetDTag(relayUrl);
   let latest: RelayEmojiSet = EMPTY_RELAY_EMOJI_SET;
+  const apply = (next: RelayEmojiSet) => {
+    latest = next;
+    relayEmojiLatestAt.set(relayUrl, next.updatedAt);
+    cacheSet(relayUrl, KIND_EMOJI_SET, d, next);
+    onChange(next);
+  };
+  const listeners = relayEmojiListeners.get(relayUrl) ?? new Set<(set: RelayEmojiSet) => void>();
+  listeners.add(apply);
+  relayEmojiListeners.set(relayUrl, listeners);
+
   const cached = cacheGet<RelayEmojiSet>(relayUrl, KIND_EMOJI_SET, d);
-  if (cached) {
-    latest = cached.value;
-    relayEmojiLatestAt.set(relayUrl, Math.max(relayEmojiLatestAt.get(relayUrl) ?? 0, latest.updatedAt));
-    onChange(latest);
-  }
+  if (cached) apply(cached.value);
   const filter: Filter = {
     kinds: [KIND_EMOJI_SET],
     authors: [...authors],
-    '#d': [d],
+    "#d": [d],
   };
-  return impl.subscribeFilterWatched(filter, (ev) => {
+  const unsubscribe = impl.subscribeFilterWatched(filter, (ev) => {
     if (ev.created_at < latest.updatedAt) return;
     if (ev.created_at === latest.updatedAt && latest.eventId && ev.id >= latest.eventId) return;
-    latest = parseRelayEmojiSet(ev);
-    relayEmojiLatestAt.set(relayUrl, latest.updatedAt);
-    cacheSet(relayUrl, KIND_EMOJI_SET, d, latest);
-    onChange(latest);
+    apply(parseRelayEmojiSet(ev));
   });
+  return () => {
+    unsubscribe();
+    listeners.delete(apply);
+    if (listeners.size === 0) relayEmojiListeners.delete(relayUrl);
+  };
 }
 
 export async function publishRelayEmojiSet(
@@ -203,6 +216,7 @@ export async function publishRelayEmojiSet(
   const published = parseRelayEmojiSet(event);
   relayEmojiLatestAt.set(relayUrl, published.updatedAt);
   cacheSet(relayUrl, KIND_EMOJI_SET, relayEmojiSetDTag(relayUrl), published);
+  notifyRelayEmojiSet(relayUrl, published);
 }
 
 export function useRelayEmojiSet(

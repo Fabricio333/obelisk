@@ -1682,6 +1682,7 @@ export class BridgeImpl {
     this.wireBrowserConnectionEvents();
     const previousPubkey = this.myPubkey.get();
     if (previousPubkey && previousPubkey !== this.session?.pubKeyHex) {
+      resetAllClientState();
       this.dmsByPeer.set({});
       this.pendingDMSends.clear();
       this.myContactList.set(null);

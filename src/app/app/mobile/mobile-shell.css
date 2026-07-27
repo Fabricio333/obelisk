@@ -4619,6 +4619,7 @@
     max-width: none;
     width: 100%;
     height: auto;
+    min-height: 100dvh;
     max-height: none;
     border: none;
     border-radius: 0;
@@ -4629,7 +4630,6 @@
       radial-gradient(720px 460px at -5% 100%, rgba(180, 249, 83, 0.08), transparent 60%),
       #0a0a0a;
   }
-  .obelisk-share-modal { min-height: 100dvh; }
   .nui-modal-close {
     width: 44px;
     height: 44px;
