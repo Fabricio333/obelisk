@@ -141,4 +141,16 @@ describe('mobile shell CSS', () => {
     }
   });
 
+  it("renders every mobile back button as a colored circle", () => {
+    const back = ruleBody(".obelisk-mobile .back-btn");
+    expect(back).toContain("border-radius: 999px");
+    expect(back).toContain("background: rgba(96, 165, 250, 0.18)");
+    expect(back).toContain("color: var(--app-text)");
+    expect(ruleBody(".obelisk-mobile .voice-room-topbar .back-btn"))
+      .toContain("background: rgba(96, 165, 250, 0.18)");
+    expect(ruleBody(`.obelisk-mobile .profile-view-topbar .icon-btn,
+.obelisk-mobile .profile-view-topbar .back-btn`))
+      .toContain("background: rgba(96, 165, 250, 0.18)");
+  });
+
 });

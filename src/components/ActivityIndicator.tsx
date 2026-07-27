@@ -7,7 +7,7 @@ import RelayStatusBanner from '@/app/app/RelayStatusBanner';
 export default function ActivityIndicator({ hideSigning = false }: { hideSigning?: boolean }) {
   const items = useActivityLog();
   const { showActivityIndicator } = usePreferences();
-  const candidates = hideSigning ? items.filter((entry) => entry.operation !== 'sign') : items;
+  const candidates = hideSigning ? [] : items;
   // Only show one row to avoid a stack of notifications. A pending
   // "Waiting for ... signature" always wins over anything else — the user
   // is staring at an extension/bunker prompt and needs to know the app is

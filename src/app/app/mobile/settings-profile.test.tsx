@@ -91,6 +91,18 @@ vi.mock('@/components/media/MediaLibraryModal', () => ({
   default: () => <div data-testid="media-library-stub" />,
 }));
 
+vi.mock("@/components/chat/NostrProfile", () => ({
+  default: ({ pubkey, settingsMode, onEditProfile }: { pubkey: string; settingsMode?: boolean; onEditProfile?: () => void }) => (
+    <div data-testid="settings-profile-explorer" data-pubkey={pubkey} data-settings-mode={settingsMode ? "true" : "false"}>
+      <button data-testid="edit-profile-btn" onClick={onEditProfile}>Edit profile</button>
+      <button data-testid="profile-tab-posts">Posts</button>
+      <button data-testid="profile-tab-replies">Replies</button>
+      <button data-testid="profile-tab-media">Media</button>
+      <button data-testid="profile-create-post">Create post</button>
+    </div>
+  ),
+}));
+
 import { LocaleProvider } from '@/i18n/context';
 import type { Locale } from '@/i18n/index';
 import { SettingsProfileScreen, EditProfileScreen, SettingsPrefsScreen } from './PhoneShell';
@@ -124,101 +136,27 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('SettingsProfileScreen', () => {
-  it('renders the user banner when present', () => {
-    renderWithLocale(<SettingsProfileScreen go={vi.fn()} />);
-    const banner = screen.getByTestId('profile-banner');
-    const img = banner.querySelector('img');
-    expect(img).not.toBeNull();
-    expect(img!.getAttribute('src')).toBe('https://example.com/banner.jpg');
-  });
-
-  it('renders an empty banner placeholder when no banner is set', () => {
-    mockMeta = { ...mockMeta!, banner: null };
-    renderWithLocale(<SettingsProfileScreen go={vi.fn()} />);
-    const banner = screen.getByTestId('profile-banner');
-    expect(banner.querySelector('img')).toBeNull();
-  });
-
-  it('renders the user about/description when present', () => {
-    renderWithLocale(<SettingsProfileScreen go={vi.fn()} />);
-    const about = screen.getByTestId('profile-about');
-    expect(about.textContent).toBe('Building Obelisk on Nostr.');
-  });
-
-  it('does not render the about block when no about is set', () => {
-    mockMeta = { ...mockMeta!, about: null };
-    renderWithLocale(<SettingsProfileScreen go={vi.fn()} />);
-    expect(screen.queryByTestId('profile-about')).toBeNull();
-  });
-
-  it('shows "Copied!" feedback when the npub copy row is tapped', () => {
-    vi.useFakeTimers();
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-
-    renderWithLocale(<SettingsProfileScreen go={vi.fn()} />);
-    const npubBtn = screen.getByTestId('copy-npub');
-    expect(npubBtn.className).not.toContain('copied');
-
-    fireEvent.click(npubBtn);
-    expect(writeText).toHaveBeenCalledTimes(1);
-    expect(writeText.mock.calls[0][0]).toMatch(/^npub1/);
-    expect(npubBtn.className).toContain('copied');
-    expect(npubBtn.textContent).toContain('Copied!');
-
-    act(() => { vi.advanceTimersByTime(1700); });
-    expect(npubBtn.className).not.toContain('copied');
-  });
-
-  it('copies the hex pubkey verbatim from the hex copy row', () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-
-    renderWithLocale(<SettingsProfileScreen go={vi.fn()} />);
-    fireEvent.click(screen.getByTestId('copy-hex'));
-    expect(writeText).toHaveBeenCalledWith(PUBKEY);
-  });
-
-  it('opens the personal media library directly for a normal signed-in user', () => {
-    renderWithLocale(<SettingsProfileScreen go={vi.fn()} />);
-    fireEvent.click(screen.getByTestId('mobile-profile-media-library'));
-    expect(screen.getByTestId('media-library-stub')).toBeInTheDocument();
-  });
-
-  it('navigates to profile-edit when "Edit Nostr Profile" is tapped', () => {
+describe("SettingsProfileScreen", () => {
+  it("reuses the shared profile explorer with owner controls", () => {
     const go = vi.fn();
     renderWithLocale(<SettingsProfileScreen go={go} />);
-    fireEvent.click(screen.getByTestId('edit-profile-btn'));
-    expect(go).toHaveBeenCalledWith('profile-edit');
-  });
 
-  it('opens a confirmation sheet on Disconnect — does NOT log out immediately', () => {
-    renderWithLocale(<SettingsProfileScreen go={vi.fn()} />);
-    fireEvent.click(screen.getByTestId('disconnect-btn'));
-    expect(mockLogout).not.toHaveBeenCalled();
-    expect(screen.getByTestId('disconnect-confirm')).toBeTruthy();
-  });
+    expect(screen.getByTestId("settings-profile-explorer")).toHaveAttribute("data-pubkey", PUBKEY);
+    expect(screen.getByTestId("settings-profile-explorer")).toHaveAttribute("data-settings-mode", "true");
+    expect(screen.getByTestId("profile-tab-posts")).toBeInTheDocument();
+    expect(screen.getByTestId("profile-tab-replies")).toBeInTheDocument();
+    expect(screen.getByTestId("profile-tab-media")).toBeInTheDocument();
+    expect(screen.getByTestId("profile-create-post")).toBeInTheDocument();
+    expect(screen.queryByTestId("mobile-profile-media-library")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("disconnect-btn")).not.toBeInTheDocument();
+    expect(screen.queryByText("Open in another client")).not.toBeInTheDocument();
 
-  it('calls logout only after the confirmation button is tapped', () => {
-    renderWithLocale(<SettingsProfileScreen go={vi.fn()} />);
-    fireEvent.click(screen.getByTestId('disconnect-btn'));
-    fireEvent.click(screen.getByTestId('disconnect-confirm'));
-    expect(mockLogout).toHaveBeenCalledTimes(1);
-  });
-
-  it('renders profile actions from the configured language', () => {
-    renderWithLocale(<SettingsProfileScreen go={vi.fn()} />, 'es');
-
-    expect(screen.getByRole('heading', { name: 'Vos' })).toBeTruthy();
-    expect(screen.getByText('Identidad')).toBeTruthy();
-    expect(screen.getByText('Abrir en otro cliente')).toBeTruthy();
-    expect(screen.getByTestId('edit-profile-btn')).toHaveTextContent('Editar perfil Nostr');
-    expect(screen.getByTestId('disconnect-btn')).toHaveTextContent('Desconectar');
+    fireEvent.click(screen.getByTestId("edit-profile-btn"));
+    expect(go).toHaveBeenCalledWith("profile-edit");
   });
 });
 
-describe('SettingsPrefsScreen', () => {
+describe("SettingsPrefsScreen", () => {
   it('shows language controls in preferences', () => {
     render(
       <LocaleProvider initialLocale="en">
@@ -231,7 +169,19 @@ describe('SettingsPrefsScreen', () => {
     expect(screen.getByTestId('mobile-download-backup')).toBeInTheDocument();
   });
 
-  it('lets users enable or reset DM opt-in from preferences', () => {
+  it("keeps media management and disconnect in preferences", () => {
+    renderWithLocale(<SettingsPrefsScreen go={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId("mobile-media-library"));
+    expect(screen.getByTestId("media-library-stub")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("disconnect-btn"));
+    expect(mockLogout).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("disconnect-confirm"));
+    expect(mockLogout).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets users enable or reset DM opt-in from preferences", () => {
     render(
       <LocaleProvider initialLocale="en">
         <SettingsPrefsScreen go={vi.fn()} />

@@ -257,7 +257,42 @@ describe('NostrProfile', () => {
     ));
   });
 
-  it('lets the owner create a formatted kind-1 post and closes from the desktop X', async () => {
+  it("embeds the shared owner profile cleanly in mobile settings", () => {
+    bridgeMocks.myPubkey = PROFILE;
+    const onEditProfile = vi.fn();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+
+    render(
+      <LocaleProvider initialLocale="en">
+        <NostrProfile pubkey={PROFILE} onClose={vi.fn()} settingsMode onEditProfile={onEditProfile} />
+      </LocaleProvider>,
+    );
+
+    const profile = screen.getByTestId("nostr-profile");
+    const banner = screen.getByTestId("nostr-profile-banner");
+    const edit = screen.getByTestId("edit-profile-btn");
+    const copy = screen.getByTestId("copy-npub");
+    expect(profile).not.toHaveClass("screen");
+    expect(banner).toContainElement(edit);
+    expect(banner.querySelector(".profile-view-topbar")).toHaveClass("justify-end");
+    expect(screen.getByTestId("profile-npub-row")).toContainElement(copy);
+    expect(screen.getByTestId("profile-tab-posts")).toBeInTheDocument();
+    expect(screen.getByTestId("profile-tab-replies")).toBeInTheDocument();
+    expect(screen.getByTestId("profile-tab-media")).toBeInTheDocument();
+    expect(screen.getByTestId("profile-create-post")).toBeInTheDocument();
+    expect(screen.queryByTestId("profile-explore-close")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("profile-more-button")).not.toBeInTheDocument();
+
+    fireEvent.click(edit);
+    expect(onEditProfile).toHaveBeenCalledOnce();
+    fireEvent.click(copy);
+    expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/^npub1/));
+    fireEvent.click(screen.getByTestId("profile-create-post"));
+    expect(screen.getByTestId("profile-post-files")).toBeInTheDocument();
+  });
+
+  it("lets the owner create a formatted kind-1 post and closes from the desktop X", async () => {
     bridgeMocks.myPubkey = PROFILE;
     const onClose = vi.fn();
     render(

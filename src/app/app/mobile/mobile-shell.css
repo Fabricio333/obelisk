@@ -388,15 +388,16 @@
 .obelisk-mobile .back-btn {
   width: 36px;
   height: 36px;
-  border-radius: 9px;
+  border-radius: 999px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--app-text-dim);
+  background: rgba(96, 165, 250, 0.18);
+  color: var(--app-text);
   flex-shrink: 0;
 }
 .obelisk-mobile .back-btn:active {
-  background: var(--app-surface);
+  background: rgba(96, 165, 250, 0.3);
   color: var(--app-text);
 }
 .obelisk-mobile .back-btn svg {
@@ -1888,7 +1889,7 @@
 }
 .obelisk-mobile .voice-room-topbar .back-btn {
   color: var(--app-text);
-  background: rgba(10, 10, 10, 0.45);
+  background: rgba(96, 165, 250, 0.18);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   border-radius: 999px;
@@ -2741,7 +2742,7 @@
 }
 .obelisk-mobile .profile-view-topbar .icon-btn,
 .obelisk-mobile .profile-view-topbar .back-btn {
-  background: rgba(10, 10, 10, 0.4);
+  background: rgba(96, 165, 250, 0.18);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   border-radius: 999px;

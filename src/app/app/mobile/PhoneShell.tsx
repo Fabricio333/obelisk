@@ -73,7 +73,7 @@ import { AttachmentMenu, FileDropZone, StickerIcon, VoiceNoteButton, VoiceNoteDr
 import { uploadToBlossom } from '@/lib/blossom';
 import { stickerTagsForContent, type MessageSticker } from '@/lib/sticker-tags';
 import { voiceNoteTagForContent, type MessageVoiceNote } from '@/lib/voice-note-tags';
-import { formatPubkey, hexToNpub as pubkeyToNpub } from '@nostr-wot/data';
+import { formatPubkey } from '@nostr-wot/data';
 import { faviconFor, fetchRelayInfo, SUGGESTED_RELAYS } from '@/lib/relay-info';
 import {
   applyLayout,
@@ -4813,61 +4813,6 @@ function ZapModalSheet({
 // ───────────────────────────────────────────────────────────────────────────
 // 16 — settings · profile
 
-function CopyIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="9" y="9" width="13" height="13" rx="2" />
-      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-    </svg>
-  );
-}
-
-function CopiedIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  );
-}
-
-function CopyRow({
-  tag,
-  value,
-  copyText,
-  testId,
-}: {
-  tag: string;
-  value: string;
-  copyText: string;
-  testId?: string;
-}) {
-  const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); }, []);
-
-  const onCopy = () => {
-    try { navigator.clipboard?.writeText(copyText); } catch { /* ignore */ }
-    setCopied(true);
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => setCopied(false), 1600);
-  };
-
-  return (
-    <button
-      type="button"
-      className={`copy-row ${copied ? 'copied' : ''}`}
-      onClick={onCopy}
-      data-testid={testId}
-      aria-label={t('common.copy').replace('{label}', tag)}
-    >
-      <span className="copy-row-tag">{tag}</span>
-      <span className="copy-row-value">{copied ? t('common.copied') : value}</span>
-      <span className="copy-row-icon">{copied ? <CopiedIcon /> : <CopyIcon />}</span>
-    </button>
-  );
-}
-
 function DisconnectConfirmSheet({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
   const { t } = useTranslation();
   return (
@@ -4903,85 +4848,26 @@ function DisconnectConfirmSheet({ onConfirm, onCancel }: { onConfirm: () => void
 export function SettingsProfileScreen({ go }: { go: (s: ScreenName) => void }) {
   const { t } = useTranslation();
   const myPubkey = useMyPubkey();
-  const meta = useUserMetadata(myPubkey);
-  const name = meta?.displayName || meta?.name || shortNpub(myPubkey ?? '');
-  const npub = myPubkey ? pubkeyToNpub(myPubkey) : '';
-  const [confirmingLogout, setConfirmingLogout] = useState(false);
-  const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
 
   return (
     <div className="screen active" data-screen="settings-profile">
       <div className="app-header">
-        <h2>{t('settings.you')}</h2>
+        <h2>{t("settings.you")}</h2>
       </div>
       <div className="settings-tabs native-scroll-x">
-        <button className="settings-tab active">{t('settings.profile')}</button>
-        <button className="settings-tab" onClick={() => go('settings-prefs')}>{t('settings.preferences')}</button>
+        <button className="settings-tab active">{t("settings.profile")}</button>
+        <button className="settings-tab" onClick={() => go("settings-prefs")}>{t("settings.preferences")}</button>
       </div>
-      <div className="settings-body">
-        <div className="settings-card profile-card">
-          <div className="profile-banner" data-testid="profile-banner">
-            {meta?.banner && <img src={meta.banner} alt="" />}
-          </div>
-          <div className="profile-row">
-            <NameAvatar pubkey={myPubkey ?? ''} name={name} picture={meta?.picture} size={60} className="me-avatar large" />
-            <div className="profile-card-meta">
-              <div className="profile-name">{name}</div>
-              {meta?.nip05 && <div className="profile-nip05">{meta.nip05}</div>}
-              <div className="profile-npub">{shortNpub(myPubkey ?? '')}</div>
-            </div>
-          </div>
-          {meta?.about && (
-            <div className="profile-about" data-testid="profile-about">{meta.about}</div>
-          )}
-        </div>
-        <div className="settings-section">
-          <div className="settings-section-title">{t('mobile.settings.identity')}</div>
-          {myPubkey && <CopyRow tag="npub" value={shortNpub(myPubkey)} copyText={npub} testId="copy-npub" />}
-          {myPubkey && <CopyRow tag="hex" value={`${myPubkey.slice(0, 10)}…${myPubkey.slice(-6)}`} copyText={myPubkey} testId="copy-hex" />}
-          {myPubkey && (
-            <a
-              className="settings-row action"
-              href={`https://njump.me/${npub}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ textDecoration: 'none' }}
-            >
-              <span>{t('mobile.settings.openOtherClient')}</span>
-              <span className="settings-row-meta muted">njump.me ↗</span>
-            </a>
-          )}
-        </div>
-        <div className="settings-section">
-          <div className="settings-section-title">Media</div>
-          <button type="button" className="settings-row action" onClick={() => setMediaLibraryOpen(true)} data-testid="mobile-profile-media-library">
-            <span>Emoji, GIFs &amp; stickers</span>
-            <span className="settings-row-meta muted" aria-hidden="true">›</span>
-          </button>
-        </div>
-        <button className="settings-btn-primary" onClick={() => go('profile-edit')} data-testid="edit-profile-btn">
-          {t('mobile.settings.editNostrProfile')}
-        </button>
-        <button
-          className="settings-btn-danger"
-          onClick={() => setConfirmingLogout(true)}
-          data-testid="disconnect-btn"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-            <polyline points="16 17 21 12 16 7" />
-            <line x1="21" y1="12" x2="9" y2="12" />
-          </svg>
-          {t('mobile.settings.disconnect')}
-        </button>
+      <div className="min-h-0 flex-1">
+        {myPubkey && (
+          <NostrProfile
+            pubkey={myPubkey}
+            onClose={() => {}}
+            settingsMode
+            onEditProfile={() => go("profile-edit")}
+          />
+        )}
       </div>
-      {mediaLibraryOpen && <MediaLibraryModal onClose={() => setMediaLibraryOpen(false)} />}
-      {confirmingLogout && (
-        <DisconnectConfirmSheet
-          onConfirm={() => { setConfirmingLogout(false); void nostrActions.logout(); }}
-          onCancel={() => setConfirmingLogout(false)}
-        />
-      )}
     </div>
   );
 }
@@ -5279,6 +5165,7 @@ export function SettingsPrefsScreen({ go }: { go: (s: ScreenName) => void }) {
   const prefs = usePreferences();
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
+  const [confirmingLogout, setConfirmingLogout] = useState(false);
 
   if (appearanceOpen) {
     return (
@@ -5372,9 +5259,30 @@ export function SettingsPrefsScreen({ go }: { go: (s: ScreenName) => void }) {
           <AccountBackupExport mobile />
         </div>
         <ProfileFeedRelaySettings mobile />
+        <div className="settings-section">
+          <div className="settings-section-title">{t("mobile.settings.identity")}</div>
+          <button
+            className="settings-btn-danger"
+            onClick={() => setConfirmingLogout(true)}
+            data-testid="disconnect-btn"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+            {t("mobile.settings.disconnect")}
+          </button>
+        </div>
       </div>
     </div>
       {mediaLibraryOpen && <MediaLibraryModal onClose={() => setMediaLibraryOpen(false)} />}
+      {confirmingLogout && (
+        <DisconnectConfirmSheet
+          onConfirm={() => { setConfirmingLogout(false); void nostrActions.logout(); }}
+          onCancel={() => setConfirmingLogout(false)}
+        />
+      )}
     </>
   );
 }

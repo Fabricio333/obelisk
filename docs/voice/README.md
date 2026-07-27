@@ -26,6 +26,9 @@ This directory documents the **mesh** engine in depth. SFU docs are at
   and the handler it routes through, with the metric you'd watch in
   the `?debug=voice` overlay. Read this before opening a "voice
   doesn't work" issue.
+- **[remote-signing-optimization.md](remote-signing-optimization.md)** —
+  proposal to reduce mesh beacon pressure on NIP-46 and extension
+  signers, followed by an optional scoped voice-session key design.
 - **[testing.md](testing.md)** — Playwright harness usage; how the
   two-peer / three-peer / glare specs run; how to add a new failure
   injection.

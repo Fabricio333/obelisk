@@ -79,6 +79,9 @@ describe('MediaLibraryModal', () => {
   it('explores a complete pack in place and favorites either the pack or one item', async () => {
     render(<MediaLibraryModal onClose={() => {}} />);
 
+    const modal = screen.getByTestId('media-library-modal');
+    expect(modal.firstElementChild).toHaveClass('h-[calc(100dvh_-_1rem)]', 'max-h-[calc(100%_-_1rem)]');
+    expect(modal.querySelector('main')).toHaveClass('min-h-0');
     expect(screen.getByText('Cat pack')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Save Cat pack' }));
     expect(mocks.saveMediaFavorites).toHaveBeenCalledWith({

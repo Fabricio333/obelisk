@@ -29,6 +29,8 @@ type NostrProfileProps = {
   pubkey: string;
   onClose: () => void;
   onMessage?: (pubkey: string) => void;
+  settingsMode?: boolean;
+  onEditProfile?: () => void;
 };
 
 export default function NostrProfile(props: NostrProfileProps) {
@@ -40,6 +42,8 @@ function NostrProfileSession({
   pubkey,
   onClose,
   onMessage,
+  settingsMode = false,
+  onEditProfile,
   relays,
 }: NostrProfileProps & { relays: string[] }) {
   const { t } = useTranslation();
@@ -109,6 +113,10 @@ function NostrProfileSession({
     [visibleNotes],
   );
   const displayName = meta?.displayName || meta?.name || shortNpub(pubkey);
+  const copyNpub = () => {
+    navigator.clipboard?.writeText(hexToNpub(pubkey)).catch(() => {});
+    useToastStore.getState().pushToast({ title: t('profileFeed.npubCopied'), body: displayName });
+  };
 
   const toggleFollow = async () => {
     if (!myPubkey || !contactsReady || followBusy) return;
@@ -130,8 +138,8 @@ function NostrProfileSession({
   };
 
   return (
-    <div className="screen active profile-view-screen flex h-full min-h-0 flex-col overflow-y-auto bg-lc-black" data-testid="nostr-profile">
-      <div className="sticky top-3 z-10 hidden h-0 shrink-0 md:block" data-testid="profile-explore-close-sticky">
+    <div className={(settingsMode ? "" : "screen active") + " profile-view-screen flex h-full min-h-0 flex-col overflow-y-auto bg-lc-black"} data-testid="nostr-profile">
+      {!settingsMode && <div className="sticky top-3 z-10 hidden h-0 shrink-0 md:block" data-testid="profile-explore-close-sticky">
         <button
           type="button"
           onClick={onClose}
@@ -141,14 +149,14 @@ function NostrProfileSession({
         >
           <span aria-hidden="true">×</span>
         </button>
-      </div>
+      </div>}
       <div
         className="profile-view-banner relative h-36 shrink-0 bg-gradient-to-br from-lc-olive to-lc-black bg-cover bg-center"
         style={meta?.banner ? { backgroundImage: `url(${meta.banner})` } : undefined}
         data-testid="nostr-profile-banner"
       >
-        <div className="profile-view-topbar absolute inset-x-3 top-3 z-10 flex justify-between">
-          <button
+        <div className={"profile-view-topbar absolute inset-x-3 top-3 z-10 flex " + (settingsMode ? "justify-end" : "justify-between")}>
+          {!settingsMode && <button
             type="button"
             onClick={onClose}
             className="back-btn flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-lc-white md:hidden"
@@ -157,7 +165,17 @@ function NostrProfileSession({
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="m15 18-6-6 6-6" />
             </svg>
-          </button>
+          </button>}
+          {settingsMode && onEditProfile && (
+            <button
+              type="button"
+              className="lc-pill-secondary ml-auto bg-black/70 px-4 py-2 text-xs text-lc-white backdrop-blur"
+              onClick={onEditProfile}
+              data-testid="edit-profile-btn"
+            >
+              {t('mobile.settings.editProfile')}
+            </button>
+          )}
         </div>
       </div>
 
@@ -174,7 +192,19 @@ function NostrProfileSession({
       <div className="profile-view-meta shrink-0 px-5 pb-1 pt-2">
         <div className="profile-view-name text-xl font-extrabold text-lc-white">{displayName}</div>
         {meta?.nip05 && <div className="profile-view-nip05 mt-1 text-xs text-lc-green">{meta.nip05}</div>}
-        <div className="profile-view-npub mt-1 font-mono text-[10px] text-lc-muted">{shortNpub(pubkey)}</div>
+        <div className="mt-1 flex min-w-0 items-center gap-2" data-testid="profile-npub-row">
+          <div className="profile-view-npub min-w-0 truncate font-mono text-[10px] text-lc-muted">{shortNpub(pubkey)}</div>
+          {settingsMode && (
+            <button
+              type="button"
+              className="shrink-0 rounded-lg border border-lc-border px-2 py-1 text-[10px] text-lc-muted"
+              onClick={copyNpub}
+              data-testid="copy-npub"
+            >
+              {t('profileFeed.copyNpub')}
+            </button>
+          )}
+        </div>
       </div>
       {meta?.about && (
         <p className="profile-view-bio whitespace-pre-wrap px-5 py-2 text-sm text-lc-muted">{meta.about}</p>
@@ -214,7 +244,7 @@ function NostrProfileSession({
             <span className="text-lg leading-none" aria-hidden="true">+</span>
             {t('profileFeed.createPost')}
           </button>
-          <ProfileMoreMenu pubkey={pubkey} displayName={displayName} />
+          {!settingsMode && <ProfileMoreMenu pubkey={pubkey} displayName={displayName} />}
         </div>
       )}
       {followError && <p className="px-5 pb-2 text-xs text-red-400">{t('profileFeed.followFailed')}</p>}

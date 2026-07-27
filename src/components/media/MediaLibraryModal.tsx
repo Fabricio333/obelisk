@@ -286,7 +286,7 @@ export default function MediaLibraryModal({
       onClose={onClose}
       closeOnEscape={!editing && !viewingPack && !selectedMedia}
       testId="media-library-modal"
-      panelClassName="lc-card mx-3 flex h-[min(780px,94vh)] w-full max-w-6xl overflow-hidden bg-lc-dark"
+      panelClassName="lc-card mx-2 flex h-[calc(100dvh_-_1rem)] max-h-[calc(100%_-_1rem)] w-full max-w-6xl overflow-hidden bg-lc-dark sm:mx-3 sm:h-[min(780px,94vh)] sm:max-h-none"
     >
       <aside className="hidden w-52 shrink-0 flex-col border-r border-lc-border bg-lc-black/40 p-3 sm:flex">
         <div className="px-2 pb-4 pt-2">
@@ -299,7 +299,7 @@ export default function MediaLibraryModal({
         </button>
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex shrink-0 items-center gap-3 border-b border-lc-border p-4">
           <div className="min-w-0 flex-1">
             <div className="text-base font-bold text-lc-white sm:hidden">Media library</div>
