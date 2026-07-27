@@ -1963,6 +1963,20 @@ describe('nostr-bridge', () => {
     })).toBe(true);
   });
 
+  it('gives a resumed mobile PWA enough time to open its relay WebSocket', async () => {
+    const { getBridge } = await import('./client');
+    const { skHex, pkHex } = makeKeypair();
+    let connectionTimeout = 0;
+    fake.state.ensureRelayImpl = (_url, options) => {
+      connectionTimeout = options?.connectionTimeout ?? 0;
+      return Promise.resolve({ connected: true });
+    };
+
+    await (await getBridge()).loginWithNsec(skHex, pkHex);
+
+    expect(connectionTimeout).toBe(10_000);
+  });
+
   it("enables native ping on every bridge pool", async () => {
     const { getBridge } = await import("./client");
     const { skHex, pkHex } = makeKeypair();

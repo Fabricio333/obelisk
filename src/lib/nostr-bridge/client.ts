@@ -2155,16 +2155,16 @@ export class BridgeImpl {
       // relay rejects, we throw and `initialize()` falls through to background
       // reconnect with capped backoff.
       //
-      // Per-relay `connectionTimeout` is intentionally tighter than the
-      // 5000 ms used previously — a single slow relay used to stall the
-      // entire login by holding `Promise.allSettled` open. First-response
-      // wins keeps successful relays fast, while this cap gets stragglers
-      // marked `unreachable` promptly. Do not run the subscription fan-out
+      // First-response-wins means a slow relay no longer stalls faster ones.
+      // Keep enough headroom for an Android PWA waking its radio and opening
+      // a WebSocket through Cloudflare; 3s caused healthy relays to be torn
+      // down and recreated in a reconnect loop after resume.
+      // Do not run the subscription fan-out
       // before the first successful handshake: on an empty cache that mounts
       // the app shell with REQs queued against a not-yet-ready pool, that
       // reproduces the "refresh twice before content appears" cold-load
       // failure.
-      const PER_RELAY_TIMEOUT_MS = 3000;
+      const PER_RELAY_TIMEOUT_MS = 10_000;
       const handles = relaySnapshot.map((url) =>
         (async () => {
           validateRelayUrl(url);
