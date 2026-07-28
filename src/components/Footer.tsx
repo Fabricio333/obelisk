@@ -100,6 +100,14 @@ export default function Footer({ localeOverride }: Props) {
                 </Link>
               </li>
               <li>
+                <Link
+                  href="/help"
+                  className="text-sm text-lc-muted hover:text-lc-green transition-colors"
+                >
+                  {t('footer.help')}
+                </Link>
+              </li>
+              <li>
                 <a
                   href="https://github.com/Fabricio333/obelisk"
                   target="_blank"

@@ -16,6 +16,11 @@ beforeAll(async () => {
 });
 
 describe('sitemap.images (Google image-sitemap extension)', () => {
+  it('includes public feature and help pages', () => {
+    expect(entries.some((e) => e.url.endsWith('/features'))).toBe(true);
+    expect(entries.some((e) => e.url.endsWith('/help'))).toBe(true);
+  });
+
   it('every guide article entry declares at least one image', () => {
     const articleEntries = entries.filter((e) => isArticleEntry(e.url));
     expect(articleEntries.length).toBeGreaterThan(0);

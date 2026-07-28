@@ -5,6 +5,8 @@ import Footer from '@/components/Footer';
 import Navbar from '@/components/Navbar';
 import ShootingStars from '@/components/ShootingStars';
 
+const SITE_URL = process.env.CORS_ORIGIN || 'https://obelisk.ar';
+
 const FEATURES = [
   {
     title: 'Nostr relay-based groups',
@@ -58,14 +60,38 @@ const FEATURES = [
 ] as const;
 
 export const metadata: Metadata = {
-  title: 'Features — relay-native chat, video, stickers, and mobile PWA',
-  description: 'Explore Obelisk features: NIP-29 groups, voice messages, sticker packs, mobile PWA, P2P video, large SFU calls, and portable Nostr profiles.',
+  title: 'Features — Nostr group chat, video calls, stickers, and mobile PWA',
+  description:
+    'Explore Obelisk features: NIP-29 groups, voice messages, sticker packs, mobile PWA, P2P video, large SFU calls, and portable Nostr profiles.',
   alternates: { canonical: '/features' },
+  keywords: [
+    'Nostr chat features',
+    'NIP-29 group chat',
+    'Discord alternative features',
+    'Nostr voice and video calls',
+    'Nostr mobile PWA',
+    'Nostr sticker marketplace',
+    'self-hosted community chat',
+  ],
   openGraph: {
-    title: 'Obelisk: the comeback',
-    description: 'Relay-native groups, voice messages, sticker packs, mobile PWA, P2P video, large calls, and portable Nostr profiles.',
-    url: '/features',
+    title: 'Obelisk Features — relay-native group chat and calls',
+    description:
+      'Relay-native groups, voice messages, sticker packs, mobile PWA, P2P video, large calls, and portable Nostr profiles.',
+    url: SITE_URL + '/features',
+    siteName: 'Obelisk',
     type: 'website',
+    images: [{
+      url: '/pictures-for-posts/mobile-showcase-readme.png',
+      width: 3320,
+      height: 1840,
+      alt: 'Obelisk mobile PWA showing login, channels, video calls, and a Nostr profile',
+    }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Obelisk Features — Nostr group chat, calls, stickers, and PWA',
+    description:
+      'Explore relay-native groups, voice messages, stickers, mobile PWA, P2P video, SFU calls, and portable Nostr profiles.',
     images: ['/pictures-for-posts/mobile-showcase-readme.png'],
   },
 };

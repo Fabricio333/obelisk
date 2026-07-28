@@ -1,10 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import type { AnchorHTMLAttributes, ReactNode } from 'react';
 import { LocaleProvider } from '@/i18n/context';
 import Footer from './Footer';
 
 vi.mock('next/link', () => ({
-  default: ({ children, href, ...rest }: any) => (
+  default: ({ children, href, ...rest }: { children: ReactNode; href: string } & AnchorHTMLAttributes<HTMLAnchorElement>) => (
     <a href={href} {...rest}>
       {children}
     </a>
@@ -47,6 +48,7 @@ describe('Footer', () => {
     const links = screen.getAllByRole('link').map((a) => a.getAttribute('href'));
     expect(links).toContain('/app');
     expect(links).toContain('/#faq');
+    expect(links).toContain('/help');
     expect(links).toContain('https://github.com/Fabricio333/obelisk');
     expect(links).toContain('https://lacrypta.ar');
   });
