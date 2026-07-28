@@ -29,7 +29,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode, type SVGProps
 import { useRouter } from 'next/navigation';
 import { nostrActions } from '@/lib/nostr-bridge';
 import { OBELISK_NIP46_PERMISSIONS } from '@/lib/nostr-signing-kinds';
-import GeneratedProfileEnhancements from './GeneratedProfileEnhancements';
+import GeneratedProfileEnhancements, { randomProfileName } from './GeneratedProfileEnhancements';
 
 const NIP46_PERMS = OBELISK_NIP46_PERMISSIONS;
 
@@ -258,9 +258,11 @@ const GENERATED_PROFILE_RELAYS = [
 
 async function publishGeneratedProfile(nsec: string, profile: GeneratedProfileDraft): Promise<void> {
   const secretKey = nsecToBytes(nsec);
-  if (!secretKey || !Object.values(profile).some(Boolean)) return;
+  if (!secretKey) return;
+  const name = profile.name?.trim() || randomProfileName();
   const content = {
-    ...(profile.name ? { name: profile.name, display_name: profile.name } : {}),
+    name,
+    display_name: name,
     ...(profile.about ? { about: profile.about } : {}),
     ...(profile.picture ? { picture: profile.picture } : {}),
     ...(profile.banner ? { banner: profile.banner } : {}),

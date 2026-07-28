@@ -61,7 +61,9 @@ export default function GeneratedProfileEnhancements({
       const nameInput = modal.querySelector<HTMLInputElement>('input[placeholder="Satoshi"]');
       if (nameInput && !nameInput.parentElement?.querySelector('.obelisk-random-name')) {
         nameInput.classList.add('obelisk-name-input');
+        nameInput.required = true;
         nameInput.addEventListener('input', () => onDraftChange({ name: nameInput.value }));
+        if (!nameInput.value.trim()) setInputValue(nameInput, randomProfileName());
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'obelisk-random-name';

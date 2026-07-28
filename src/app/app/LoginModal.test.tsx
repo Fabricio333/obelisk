@@ -36,6 +36,7 @@ vi.mock('@nostr-wot/data', async (importOriginal) => ({
 }));
 
 vi.mock('./GeneratedProfileEnhancements', () => ({
+  randomProfileName: () => 'Brave Badger',
   default: ({ onDraftChange }: { onDraftChange: (patch: Record<string, string>) => void }) => {
     updateDraft = onDraftChange;
     return null;
@@ -131,6 +132,24 @@ describe('LoginModal generated identity flow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Enter Obelisk' }));
     await waitFor(() => expect(loginWithNsec).toHaveBeenCalledOnce());
+  });
+
+  it('publishes a generated name when profile setup is skipped', async () => {
+    render(<LoginModal />);
+
+    await act(async () => {
+      await (sdkProps.onLogin as (args: unknown) => Promise<void>)({
+        method: 'generate',
+        pubkey: '1'.repeat(64),
+        nsec: nip19.nsecEncode(new Uint8Array(32).fill(1)),
+      });
+    });
+
+    const publishedEvent = publish.mock.calls[0][1] as { content: string };
+    expect(JSON.parse(publishedEvent.content)).toMatchObject({
+      name: 'Brave Badger',
+      display_name: 'Brave Badger',
+    });
   });
 
   it('uses the nostr-tools handshake and advertises the Obelisk relay', async () => {

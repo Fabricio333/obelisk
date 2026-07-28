@@ -25,10 +25,13 @@ describe('GeneratedProfileEnhancements', () => {
       </div>,
     );
 
+    const nameInput = screen.getByPlaceholderText('Satoshi');
     const randomButton = await screen.findByRole('button', { name: /generate a random name/i });
-    fireEvent.click(randomButton);
-    expect(screen.getByPlaceholderText('Satoshi')).not.toHaveValue('');
+    expect(nameInput).toBeRequired();
+    expect(nameInput).not.toHaveValue('');
     expect(onDraftChange).toHaveBeenCalledWith({ name: expect.any(String) });
+    fireEvent.click(randomButton);
+    expect(nameInput).not.toHaveValue('');
 
     const urlInput = screen.getByPlaceholderText('https://example.com/avatar.jpg');
     expect(urlInput).not.toBeVisible();
