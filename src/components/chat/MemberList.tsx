@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from 'react';
 import { useChatStore } from '@/store/chat';
-import { useGroupMemberInfo } from '@/lib/nostr-bridge';
+import { useCurrentRelayUrl, useGroupMemberInfo } from '@/lib/nostr-bridge';
 import type { JsMemberInfo } from '@/lib/nostr-bridge';
 import { shortNpub } from '@/lib/mentions';
-import { useNostrPresence, PRESENCE_WINDOW_MS } from '@/hooks/chat/useNostrPresence';
+import { presenceActivityKey, useNostrPresence, PRESENCE_WINDOW_MS } from '@/hooks/chat/useNostrPresence';
 
 function MemberItem({ member, isOnline }: { member: JsMemberInfo; isOnline: boolean }) {
   const name = member.displayName || shortNpub(member.pubkey);
@@ -43,18 +43,19 @@ function MemberItem({ member, isOnline }: { member: JsMemberInfo; isOnline: bool
 
 export default function MemberList({ groupId }: { groupId: string }) {
   const memberList = useGroupMemberInfo(groupId);
+  const relayUrl = useCurrentRelayUrl();
   const lastActivityAt = useChatStore((state) => state.lastActivityAt);
   const presenceTick = useChatStore((state) => state.presenceTick);
   const [offlineCollapsed, setOfflineCollapsed] = useState(false);
 
   const memberPubkeys = useMemo(() => memberList.map((member) => member.pubkey), [memberList]);
-  useNostrPresence(memberPubkeys);
+  useNostrPresence(memberPubkeys, relayUrl);
 
   const onlinePubkeys = useMemo(() => {
     if (!presenceTick) return new Set<string>();
     const cutoff = presenceTick - PRESENCE_WINDOW_MS;
-    return new Set(memberPubkeys.filter((pubkey) => (lastActivityAt[pubkey] ?? 0) >= cutoff));
-  }, [lastActivityAt, memberPubkeys, presenceTick]);
+    return new Set(memberPubkeys.filter((pubkey) => (lastActivityAt[presenceActivityKey(relayUrl, pubkey)] ?? 0) >= cutoff));
+  }, [lastActivityAt, memberPubkeys, presenceTick, relayUrl]);
 
   const { admins, members, offline } = useMemo(() => {
     const groups = { admins: [] as JsMemberInfo[], members: [] as JsMemberInfo[], offline: [] as JsMemberInfo[] };

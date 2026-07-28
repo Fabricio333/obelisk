@@ -15,15 +15,17 @@ const bridge = vi.hoisted(() => ({
 
 vi.mock('@/lib/nostr-bridge', () => ({
   useGroupMemberInfo: () => bridge.members,
+  useCurrentRelayUrl: () => 'wss://group.relay',
 }));
 
 vi.mock('@/hooks/chat/useNostrPresence', () => ({
   useNostrPresence: () => undefined,
   PRESENCE_WINDOW_MS: 15 * 60 * 1000,
+  presenceActivityKey: (relay: string, pubkey: string) => relay + ':' + pubkey,
 }));
 
 function setOnline(...pubkeys: string[]) {
-  for (const pubkey of pubkeys) useChatStore.getState().recordActivity(pubkey, Date.now());
+  for (const pubkey of pubkeys) useChatStore.getState().recordActivity('wss://group.relay:' + pubkey, Date.now());
 }
 
 describe('MemberList', () => {

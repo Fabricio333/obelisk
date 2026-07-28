@@ -135,7 +135,7 @@ import { useDMStore } from '@/store/dm';
 import { setDmOptInEnabled, useDmOptInEnabled } from '@/lib/dm/opt-in';
 import { setPreference, usePreferences } from '@/lib/preferences';
 import { useMessageZapStore } from '@/store/messageZap';
-import { useNostrPresence, PRESENCE_WINDOW_MS } from '@/hooks/chat/useNostrPresence';
+import { presenceActivityKey, useNostrPresence, PRESENCE_WINDOW_MS } from '@/hooks/chat/useNostrPresence';
 import MessageZapModal from '@/components/chat/MessageZapModal';
 import { type ScreenName, type NavState, initialNav, urlFor, parseUrl } from './url-state';
 import { buildSeedHistory, decideSnap, decideSwipeNav, decideTabPress, isAdjacentTabSwitch, neighborsFor, NAV_ORDER, resolveParent } from './swipe-nav';
@@ -3694,6 +3694,7 @@ function ProfileViewScreen({
 function MemberListScreen({ groupId, back, openProfile }: { groupId: string; back: () => void; openProfile: (p: string) => void }) {
   const { t } = useTranslation();
   const groups = useGroups();
+  const relayUrl = useCurrentRelayUrl();
   const group = groups.find((g) => g.id === groupId) ?? null;
   const parentGroup = group?.parent ? groups.find((g) => g.id === group.parent) ?? null : null;
   const headerLabel = parentGroup
@@ -3710,17 +3711,17 @@ function MemberListScreen({ groupId, back, openProfile }: { groupId: string; bac
     const set = new Set<string>([...admins, ...members]);
     return [...set];
   }, [admins, members]);
-  useNostrPresence(allPubkeys);
+  useNostrPresence(allPubkeys, relayUrl);
   // presenceTick re-renders the list on the offline-fade timer.
   useChatStore((s) => s.presenceTick);
   const lastActivityAt = useChatStore((s) => s.lastActivityAt);
 
   const isOnline = useCallback(
     (pubkey: string) => {
-      const at = lastActivityAt[pubkey];
+      const at = lastActivityAt[presenceActivityKey(relayUrl, pubkey)];
       return !!at && at >= Date.now() - PRESENCE_WINDOW_MS;
     },
-    [lastActivityAt],
+    [lastActivityAt, relayUrl],
   );
 
   const onlineCount = useMemo(
