@@ -26,6 +26,7 @@ import { nip19 } from 'nostr-tools';
 import { finalizeEvent, getPublicKey } from 'nostr-tools/pure';
 import { getPool, nsecToBytes, nsecToHex as sdkNsecToHex } from '@nostr-wot/data';
 import { useCallback, useEffect, useRef, useState, type ReactNode, type SVGProps } from 'react';
+import { useRouter } from 'next/navigation';
 import { nostrActions } from '@/lib/nostr-bridge';
 import { OBELISK_NIP46_PERMISSIONS } from '@/lib/nostr-signing-kinds';
 import GeneratedProfileEnhancements from './GeneratedProfileEnhancements';
@@ -281,6 +282,7 @@ export default function LoginModal({
   subtitle = 'Choose your login method',
   headerSlot,
 }: LoginModalProps = {}) {
+  const router = useRouter();
   const [generatedLogin, setGeneratedLogin] = useState<LoginArgs | null>(null);
   const [finishing, setFinishing] = useState(false);
   const [finishError, setFinishError] = useState('');
@@ -288,6 +290,10 @@ export default function LoginModal({
   const [nip46Retry, setNip46Retry] = useState(0);
   const [hideTransientError, setHideTransientError] = useState(false);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeLogin = useCallback(() => {
+    if (onClose) onClose();
+    else router.push('/');
+  }, [onClose, router]);
   const updateGeneratedProfile = useCallback((patch: GeneratedProfileDraft) => {
     setGeneratedProfile((current) => ({ ...current, ...patch }));
   }, []);
@@ -364,7 +370,7 @@ export default function LoginModal({
       <SdkLoginModal
         key={nip46Retry}
         open
-        onClose={onClose ?? (() => { /* AppShell only mounts this when logged out — no dismiss */ })}
+        onClose={closeLogin}
         title={title}
         subtitle={subtitle}
         flatLayout

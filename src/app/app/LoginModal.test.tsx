@@ -5,11 +5,14 @@ import { Nip46Signer } from '@nostr-wot/signers';
 import LoginModal, { copyConnectionUri, isTransientNip46Error, signerAppHref } from './LoginModal';
 
 const bunkerFromUri = vi.hoisted(() => vi.fn());
+const push = vi.hoisted(() => vi.fn());
 const loginWithNsec = vi.fn();
 const loginWithBunker = vi.fn();
 const publish = vi.fn((_relays: string[], _event: unknown) => [Promise.resolve('ok')]);
 let updateDraft: ((patch: Record<string, string>) => void) | undefined;
 let sdkProps: Record<string, unknown> = {};
+
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
 
 vi.mock('@/lib/nostr-bridge', () => ({
   nostrActions: {
@@ -46,6 +49,7 @@ vi.mock('@nostr-wot/ui', async () => {
       sdkProps = props;
       return React.createElement('div', { className: 'nui-modal-overlay' },
         React.createElement('div', { className: 'nui-modal', 'data-testid': 'sdk-login' },
+          React.createElement('button', { 'aria-label': 'Close', onClick: props.onClose }),
           React.createElement('div', { className: 'nui-qr-wrap' },
             React.createElement('div', { className: 'nui-qr', 'data-testid': 'sdk-qr' }),
             React.createElement('div', { className: 'nui-key-display' }, 'nostrconnect://test'),
@@ -61,6 +65,7 @@ vi.mock('@nostr-wot/ui', async () => {
 describe('LoginModal generated identity flow', () => {
   beforeEach(() => {
     sdkProps = {};
+    push.mockReset();
     updateDraft = undefined;
     publish.mockClear();
     loginWithNsec.mockReset().mockResolvedValue(undefined);
@@ -70,6 +75,14 @@ describe('LoginModal generated identity flow', () => {
       configurable: true,
       value: { writeText: vi.fn().mockResolvedValue(undefined) },
     });
+  });
+
+  it('navigates home when the SDK close button is pressed', () => {
+    render(<LoginModal />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    expect(push).toHaveBeenCalledWith('/');
   });
 
   it('publishes the complete profile before the npub step and enters without another write', async () => {
