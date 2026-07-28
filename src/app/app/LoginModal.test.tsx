@@ -89,6 +89,7 @@ describe('LoginModal generated identity flow', () => {
     render(<LoginModal />);
 
     expect(sdkProps.profileSetup).toBe(true);
+    expect(sdkProps.closeOnSuccess).toBe(false);
     expect(sdkProps.showRememberToggle).toBe(true);
     expect(sdkProps.nip46Relays).toEqual(['wss://public.obelisk.ar']);
     const permissions = (sdkProps.nip46Perms as string).split(',');
@@ -122,6 +123,7 @@ describe('LoginModal generated identity flow', () => {
       banner: 'https://cdn.example/banner.jpg',
     });
     expect(screen.getByTestId('generated-npub-step')).toBeInTheDocument();
+    expect(push).not.toHaveBeenCalled();
     expect(loginWithNsec).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy my npub' }));

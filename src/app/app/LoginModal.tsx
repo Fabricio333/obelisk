@@ -371,6 +371,7 @@ export default function LoginModal({
         key={nip46Retry}
         open
         onClose={closeLogin}
+        closeOnSuccess={false}
         title={title}
         subtitle={subtitle}
         flatLayout
