@@ -75,6 +75,7 @@ export const metadata: Metadata = {
     locale: 'en_US',
     alternateLocale: ['es_AR'],
     type: 'website',
+    images: ['/og/obelisk.png'],
   },
   twitter: {
     card: 'summary_large_image',
@@ -82,6 +83,7 @@ export const metadata: Metadata = {
     description:
       'Group chat for crypto and privacy folks. Log in with your Nostr keys — no email, no password.',
     creator: '@lacryptaar',
+    images: ['/og/obelisk.png'],
   },
   robots: {
     index: true,
