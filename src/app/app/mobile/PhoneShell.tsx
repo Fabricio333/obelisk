@@ -122,7 +122,7 @@ import {
   relayMentionCandidates,
   type MemberInfo,
 } from '@/lib/mentions';
-import { useReadStateStore, type InboxEvent } from '@/store/read-state';
+import { isInboxEventRead, useReadStateStore, type InboxEvent } from '@/store/read-state';
 import {
   useChannelHighlights,
   useCachedChannelHighlights,
@@ -3570,7 +3570,6 @@ function InboxScreen({
 }) {
   const { t } = useTranslation();
   const events = useReadStateStore((s) => s.inboxEvents);
-  const markInboxRead = useReadStateStore((s) => s.advanceInboxRead);
   const markAllAsRead = useReadStateStore((s) => s.markAllAsRead);
   const groups = useGroups();
   // Read the bridge's loaded peers + groups imperatively at click time so
@@ -3598,7 +3597,6 @@ function InboxScreen({
       const g = groups.find((x) => x.id === e.channelId);
       selectGroup(e.channelId, g?.kind ?? 'text');
     }
-    markInboxRead();
   };
 
   return (
@@ -3634,9 +3632,10 @@ function InboxCard({ event, onJump }: { event: InboxEvent; onJump: () => void })
   const { t } = useTranslation();
   const meta = useUserMetadata(event.senderPubkey);
   const inboxLastReadAt = useReadStateStore((s) => s.inboxLastReadAt);
+  const groupCursor = useReadStateStore((s) => s.groupCursors[event.channelId ?? '']);
   const name = meta?.displayName || meta?.name || shortNpub(event.senderPubkey);
   const tsSec = Math.floor(new Date(event.createdAt).getTime() / 1000);
-  const isRead = Date.parse(event.createdAt) <= inboxLastReadAt;
+  const isRead = isInboxEventRead(event, inboxLastReadAt, groupCursor);
   const typeLabel: Record<InboxEvent['type'], string> = {
     mention: t('mobile.inbox.type.mention'),
     reply: t('mobile.inbox.type.reply'),

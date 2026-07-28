@@ -22,7 +22,7 @@ import {
   useMessages,
   useMessagesByGroup,
 } from '@/lib/nostr-bridge';
-import { useReadStateStore } from '@/store/read-state';
+import { isInboxEventRead, useReadStateStore } from '@/store/read-state';
 import { buildAuthorIndex, isReplyToMe } from './replies';
 
 const FALLBACK_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -272,12 +272,12 @@ export function useHasAnyHighlights(ownPubkey: string | null): boolean {
 export function useInboxUnreadCount(): number {
   const events = useReadStateStore((s) => s.inboxEvents);
   const cursor = useReadStateStore((s) => s.inboxLastReadAt);
+  const groupCursors = useReadStateStore((s) => s.groupCursors);
   return useMemo(() => {
     let n = 0;
     for (const e of events) {
-      const t = Date.parse(e.createdAt);
-      if (!Number.isNaN(t) && t > cursor) n++;
+      if (!isInboxEventRead(e, cursor, groupCursors[e.channelId ?? ''])) n++;
     }
     return n;
-  }, [events, cursor]);
+  }, [events, cursor, groupCursors]);
 }

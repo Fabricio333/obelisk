@@ -126,6 +126,25 @@ describe('useReadStateStore', () => {
       expect(useReadStateStore.getState().inboxEvents).toEqual([]);
     });
 
+    it('marks mention and reply notifications read from their channel cursor', () => {
+      useReadStateStore.getState().pushInboxEvent({
+        type: 'mention', senderPubkey: 'pk', channelId: 'ch1', messageId: 'm1',
+        createdAt: '2026-05-08T10:00:00Z',
+      });
+      useReadStateStore.getState().pushInboxEvent({
+        type: 'reply', senderPubkey: 'pk', channelId: 'ch1', messageId: 'm2',
+        createdAt: '2026-05-08T11:00:00Z',
+      });
+      useReadStateStore.getState().pushInboxEvent({
+        type: 'mention', senderPubkey: 'pk', channelId: 'ch2', messageId: 'm3',
+        createdAt: '2026-05-08T09:00:00Z',
+      });
+
+      useReadStateStore.getState().setGroupCursor('ch1', Date.parse('2026-05-08T11:00:00Z'));
+
+      expect(getInboxUnreadCount()).toBe(1);
+    });
+
     it('getInboxUnreadCount counts events newer than the cursor', () => {
       useReadStateStore.setState({ inboxLastReadAt: Date.parse('2026-05-08T10:00:00Z') });
       useReadStateStore.getState().pushInboxEvent({

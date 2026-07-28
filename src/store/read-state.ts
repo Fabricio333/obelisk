@@ -83,6 +83,16 @@ interface ReadStateActions {
 
 export type ReadStateStore = ReadStatePersisted & ReadStateActions;
 
+export function isInboxEventRead(
+  event: InboxEvent,
+  inboxLastReadAt: number,
+  groupCursor = 0,
+): boolean {
+  const createdAt = Date.parse(event.createdAt);
+  if (Number.isNaN(createdAt) || createdAt <= inboxLastReadAt) return true;
+  return !!event.channelId && createdAt <= groupCursor;
+}
+
 export const READ_STATE_INITIAL: ReadStatePersisted = {
   dmCursors: {},
   groupCursors: {},
@@ -224,14 +234,13 @@ export const ensureReadStateStoreForAccount = createEnsureForAccount(
 
 /**
  * Inbox unread count selector for use outside React. Counts events whose
- * `createdAt` (ISO) parses to a timestamp newer than `inboxLastReadAt`.
+ * Counts events newer than both the global inbox cursor and their channel cursor.
  */
 export function getInboxUnreadCount(): number {
-  const { inboxEvents, inboxLastReadAt } = useReadStateStore.getState();
+  const { inboxEvents, inboxLastReadAt, groupCursors } = useReadStateStore.getState();
   let n = 0;
   for (const e of inboxEvents) {
-    const t = Date.parse(e.createdAt);
-    if (!Number.isNaN(t) && t > inboxLastReadAt) n++;
+    if (!isInboxEventRead(e, inboxLastReadAt, groupCursors[e.channelId ?? ''])) n++;
   }
   return n;
 }

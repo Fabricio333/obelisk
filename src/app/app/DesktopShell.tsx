@@ -61,7 +61,7 @@ import ForumView from '@/components/chat/ForumView';
 import VoiceStatusBar from '@/components/voice/VoiceStatusBar';
 import BackgroundVoiceAudio from '@/components/voice/BackgroundVoiceAudio';
 import { useVoiceStore } from '@/store/voice';
-import { useReadStateStore, type InboxEvent } from '@/store/read-state';
+import { isInboxEventRead, useReadStateStore, type InboxEvent } from '@/store/read-state';
 import { useInboxUnreadCount, useChannelHighlights, useCachedChannelHighlights } from '@/lib/read-state/selectors';
 import { subscribeVoiceJump } from '@/lib/voice/jump-to-voice';
 import { useVoiceChatPane } from '@/hooks/chat/useVoiceChatPane';
@@ -468,8 +468,8 @@ function RelayTopBar({
   const [notifOpen, setNotifOpen] = useState(false);
   const inboxEvents = useReadStateStore((s) => s.inboxEvents);
   const inboxLastReadAt = useReadStateStore((s) => s.inboxLastReadAt);
+  const groupCursors = useReadStateStore((s) => s.groupCursors);
   const unreadInboxCount = useInboxUnreadCount();
-  const markInboxRead = useReadStateStore((s) => s.advanceInboxRead);
   const markAllAsRead = useReadStateStore((s) => s.markAllAsRead);
   const clearInboxEvents = useReadStateStore((s) => s.clearInboxEvents);
   // Snapshot the bridge's loaded peers + groups at click time so "Mark all
@@ -516,7 +516,6 @@ function RelayTopBar({
     if (e.type === 'dm' && onJumpToDm) onJumpToDm(e.senderPubkey);
     else if (e.channelId && onJumpToChannel) onJumpToChannel(e.channelId);
     setNotifOpen(false);
-    markInboxRead();
   };
 
   const displayName = info?.name || shortHost(relay);
@@ -605,7 +604,7 @@ function RelayTopBar({
             ) : (
               <ul className="flex flex-col">
                 {inboxEvents.map((e) => {
-                  const isRead = Date.parse(e.createdAt) <= inboxLastReadAt;
+                  const isRead = isInboxEventRead(e, inboxLastReadAt, groupCursors[e.channelId ?? '']);
                   return (
                   <li key={e.id}>
                     <button
