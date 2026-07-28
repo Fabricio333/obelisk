@@ -75,7 +75,13 @@ export const metadata: Metadata = {
     locale: 'en_US',
     alternateLocale: ['es_AR'],
     type: 'website',
-    images: ['/og/obelisk.png'],
+    images: [{
+      url: '/og/obelisk.png?v=2',
+      width: 1200,
+      height: 630,
+      type: 'image/png',
+      alt: 'Obelisk — Group chat powered by Nostr identity',
+    }],
   },
   twitter: {
     card: 'summary_large_image',
@@ -83,7 +89,7 @@ export const metadata: Metadata = {
     description:
       'Group chat for crypto and privacy folks. Log in with your Nostr keys — no email, no password.',
     creator: '@lacryptaar',
-    images: ['/og/obelisk.png'],
+    images: ['/og/obelisk.png?v=2'],
   },
   robots: {
     index: true,
