@@ -209,6 +209,7 @@ describe('LoginModal generated identity flow', () => {
 
     expect(sdkProps.styles).toEqual({ error: { display: 'none' } });
     await waitFor(() => expect(screen.getByTestId('sdk-login')).not.toBe(oldQr), { timeout: 1_000 });
+    await waitFor(() => expect(screen.getByText('Open in signer app')).toBeInTheDocument());
   });
 
   it('shows an aligned back control on the final generated-profile screen', async () => {

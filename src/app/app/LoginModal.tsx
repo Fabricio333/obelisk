@@ -157,11 +157,8 @@ async function routeToBridge(args: {
  * where the user can't scan their own screen but can hand off to Amber, Nsec.app,
  * Keychat, etc. via the registered URL scheme.
  *
- * Implementation note: we scope the MutationObserver to `.nui-modal-overlay`
- * (and wait for it to appear) instead of watching the whole document. The
- * SDK's QR view re-renders frequently (spinner, slow-hint, restart) and we
- * only care about a single text node — narrowing the scope keeps this from
- * thrashing on every spinner tick.
+ * The SDK remounts its modal when a cancelled connection rotates the QR, so
+ * the observer lives on document.body and follows the replacement overlay.
  *
  * TODO: once @nostr-wot/ui publishes a version with the native button, delete
  *       this component and the matching `.nui-open-signer` CSS rule.
@@ -171,7 +168,6 @@ function Nip46SignerDeepLink(): null {
     if (typeof document === 'undefined') return;
 
     let injected: HTMLElement | null = null;
-    let innerObserver: MutationObserver | null = null;
 
     const removeInjected = () => {
       if (injected && injected.isConnected) injected.remove();
@@ -222,33 +218,12 @@ function Nip46SignerDeepLink(): null {
       injected = actions;
     };
 
-    const attachInner = (overlay: Element) => {
-      innerObserver?.disconnect();
-      innerObserver = new MutationObserver(sync);
-      innerObserver.observe(overlay, { childList: true, subtree: true, characterData: true });
-      sync();
-    };
-
-    // The SDK portals the overlay to <body> when it mounts; we have to wait
-    // for that. A short interval is cheaper than a body-wide subtree
-    // observer and only runs until the overlay appears.
-    let outerInterval: ReturnType<typeof setInterval> | null = setInterval(() => {
-      const overlay = document.querySelector('.nui-modal-overlay');
-      if (!overlay) return;
-      if (outerInterval) { clearInterval(outerInterval); outerInterval = null; }
-      attachInner(overlay);
-    }, 100);
-
-    // Fast-path: overlay may already be in the DOM by the time this effect runs.
-    const existing = document.querySelector('.nui-modal-overlay');
-    if (existing) {
-      if (outerInterval) { clearInterval(outerInterval); outerInterval = null; }
-      attachInner(existing);
-    }
+    const observer = new MutationObserver(sync);
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    sync();
 
     return () => {
-      if (outerInterval) clearInterval(outerInterval);
-      innerObserver?.disconnect();
+      observer.disconnect();
       removeInjected();
     };
   }, []);
