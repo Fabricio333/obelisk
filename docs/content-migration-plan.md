@@ -12,7 +12,7 @@ The deployed La Crypta server is behind `prisma/seed.ts`. The initial channel co
 
 - Schema already has `Message.pinnedAt DateTime?` + `Message.pinnedByPubkey String?` and an index on `[channelId, pinnedAt]`.
 - `GET /api/channels/[channelId]/pins` is shipped, and `PinnedMessagesPanel.tsx` renders them.
-- Pending: `PATCH /api/admin/messages/[id]/pin` (admin+) to toggle pin state. Pin button in the message context menu (admin/mod+), badge 📌 on the pinned message inline. Works for forum posts too (pinned posts appear first in the list).
+- Pending: NIP-29-compatible pin events to toggle pin state. Pin button in the message context menu (admin/mod+), badge 📌 on the pinned message inline. Works for forum posts too (pinned posts appear first in the list).
 
 ### 2. Channel description / topic editor
 

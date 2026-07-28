@@ -38,7 +38,7 @@ export const HERO_ASSET_META: Record<string, GuideAssetMeta> = {
   'admin-cli': {
     width: 800,
     height: 400,
-    alt: 'Obelisk admin CLI for coding agents: a terminal streaming admin commands wired to an AI agent that signs Nostr challenges and drives the relay admin API.',
+    alt: 'Obelisk admin CLI for coding agents: a terminal streaming admin commands wired to an AI agent that signs Nostr challenges and publishes NIP-29 events to the relay.',
   },
   'swap-anything': {
     width: 800,

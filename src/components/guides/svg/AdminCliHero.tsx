@@ -19,7 +19,7 @@ export default function AdminCliHero() {
       <title id="hero-cli-title">Admin CLI for coding agents</title>
       <desc id="hero-cli-desc">
         A terminal window streaming admin commands, wired to an AI agent avatar that signs
-        Nostr challenges and drives the Obelisk admin API.
+        Nostr challenges and publishes NIP-29 events to the relay.
       </desc>
 
       <defs>
@@ -109,7 +109,7 @@ export default function AdminCliHero() {
         <polygon points="715,168 705,232 725,232" fill="#b4f953" opacity="0.85" />
         <rect x="700" y="232" width="30" height="4" fill="#b4f953" opacity="0.7" />
         <text x="715" y="268" textAnchor="middle" fontSize="11" fontWeight="600" fill="#a3a3a3" fontFamily="monospace">
-          /api/admin
+          NIP-29 relay
         </text>
       </g>
 
@@ -139,9 +139,9 @@ export default function AdminCliHero() {
       {/* legend */}
       <g fontSize="11" fontWeight="600">
         <rect x="34" y="18" width="12" height="12" rx="2" fill="#b4f953" />
-        <text x="52" y="28" fill="#fafafa">role-checked endpoints</text>
+        <text x="52" y="28" fill="#fafafa">relay-authorized events</text>
         <rect x="220" y="18" width="12" height="12" rx="2" fill="#171717" stroke="#b4f953" strokeWidth="1.5" />
-        <text x="238" y="28" fill="#fafafa">same API as /admin</text>
+        <text x="238" y="28" fill="#fafafa">same NIP-29 protocol</text>
       </g>
     </svg>
   );
