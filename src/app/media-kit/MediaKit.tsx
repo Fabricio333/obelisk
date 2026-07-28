@@ -119,7 +119,7 @@ const ASSETS = [
   },
 ];
 
-const OG_IMAGE_URL = '/opengraph-image';
+const OG_IMAGE_URL = '/og/obelisk.png';
 
 const EMBED_HTML_BANNER = `<a href="https://obelisk.ar" target="_blank" rel="noopener" style="display:inline-block;text-decoration:none;font-family:Inter,system-ui,sans-serif;background:#0a0a0a;border:1px solid #262626;border-radius:12px;padding:14px 20px;color:#fafafa;">
   <span style="display:flex;align-items:center;gap:12px;">
@@ -137,7 +137,7 @@ const EMBED_BADGE = `<a href="https://obelisk.ar" target="_blank" rel="noopener"
 const EMBED_OG = `<!-- Add to <head> for sharing previews -->
 <meta property="og:title" content="Obelisk — Group chat powered by Nostr identity" />
 <meta property="og:description" content="No emails. No passwords. Cryptographic identity." />
-<meta property="og:image" content="https://obelisk.ar/opengraph-image" />
+<meta property="og:image" content="https://obelisk.ar/og/obelisk.png" />
 <meta property="og:url" content="https://obelisk.ar" />
 <meta name="twitter:card" content="summary_large_image" />`;
 
@@ -199,7 +199,7 @@ function CodeBlock({ code }: { code: string }) {
   );
 }
 
-// Obelisk silhouette — same artwork as /opengraph-image so banners stay
+// Obelisk silhouette — same artwork as /og/obelisk.png so banners stay
 // visually identical to the share preview.
 function ObeliskMark({
   width = '100%',
@@ -1077,7 +1077,7 @@ export default function MediaKit() {
               />
             </div>
             <div className="border-t border-lc-border p-3 flex items-center justify-between text-xs text-lc-muted">
-              <span>1200 × 630 · /opengraph-image</span>
+              <span>1200 × 630 · /og/obelisk.png</span>
               <a
                 href={OG_IMAGE_URL}
                 target="_blank"
