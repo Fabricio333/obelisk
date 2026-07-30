@@ -1,7 +1,5 @@
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=9JMbrT5sNHU">
-    <img src="https://img.youtube.com/vi/9JMbrT5sNHU/maxresdefault.jpg" alt="Watch the Obelisk promo video" width="90%" />
-  </a>
+  <a href="https://obelisk.ar/media-kit/video/obelisk-promo.mp4"><strong>▶ Watch the Obelisk promo video</strong></a>
 </p>
 
 <p align="center">
