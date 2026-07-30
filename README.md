@@ -1,6 +1,4 @@
-<p align="center">
-  <a href="https://obelisk.ar/media-kit/video/obelisk-promo.mp4"><strong>▶ Watch the Obelisk promo video</strong></a>
-</p>
+https://obelisk.ar/media-kit/video/obelisk-promo.mp4
 
 <p align="center">
   <img src="public/obelisk-md.gif" alt="Obelisk" width="50%" style="max-height: 320px; object-fit: cover;" />
