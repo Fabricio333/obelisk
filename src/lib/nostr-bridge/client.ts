@@ -327,6 +327,9 @@ const DEFAULT_RELAY = 'wss://public.obelisk.ar';
 const LACRYPTA_RELAY = 'wss://lacrypta-relay.obelisk.ar';
 const RETIRED_RELAY = 'wss://relay.obelisk.ar';
 const DEFAULT_RELAYS = [DEFAULT_RELAY, LACRYPTA_RELAY];
+const BLOCKED_MEDIA_PACK_AUTHORS = new Set([
+  '43fabde62ffea1aa0ddae7c0ac03b7017e2d864f8665784b00bbfa2f9114c06a',
+]);
 
 // Per-channel message backfill cap. Only this many of the most recent kind 9
 // events are pulled into `messagesByGroup` on the live REQ; older messages
@@ -1586,6 +1589,10 @@ export class BridgeImpl {
       const entry = cacheGet<JsMediaPack>(relay, KIND_EMOJI_SET, id);
       if (!entry) continue;
       const pack = entry.value;
+      if (BLOCKED_MEDIA_PACK_AUTHORS.has(pack.author)) {
+        cacheDelete(relay, KIND_EMOJI_SET, id);
+        continue;
+      }
       if ((this.mediaPackLatestAt.get(pack.address) ?? 0) >= pack.createdAt) continue;
       cachedPacks[pack.address] = pack;
       this.mediaPackLatestAt.set(pack.address, pack.createdAt);
@@ -5284,7 +5291,7 @@ export class BridgeImpl {
   }
 
   private ingestMediaPack(ev: NostrEvent): void {
-    if (ev.kind !== KIND_EMOJI_SET) return;
+    if (ev.kind !== KIND_EMOJI_SET || BLOCKED_MEDIA_PACK_AUTHORS.has(ev.pubkey)) return;
     const pack = parseMediaPack(ev);
     if (!pack || pack.items.length === 0) return;
     if (ev.created_at <= (this.mediaPackLatestAt.get(pack.address) ?? 0)) return;
