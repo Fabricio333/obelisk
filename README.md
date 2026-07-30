@@ -35,6 +35,7 @@ A static Next.js app that talks **directly to Nostr relays**. Channels, members,
 - 🛰️ **No backend to trust.** Group state lives on relays you choose. Anyone can run one.
 - 🌐 **Trivially self-hostable.** Static export — deploys to any CDN.
 
+## Demo
 https://github.com/user-attachments/assets/4b6e31a9-a30d-43b3-b18a-dd21c1cf9c15
 
 ## Screenshots
