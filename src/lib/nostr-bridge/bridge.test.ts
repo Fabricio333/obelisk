@@ -250,6 +250,45 @@ describe('nostr-bridge', () => {
     });
   });
 
+  it("blacklists abusive media-pack publishers from relay events and cache", async () => {
+    const { getBridge } = await import("./client");
+    const { cacheGet, cacheSet } = await import("./cache");
+    const { skHex, pkHex } = makeKeypair();
+    const blockedAuthor = "43fabde62ffea1aa0ddae7c0ac03b7017e2d864f8665784b00bbfa2f9114c06a";
+    const address = "30030:" + blockedAuthor + ":niggaemotes";
+    const cacheId = "media-pack:" + address;
+    cacheSet("wss://public.obelisk.ar", 30030, cacheId, {
+      address,
+      identifier: "niggaemotes",
+      author: blockedAuthor,
+      title: "niggaemotes",
+      description: "",
+      image: "",
+      items: [{ name: "blocked", url: "https://cdn.example/blocked.webp", kind: "sticker" }],
+      createdAt: 50,
+    });
+
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+
+    expect(bridge.mediaPacks.get()[address]).toBeUndefined();
+    expect(cacheGet("wss://public.obelisk.ar", 30030, cacheId)).toBeNull();
+
+    deliver({
+      id: "8d862c147fd53c4809407d2b35feb29e43b98ae734b4c7ba68a59605f006b1dd",
+      pubkey: blockedAuthor,
+      created_at: 51,
+      kind: 30030,
+      tags: [["d", "niggaemotes"], ["emoji", "blocked", "https://cdn.example/blocked.webp"]],
+      content: "",
+      sig: "0".repeat(128),
+    });
+    await flush();
+
+    expect(bridge.mediaPacks.get()[address]).toBeUndefined();
+    expect(cacheGet("wss://public.obelisk.ar", 30030, cacheId)).toBeNull();
+  });
+
   it('deletes only an owned media pack with a NIP-09 address request', async () => {
     const { getBridge } = await import('./client');
     const { mediaPackAddress } = await import('../media-packs');

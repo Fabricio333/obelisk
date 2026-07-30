@@ -110,6 +110,7 @@ import { groupReactions, resolveReactionEmoji } from '@/lib/emoji-shortcodes';
 import { channelScrollPositionKey } from '@/lib/channel-scroll-position';
 import { channelInitialAnchorFromCursor } from '@/lib/channel-scroll-anchor';
 import { useChannelScrollPosition } from '@/hooks/chat/useChannelScrollPosition';
+import { useHistoryPagination } from '@/hooks/chat/useHistoryPagination';
 import RelayEmojiAdminModal from '@/components/admin/RelayEmojiAdminModal';
 import { ChannelAppearanceInput } from '@/components/BlossomImageInput';
 import { extractUrls, isImageUrl } from '@/lib/markdown';
@@ -2075,10 +2076,6 @@ function ChatPanel({
     if (!target || !scroller.contains(target)) return null;
     return target;
   }, [initialAnchorMessageId]);
-  const scrollKeyRef = useRef(scrollKey);
-  useEffect(() => {
-    scrollKeyRef.current = scrollKey;
-  }, [scrollKey]);
   // Highlights drive the floating mention/reply navigator at the bottom-right
   // of the message viewport — same data the channel-row badges read.
   const channelHighlights = useChannelHighlights(groupId, myPubkey);
@@ -2110,37 +2107,28 @@ function ChatPanel({
     onNearBottomChange: setNearBottom,
   });
   const { loadEarlier, loading: loadingEarlier, reachedStart } = useLoadEarlier(groupId);
-  const [nearHistoryTop, setNearHistoryTop] = useState(false);
+  // Top-of-list pagination + scroll anchoring live in the shared hook so the
+  // desktop and phone shells behave identically. See useHistoryPagination for
+  // why the trigger prefetches well before the very top.
+  const { atTop: nearHistoryTop } = useHistoryPagination({
+    scrollRef,
+    itemCount: messages.length,
+    loadEarlier,
+    loading: loadingEarlier,
+    reachedStart,
+    sessionKey: scrollKey,
+  });
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const onScroll = () => {
       const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-      const near = dist < 100;
-      setNearBottom(near);
-      setNearHistoryTop(el.scrollTop < 80);
-      // Top-of-list pagination. Anchor by pre-load scrollHeight so the
-      // viewport stays on the same message after the older page is
-      // prepended instead of snapping to the new top.
-      if (el.scrollTop < 80 && !loadingEarlier && !reachedStart) {
-        const loadKey = scrollKeyRef.current;
-        const prevHeight = el.scrollHeight;
-        const prevTop = el.scrollTop;
-        void loadEarlier().then((result) => {
-          if (result !== 'added') return;
-          requestAnimationFrame(() => {
-            const e = scrollRef.current;
-            if (!e) return;
-            if (loadKey && scrollKeyRef.current !== loadKey) return;
-            e.scrollTop = e.scrollHeight - prevHeight + prevTop;
-          });
-        });
-      }
+      setNearBottom(dist < 100);
     };
     onScroll();
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, [loadEarlier, loadingEarlier, reachedStart, setNearBottom]);
+  }, [setNearBottom]);
   // New messages: stick to bottom only if the user was already there.
   useEffect(() => {
     if (pendingMessageId) return;
