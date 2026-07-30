@@ -1,4 +1,10 @@
 <p align="center">
+  <a href="https://www.youtube.com/watch?v=9JMbrT5sNHU">
+    <img src="https://img.youtube.com/vi/9JMbrT5sNHU/maxresdefault.jpg" alt="Watch the Obelisk promo video" width="90%" />
+  </a>
+</p>
+
+<p align="center">
   <img src="public/obelisk-md.gif" alt="Obelisk" width="50%" style="max-height: 320px; object-fit: cover;" />
 </p>
 
