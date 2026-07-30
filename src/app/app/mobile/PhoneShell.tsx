@@ -143,6 +143,7 @@ import { useKeyboardInset } from './use-keyboard';
 import { channelScrollPositionKey } from '@/lib/channel-scroll-position';
 import { channelInitialAnchorFromCursor } from '@/lib/channel-scroll-anchor';
 import { useChannelScrollPosition } from '@/hooks/chat/useChannelScrollPosition';
+import { useHistoryPagination } from '@/hooks/chat/useHistoryPagination';
 import { useNostrUserSearch, type UserHit } from '@/lib/hooks/useNostrUserSearch';
 // CSS is hoisted to AppGate.tsx so it lands in the route's eagerly-loaded
 // stylesheet, not in this dynamic chunk's late-arriving sidecar.
@@ -2540,10 +2541,6 @@ function ChannelScreen({
     if (!target || !scroller.contains(target)) return null;
     return target;
   }, [initialAnchorMessageId]);
-  const scrollKeyRef = useRef(scrollKey);
-  useEffect(() => {
-    scrollKeyRef.current = scrollKey;
-  }, [scrollKey]);
   const composerInputRef = useRef<HTMLInputElement>(null);
   const channelHighlights = useChannelHighlights(groupId, myPubkey);
 
@@ -2689,34 +2686,17 @@ function ChannelScreen({
   }, [messages.length]);
 
   // Top-of-list pagination. Live REQ caps at the background limit; older
-  // history is paged in here when the user scrolls near the top. Anchor
-  // by pre-load scrollHeight to keep the viewport on the same message.
+  // history is paged in as the user approaches the top, with the viewport
+  // anchored across the prepend — see useHistoryPagination.
   const { loadEarlier, loading: loadingEarlier, reachedStart } = useLoadEarlier(groupId);
-  const [nearHistoryTop, setNearHistoryTop] = useState(false);
-  useEffect(() => {
-    const el = messagesRef.current;
-    if (!el) return;
-    const onScroll = () => {
-      setNearHistoryTop(el.scrollTop < 80);
-      if (el.scrollTop < 80 && !loadingEarlier && !reachedStart) {
-        const loadKey = scrollKeyRef.current;
-        const prevHeight = el.scrollHeight;
-        const prevTop = el.scrollTop;
-        void loadEarlier().then((result) => {
-          if (result !== 'added') return;
-          requestAnimationFrame(() => {
-            const e = messagesRef.current;
-            if (!e) return;
-            if (loadKey && scrollKeyRef.current !== loadKey) return;
-            e.scrollTop = e.scrollHeight - prevHeight + prevTop;
-          });
-        });
-      }
-    };
-    onScroll();
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  }, [loadEarlier, loadingEarlier, reachedStart]);
+  const { atTop: nearHistoryTop } = useHistoryPagination({
+    scrollRef: messagesRef,
+    itemCount: messages.length,
+    loadEarlier,
+    loading: loadingEarlier,
+    reachedStart,
+    sessionKey: scrollKey,
+  });
 
   const send = () => {
     const text = draft.trim();
