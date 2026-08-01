@@ -182,7 +182,7 @@ export default async function GuideArticlePage({
       name: 'La Crypta',
       logo: {
         '@type': 'ImageObject',
-        url: `${SITE_URL}/obelisk.png`,
+        url: `${SITE_URL}/icon-512.png`,
       },
     },
     mainEntityOfPage: {

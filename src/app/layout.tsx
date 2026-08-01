@@ -153,7 +153,7 @@ export default async function RootLayout({
         '@id': `${SITE_URL}/#organization`,
         name: 'La Crypta',
         url: 'https://lacrypta.ar',
-        logo: `${SITE_URL}/obelisk.png`,
+        logo: `${SITE_URL}/icon-512.png`,
       },
       {
         '@type': 'SoftwareApplication',
@@ -163,7 +163,7 @@ export default async function RootLayout({
         description:
           'Discord alternative powered by Nostr identity. Log in with your keys — no email, no password. Includes servers, channels, voice, encrypted DMs and Web of Trust spam resistance.',
         url: SITE_URL,
-        image: `${SITE_URL}/obelisk.png`,
+        image: `${SITE_URL}/icon-512.png`,
         author: { '@id': `${SITE_URL}/#organization` },
         offers: {
           '@type': 'Offer',

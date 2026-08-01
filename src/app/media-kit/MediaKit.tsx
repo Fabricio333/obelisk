@@ -38,12 +38,16 @@ const LINKS = {
   defaultRelay: 'wss://public.obelisk.ar',
 };
 
-const ASSETS = [
+// `/obelisk.png` used to lead this list. It is the pre-hollow-face artwork —
+// both faces solid, ~8% wider at the base — and no longer matches the icon we
+// ship, so it is not offered for download. The file stays in /public so old
+// external links keep resolving.
+export const ASSETS = [
   {
-    src: '/obelisk.png',
+    src: '/icon-512.png',
     label: 'Obelisk Logo (PNG)',
     bg: 'bg-lc-black',
-    download: 'obelisk.png',
+    download: 'obelisk-logo.png',
   },
   {
     src: '/obelisk-favicon.png',
@@ -56,12 +60,6 @@ const ASSETS = [
     label: 'App Icon — 192px (PNG)',
     bg: 'bg-lc-black',
     download: 'icon-192.png',
-  },
-  {
-    src: '/icon-512.png',
-    label: 'App Icon — 512px (PNG)',
-    bg: 'bg-lc-black',
-    download: 'icon-512.png',
   },
   {
     src: '/obelisk.gif',
