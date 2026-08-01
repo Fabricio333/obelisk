@@ -88,6 +88,45 @@ describe('EmojiPicker', () => {
     expect(within(recentSection).getByRole('button', { name: '😀' })).not.toHaveAttribute('title');
   });
 
+  it('renders recent custom picks from their remembered URL', () => {
+    const onPick = vi.fn();
+    const { rerender } = render(
+      <EmojiPicker onPick={onPick} onClose={() => {}} customEmojis={{ party_dance: 'https://cdn.example/party_dance.gif' }} />,
+    );
+
+    fireEvent.click(screen.getByTitle(':party_dance:'));
+    // The server emoji set no longer carries the shortcode — the recents grid
+    // must still show the media, not the text `:party_dance:`.
+    rerender(<EmojiPicker onPick={onPick} onClose={() => {}} customEmojis={{}} />);
+
+    const recentSection = document.querySelector<HTMLElement>('[data-emoji-category="Recent"]')!;
+    expect(within(recentSection).getByAltText(':party_dance:')).toHaveAttribute('src', 'https://cdn.example/party_dance.gif');
+    expect(recentSection).not.toHaveTextContent(':party_dance:');
+
+    fireEvent.click(within(recentSection).getByAltText(':party_dance:'));
+    expect(onPick).toHaveBeenLastCalledWith(':party_dance:', expect.objectContaining({ name: 'party_dance', url: 'https://cdn.example/party_dance.gif' }));
+  });
+
+  it('drops recent shortcodes that cannot be resolved to media', () => {
+    localStorage.setItem('obelisk:recent-emojis', JSON.stringify([':ghost_sticker:', '😀']));
+
+    const { container } = render(<EmojiPicker onPick={() => {}} onClose={() => {}} customEmojis={{}} />);
+
+    const recentSection = container.querySelector<HTMLElement>('[data-emoji-category="Recent"]')!;
+    expect(recentSection).not.toHaveTextContent(':ghost_sticker:');
+    expect(within(recentSection).getByRole('button', { name: '😀' })).toBeInTheDocument();
+  });
+
+  it('shows a glyph instead of the shortcode when custom media fails to load', () => {
+    render(<EmojiPicker onPick={() => {}} onClose={() => {}} skipRecent customEmojis={{ wave: 'https://cdn.example/gone.webp' }} />);
+
+    fireEvent.error(screen.getByAltText(':wave:'));
+
+    const section = screen.getByText('Server emojis').parentElement!;
+    expect(within(section).getByTestId('media-thumb-fallback')).toBeInTheDocument();
+    expect(section).not.toHaveTextContent(':wave:');
+  });
+
   it('positions popovers above or below the trigger', () => {
     const props = {
       onPick: vi.fn(),

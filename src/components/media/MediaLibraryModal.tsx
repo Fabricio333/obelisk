@@ -8,6 +8,7 @@ import { nostrActions, useMediaPacks, useMyMediaFavorites, useMyPubkey } from '@
 import type { JsMediaItem, JsMediaKind, JsMediaPack } from '@/lib/nostr-bridge';
 import { publishRelayEmojiSet, type RelayEmojiSet } from '@/lib/relay-emojis';
 import { inferMediaKind } from '@/lib/media-kind';
+import MediaThumb from '@/components/media/MediaThumb';
 
 type LibraryTab = 'discover' | 'mine' | 'favorites' | 'server';
 type MediaFilter = 'all' | JsMediaKind;
@@ -437,7 +438,7 @@ function PackCard({ pack, mine, favorite, itemFavorites, busy, server, serverSel
       <div className="flex min-h-24 items-center gap-2 bg-lc-black p-3">
         {pack.items.slice(0, 5).map((item) => (
           <button key={item.url} type="button" onClick={() => onOpenItem(item)} title="Open media actions" aria-label={"Open :" + item.name + ": actions"} className="group relative flex h-14 min-w-0 flex-1 items-center justify-center rounded-lg bg-lc-dark p-1">
-            <img src={item.url} alt={":" + item.name + ":"} className="max-h-full max-w-full object-contain" />
+            <MediaThumb src={item.url} alt={":" + item.name + ":"} className="max-h-full max-w-full object-contain" />
             {!server && itemFavorites.some((saved) => saved.url === item.url) && <span className="absolute right-1 top-1 text-xs text-lc-green">★</span>}
           </button>
         ))}
@@ -513,7 +514,7 @@ function MediaItemMenu({ selection, favorite, busy, server, onClose, onViewPack,
         <button type="button" onClick={onClose} aria-label="Close media actions" className="text-lc-muted">✕</button>
       </header>
       <div className="flex h-64 items-center justify-center bg-lc-black p-6">
-        <img src={item.url} alt={":" + item.name + ":"} className="max-h-full max-w-full object-contain" />
+        <MediaThumb src={item.url} alt={":" + item.name + ":"} className="max-h-full max-w-full object-contain" />
       </div>
       <div className="grid gap-2 p-4">
         {pack && <button type="button" onClick={onViewPack} className="rounded-lg border border-lc-border px-3 py-2 text-sm text-lc-white">View {pack.title}</button>}
@@ -539,17 +540,17 @@ function MediaGrid({ items, favorites = [], busy = false, onOpen, onFavorite, on
         return <div key={item.url} className="relative">
           {onOpen ? (
             <button type="button" onClick={() => onOpen(item)} title={"Open :" + item.name + ": actions"} aria-label={"Open :" + item.name + ": actions"} className="relative flex aspect-square w-full items-center justify-center rounded-lg border border-lc-border bg-lc-dark p-2 hover:border-lc-green/50">
-              <img src={item.url} alt={":" + item.name + ":"} className="max-h-full max-w-full object-contain" />
+              <MediaThumb src={item.url} alt={":" + item.name + ":"} className="max-h-full max-w-full object-contain" />
               {favorite && !onFavorite && <span className="absolute right-1 top-1 text-xs text-lc-green">★</span>}
             </button>
           ) : onFavorite ? (
             <button type="button" onClick={() => onFavorite(item)} title={(favorite ? "Remove favorite :" : "Favorite :") + item.name + ":"} className="relative flex aspect-square w-full items-center justify-center rounded-lg border border-lc-border bg-lc-dark p-2 hover:border-lc-green/50">
-              <img src={item.url} alt={":" + item.name + ":"} className="max-h-full max-w-full object-contain" />
+              <MediaThumb src={item.url} alt={":" + item.name + ":"} className="max-h-full max-w-full object-contain" />
               <span className={"absolute right-1 top-1 text-xs " + (favorite ? "text-lc-green" : "text-white/50")}>★</span>
             </button>
           ) : (
             <div className="flex aspect-square w-full items-center justify-center rounded-lg border border-lc-border bg-lc-dark p-2">
-              <img src={item.url} alt={":" + item.name + ":"} className="max-h-full max-w-full object-contain" />
+              <MediaThumb src={item.url} alt={":" + item.name + ":"} className="max-h-full max-w-full object-contain" />
             </div>
           )}
           {onOpen && onFavorite && <button type="button" disabled={busy} onClick={() => onFavorite(item)} aria-label={(favorite ? "Remove :" : "Add :") + item.name + (favorite ? ": from favorites" : ": to favorites")} className="absolute right-1 top-1 flex h-7 w-7 items-center justify-center rounded-full border border-lc-green bg-lc-black/85 text-xs text-lc-green">{favorite ? "★" : "☆"}</button>}
@@ -640,7 +641,7 @@ function PackEditor({ pack, initialKind, onClose, onSaved }: {
         <div className="space-y-2">
           {draft.items.map((item, index) => (
             <div key={`${index}-${item.url}`} className="grid items-center gap-2 rounded-lg border border-lc-border p-2 sm:grid-cols-[3rem_10rem_7rem_minmax(0,1fr)_auto]">
-              <div className="flex h-12 w-12 items-center justify-center rounded bg-lc-black p-1">{item.url && <img src={item.url} alt="" className="max-h-full max-w-full object-contain" />}</div>
+              <div className="flex h-12 w-12 items-center justify-center rounded bg-lc-black p-1">{item.url && <MediaThumb src={item.url} alt="" className="max-h-full max-w-full object-contain" />}</div>
               <input value={item.name} onChange={(event) => setDraft({ ...draft, items: draft.items.map((value, itemIndex) => itemIndex === index ? { ...value, name: event.target.value } : value) })} className={fieldClass} placeholder="shortcode" aria-label={`Item ${index + 1} shortcode`} />
               <select value={item.kind} onChange={(event) => setDraft({ ...draft, items: draft.items.map((value, itemIndex) => itemIndex === index ? { ...value, kind: event.target.value as JsMediaKind } : value) })} className={fieldClass} aria-label={`Item ${index + 1} type`}>
                 <option value="emoji">Emoji</option><option value="gif">GIF</option><option value="sticker">Sticker</option>

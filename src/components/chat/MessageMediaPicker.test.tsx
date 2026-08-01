@@ -105,6 +105,51 @@ describe('MessageMediaPicker', () => {
     expect(within(screen.getByTestId('media-grid')).getAllByRole('button')[0]).toHaveAccessibleName('Create sticker');
   });
 
+  it('never falls back to shortcode text when media fails to load', () => {
+    useChatStore.getState().setServerEmojis({ stamp: 'https://cdn.example/gone.webp' }, { stamp: 'sticker' });
+    render(
+      <MessageMediaPicker
+        initialTab="sticker"
+        onPick={() => {}}
+        onClose={() => {}}
+        customEmojis={{ stamp: 'https://cdn.example/gone.webp' }}
+      />,
+    );
+
+    // Curated defaults are dropped outright; server media keeps its tile with a
+    // glyph so the operator can see the asset is gone.
+    fireEvent.error(screen.getByAltText(':laugh_cry:'));
+    fireEvent.error(screen.getByAltText(':stamp:'));
+
+    const defaults = screen.getByTestId('media-section-default_stickers');
+    expect(within(defaults).queryByAltText(':laugh_cry:')).not.toBeInTheDocument();
+    expect(defaults).not.toHaveTextContent(':laugh_cry:');
+    const server = screen.getByTestId('media-section-server_stickers');
+    expect(within(server).getByTestId('media-thumb-fallback')).toBeInTheDocument();
+    expect(server).not.toHaveTextContent(':stamp:');
+  });
+
+  it('renders recent GIF and sticker picks in the emoji tab as media', () => {
+    // The emoji tab only forwards emoji-kind entries to EmojiPicker, so a
+    // recent GIF shortcode is unresolvable without the URL stored alongside it.
+    localStorage.setItem('obelisk:recent-emojis', JSON.stringify([
+      { char: ':dance:', url: 'https://cdn.example/dance.gif' },
+      ':vanished:',
+    ]));
+    render(
+      <MessageMediaPicker
+        onPick={() => {}}
+        onClose={() => {}}
+        customEmojis={{ wave: 'https://cdn.example/wave.webp', dance: 'https://cdn.example/dance.gif' }}
+      />,
+    );
+
+    const recentSection = document.querySelector<HTMLElement>('[data-emoji-category="Recent"]')!;
+    expect(within(recentSection).getByAltText(':dance:')).toHaveAttribute('src', 'https://cdn.example/dance.gif');
+    expect(recentSection).not.toHaveTextContent(':dance:');
+    expect(recentSection).not.toHaveTextContent(':vanished:');
+  });
+
   it('returns a picked sticker with its portable NIP-30 metadata', () => {
     const onPick = vi.fn();
     render(

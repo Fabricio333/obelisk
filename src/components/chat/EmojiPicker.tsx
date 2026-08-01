@@ -6,10 +6,11 @@ import {
   SEARCHABLE_EMOJI,
   normalizeEmojiKeyword,
 } from '@/components/chat/emoji-data';
-import { loadRecentEmojis, pushRecentEmoji } from '@/lib/recent-emojis';
+import { loadRecentEmojis, pushRecentEmoji, type RecentEmoji } from '@/lib/recent-emojis';
 import { normalizeCustomEmojiName, type CustomEmojiMap } from '@/lib/custom-emoji-tags';
 import { useChatStore } from '@/store/chat';
 import { inferMediaKind } from '@/lib/media-kind';
+import MediaThumb from '@/components/media/MediaThumb';
 import type { JsMediaKind } from '@/lib/nostr-bridge';
 
 const EMOJI_SECTIONS = [
@@ -116,7 +117,7 @@ export default function EmojiPicker({
   children,
 }: EmojiPickerProps) {
   const [query, setQuery] = useState('');
-  const [recents, setRecents] = useState<string[]>(() => loadRecentEmojis());
+  const [recents, setRecents] = useState<RecentEmoji[]>(() => loadRecentEmojis());
   const [activeCategory, setActiveCategory] = useState('Recent');
   const scrollRef = useRef<HTMLDivElement>(null);
   const storeCustomEmojis = useChatStore((s) => s.serverEmojis);
@@ -164,6 +165,23 @@ export default function EmojiPicker({
     return list.slice(0, 80);
   }, [customEmojiEntries, q]);
   const filteredCustomCount = filteredCustomGifEntries.length + filteredCustomStickerEntries.length + filteredCustomEmojiEntries.length;
+  // A recent shortcode is only renderable if we can resolve it back to media —
+  // either from the URL stored with the pick or from the current custom set.
+  // Anything left unresolved is dropped: printing `:name:` as text in a media
+  // grid reads as a broken tile, not as an emoji.
+  const recentEntries = useMemo<Array<{ char: string; custom: PickedCustomEmoji | null }>>(
+    () => recents.flatMap<{ char: string; custom: PickedCustomEmoji | null }>((recent) => {
+      const match = /^:([a-z0-9_]{1,64}):$/i.exec(recent.char);
+      if (!match) return [{ char: recent.char, custom: null }];
+      const name = normalizeCustomEmojiName(match[1]);
+      const known = customEntries.find((entry) => entry.name === name);
+      const url = recent.url ?? known?.url;
+      if (!url) return [];
+      const packAddress = recent.packAddress ?? known?.packAddress;
+      return [{ char: recent.char, custom: { name, url, ...(packAddress ? { packAddress } : {}) } }];
+    }),
+    [customEntries, recents],
+  );
 
   const disabled = disabledEmojis ?? new Set<string>();
 
@@ -173,7 +191,9 @@ export default function EmojiPicker({
   };
   const handlePickCustom = (emoji: PickedCustomEmoji) => {
     const shortcode = `:${emoji.name}:`;
-    if (!skipRecent) setRecents(pushRecentEmoji(shortcode));
+    if (!skipRecent) {
+      setRecents(pushRecentEmoji(shortcode, { url: emoji.url, ...(emoji.packAddress ? { packAddress: emoji.packAddress } : {}) }));
+    }
     onPick(shortcode, emoji);
   };
 
@@ -225,7 +245,7 @@ export default function EmojiPicker({
                 className={emojiBtnClass}
                 title={mine ? 'Already reacted' : shortcode}
               >
-                <img src={e.url} alt={shortcode} className={customImageClass} />
+                <MediaThumb src={e.url} alt={shortcode} className={customImageClass} />
               </button>
             );
           })}
@@ -327,9 +347,7 @@ export default function EmojiPicker({
             <div className="mb-2 scroll-mt-1" data-emoji-category="Recent">
                 <div className={sectionTitleClass}>Recent</div>
                 <div className={gridClass}>
-                  {recents.map((char) => {
-                    const customMatch = /^:([a-z0-9_]{1,64}):$/i.exec(char);
-                    const custom = customMatch ? customEntries.find((e) => e.name === normalizeCustomEmojiName(customMatch[1])) : null;
+                  {recentEntries.map(({ char, custom }) => {
                     const mine = disabled.has(char);
                     return (
                       <button
@@ -339,13 +357,13 @@ export default function EmojiPicker({
                         className={emojiBtnClass}
                       >
                         {custom ? (
-                          <img src={custom.url} alt={char} className={customImageClass} />
+                          <MediaThumb src={custom.url} alt={char} className={customImageClass} />
                         ) : char}
                       </button>
                     );
                   })}
                 </div>
-                {recents.length === 0 && <div className="px-1 py-3 text-xs text-lc-muted">No recent emojis</div>}
+                {recentEntries.length === 0 && <div className="px-1 py-3 text-xs text-lc-muted">No recent emojis</div>}
               </div>
             {renderCustomSection('Server GIFs', customGifEntries)}
             {renderCustomSection('Server stickers', customStickerEntries)}

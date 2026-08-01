@@ -9,6 +9,7 @@ import { mediaItemsFromPacks } from '@/lib/media-packs';
 import { nostrActions, useMediaPacks, useMyMediaFavorites, useMyPubkey, type JsMediaItem, type JsMediaKind } from '@/lib/nostr-bridge';
 import { useChatStore } from '@/store/chat';
 import MediaLibraryModal from '@/components/media/MediaLibraryModal';
+import MediaThumb from '@/components/media/MediaThumb';
 import { detectGifPresentation, inferMediaKind } from '@/lib/media-kind';
 
 export type MediaPickerTab = 'emoji' | 'gif' | 'sticker';
@@ -123,6 +124,7 @@ export default function MessageMediaPicker({
   const [uploading, setUploading] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState<'mine' | 'favorites' | null>(null);
   const [kindOverrides, setKindOverrides] = useState<Record<string, JsMediaKind>>({});
+  const [brokenUrls, setBrokenUrls] = useState<ReadonlySet<string>>(() => new Set());
   const mediaPacks = useMediaPacks();
   const mediaFavorites = useMyMediaFavorites();
   const myPubkey = useMyPubkey();
@@ -203,9 +205,14 @@ export default function MessageMediaPicker({
     ...remote.map((entry) => ({ ...entry, kind: kindOverrides[entry.url] ?? entry.kind ?? tab })),
     ...starterEntries,
   ].filter((entry) => matchesTab(entry) && matchesQuery(entry));
-  const defaultVisible = category === 'Trending' || category === 'Recent' || normalizedQuery
+  // The built-in/GIPHY catalog is curated, not user content: an entry whose
+  // media 404s is pure noise, so drop it instead of leaving a broken tile.
+  // Server and personal media keep their tile (with the fallback glyph) so the
+  // owner can see that something needs fixing.
+  const defaultVisible = (category === 'Trending' || category === 'Recent' || normalizedQuery
     ? defaultCatalog
-    : defaultCatalog.filter((entry) => entry.categories?.includes(category));
+    : defaultCatalog.filter((entry) => entry.categories?.includes(category))
+  ).filter((entry) => !brokenUrls.has(entry.url));
   const favoriteUrls = new Set(mediaFavorites.items.map((item) => item.url));
   const isSheet = variant === 'sheet';
   const placementClass = placement === 'below' ? 'top-full mt-1' : 'bottom-full mb-1';
@@ -281,6 +288,10 @@ export default function MessageMediaPicker({
     );
   }
 
+  const markBroken = (entry: MediaEntry) => {
+    setBrokenUrls((current) => current.has(entry.url) ? current : new Set(current).add(entry.url));
+  };
+
   const classifyEntry = (entry: MediaEntry) => {
     if ((entry.kind ?? inferMediaKind(entry.url)) !== 'gif') return;
     void detectGifPresentation(entry.url).then((kind) => {
@@ -345,17 +356,17 @@ export default function MessageMediaPicker({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto pr-1" data-testid="media-grid">
         {category === 'Recent' ? (
-          <MediaSection title={tab === 'gif' ? 'Recent GIFs' : 'Recent stickers'} entries={recentVisible} onPick={pickMedia} favoriteUrls={favoriteUrls} onFavorite={favoriteMedia} onMediaLoad={classifyEntry} />
+          <MediaSection title={tab === 'gif' ? 'Recent GIFs' : 'Recent stickers'} entries={recentVisible} onPick={pickMedia} favoriteUrls={favoriteUrls} onFavorite={favoriteMedia} onMediaLoad={classifyEntry} onMediaError={markBroken} />
         ) : (
           <>
             {(tab === "sticker" || tab === "gif" || personalVisible.length > 0) && (
-              <MediaSection title={tab === 'gif' ? 'My GIFs' : 'My stickers'} entries={personalVisible} onPick={pickMedia} favoriteUrls={favoriteUrls} onFavorite={favoriteMedia} onMediaLoad={classifyEntry}>
+              <MediaSection title={tab === 'gif' ? 'My GIFs' : 'My stickers'} entries={personalVisible} onPick={pickMedia} favoriteUrls={favoriteUrls} onFavorite={favoriteMedia} onMediaLoad={classifyEntry} onMediaError={markBroken}>
                 {createControl(tab)}
               </MediaSection>
             )}
-            <MediaSection title={tab === 'gif' ? 'Default GIFs' : 'Default stickers'} entries={defaultVisible} onPick={pickMedia} favoriteUrls={favoriteUrls} onFavorite={favoriteMedia} onMediaLoad={classifyEntry} />
+            <MediaSection title={tab === 'gif' ? 'Default GIFs' : 'Default stickers'} entries={defaultVisible} onPick={pickMedia} favoriteUrls={favoriteUrls} onFavorite={favoriteMedia} onMediaLoad={classifyEntry} onMediaError={markBroken} />
             {serverVisible.length > 0 && (
-              <MediaSection title={tab === 'gif' ? 'Server GIFs' : 'Server stickers'} entries={serverVisible} onPick={pickMedia} favoriteUrls={favoriteUrls} onFavorite={favoriteMedia} onMediaLoad={classifyEntry} />
+              <MediaSection title={tab === 'gif' ? 'Server GIFs' : 'Server stickers'} entries={serverVisible} onPick={pickMedia} favoriteUrls={favoriteUrls} onFavorite={favoriteMedia} onMediaLoad={classifyEntry} onMediaError={markBroken} />
             )}
           </>
         )}
@@ -376,13 +387,14 @@ export default function MessageMediaPicker({
   );
 }
 
-function MediaSection({ title, entries, onPick, favoriteUrls, onFavorite, onMediaLoad, children }: {
+function MediaSection({ title, entries, onPick, favoriteUrls, onFavorite, onMediaLoad, onMediaError, children }: {
   title: string;
   entries: readonly MediaEntry[];
   onPick: (entry: MediaEntry) => void;
   favoriteUrls: ReadonlySet<string>;
   onFavorite: (entry: MediaEntry) => void;
   onMediaLoad: (entry: MediaEntry) => void;
+  onMediaError: (entry: MediaEntry) => void;
   children?: ReactNode;
 }) {
   if (!children && entries.length === 0) return null;
@@ -400,7 +412,13 @@ function MediaSection({ title, entries, onPick, favoriteUrls, onFavorite, onMedi
                 onClick={() => onPick(entry)}
                 className="flex h-full w-full min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-xl border border-lc-border/60 bg-lc-dark p-2 hover:border-lc-green/50 hover:bg-lc-card"
               >
-                <img src={entry.url} alt={':' + entry.name + ':'} onLoad={() => onMediaLoad(entry)} className="block max-h-full max-w-full object-contain" />
+                <MediaThumb
+                  src={entry.url}
+                  alt={':' + entry.name + ':'}
+                  onLoad={() => onMediaLoad(entry)}
+                  onError={() => onMediaError(entry)}
+                  className="block max-h-full max-w-full object-contain"
+                />
               </button>
               <button
                 type="button"
