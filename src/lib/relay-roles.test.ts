@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { Event as NostrEvent } from 'nostr-tools';
 import {
   DEFAULT_ROLE_COLOR,
+  MAX_ROLE_EMOJI_LENGTH,
   MAX_ROLES,
   normalizeRoleColor,
+  normalizeRoleEmoji,
   normalizeRoleId,
   parseRoleCatalog,
   parseRoleHolders,
@@ -26,8 +28,8 @@ function event(tags: string[][], createdAt = 100): NostrEvent {
   return { id: 'id', pubkey: 'op', created_at: createdAt, kind: 30078, tags, content: '', sig: 'sig' };
 }
 
-const MOD: RelayRole = { id: 'mod', name: 'Moderator', tier: 3, color: '#ff0000' };
-const OG: RelayRole = { id: 'og', name: 'OG', tier: 1, color: '#00ff00' };
+const MOD: RelayRole = { id: 'mod', name: 'Moderator', tier: 3, color: '#ff0000', emoji: '🛡️' };
+const OG: RelayRole = { id: 'og', name: 'OG', tier: 1, color: '#00ff00', emoji: '' };
 
 describe('role catalog', () => {
   it('round-trips through tags, most senior first', () => {
@@ -35,7 +37,7 @@ describe('role catalog', () => {
 
     expect(tags[0]).toEqual(['d', roleCatalogDTag(RELAY)]);
     expect(tags.slice(1)).toEqual([
-      ['role', 'mod', 'Moderator', '3', '#ff0000'],
+      ['role', 'mod', 'Moderator', '3', '#ff0000', '🛡️'],
       ['role', 'og', 'OG', '1', '#00ff00'],
     ]);
     expect(parseRoleCatalog(event(tags)).roles).toEqual([MOD, OG]);
@@ -45,7 +47,7 @@ describe('role catalog', () => {
     const parsed = parseRoleCatalog(event([
       ['d', roleCatalogDTag(RELAY)],
       ['role', '', 'Nameless', '5', '#fff'],
-      ['role', 'mod', 'Moderator', '3', '#ff0000'],
+      ['role', 'mod', 'Moderator', '3', '#ff0000', '🛡️'],
       ['role', 'mod', 'Impostor', '99', '#000000'],
       ['p', ALICE],
     ]));
@@ -56,15 +58,26 @@ describe('role catalog', () => {
   it('falls back to defaults for a broken tier or color', () => {
     const [role] = parseRoleCatalog(event([['role', 'vip', 'VIP', 'high', 'chartreuse']])).roles;
 
-    expect(role).toEqual({ id: 'vip', name: 'VIP', tier: 0, color: DEFAULT_ROLE_COLOR });
+    expect(role).toEqual({ id: 'vip', name: 'VIP', tier: 0, color: DEFAULT_ROLE_COLOR, emoji: '' });
   });
 
   it('caps the catalog so one event cannot grow unbounded', () => {
     const many = Array.from({ length: MAX_ROLES + 5 }, (_, index) => ({
-      id: `role-${index}`, name: `Role ${index}`, tier: index, color: DEFAULT_ROLE_COLOR,
+      id: `role-${index}`, name: `Role ${index}`, tier: index, color: DEFAULT_ROLE_COLOR, emoji: '',
     }));
 
     expect(toRoleCatalogTags(many, RELAY)).toHaveLength(MAX_ROLES + 1);
+  });
+
+  it('keeps the badge glyph optional and bounded', () => {
+    const [withEmoji] = parseRoleCatalog(event([['role', 'mod', 'Moderator', '3', '#ff0000', '🛡️']])).roles;
+    const [without] = parseRoleCatalog(event([['role', 'og', 'OG', '1', '#00ff00']])).roles;
+
+    expect(withEmoji.emoji).toBe('🛡️');
+    expect(without.emoji).toBe('');
+    // Longer strings are display-only noise on a badge, so they get clipped.
+    expect(normalizeRoleEmoji('  a b c d e f g h i j  ')).toHaveLength(MAX_ROLE_EMOJI_LENGTH);
+    expect(normalizeRoleEmoji(undefined)).toBe('');
   });
 
   it('slugifies names into stable ids and expands shorthand colors', () => {

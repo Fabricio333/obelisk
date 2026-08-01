@@ -3,12 +3,14 @@
 import { useMemo, useState } from 'react';
 import { nip19 } from 'nostr-tools';
 import ModalShell from '@/components/ModalShell';
+import EmojiPicker from '@/components/chat/EmojiPicker';
 import { useUserMetadata } from '@/lib/nostr-bridge';
 import { shortNpub } from '@/lib/mentions';
 import {
   DEFAULT_ROLE_COLOR,
   MAX_ROLES,
   normalizeRoleColor,
+  normalizeRoleEmoji,
   normalizeRoleId,
   publishRoleCatalog,
   publishRoleHolders,
@@ -56,7 +58,7 @@ export default function RelayRolesAdminModal({
 
   const dirty = useMemo(() => {
     const serialize = (list: ReadonlyArray<RelayRole>) =>
-      JSON.stringify(list.map((role) => [role.id, role.name, role.tier, role.color]));
+      JSON.stringify(list.map((role) => [role.id, role.name, role.tier, role.color, role.emoji]));
     return serialize(draft) !== serialize(sortRoles(roles.roles));
   }, [draft, roles.roles]);
 
@@ -80,7 +82,7 @@ export default function RelayRolesAdminModal({
     if (draft.some((role) => role.id === id)) return setMessage(`“${name}” already exists.`);
     if (draft.length >= MAX_ROLES) return setMessage(`A relay can define up to ${MAX_ROLES} roles.`);
     // New roles start at the bottom of the ladder; the operator moves them up.
-    setDraft(retier([...draft, { id, name, tier: 0, color: DEFAULT_ROLE_COLOR }]));
+    setDraft(retier([...draft, { id, name, tier: 0, color: DEFAULT_ROLE_COLOR, emoji: '' }]));
     setNewName('');
     setMessage(null);
   };
@@ -153,6 +155,10 @@ export default function RelayRolesAdminModal({
             <li key={role.id} data-testid={`role-row-${role.id}`} className="rounded-xl border border-lc-border bg-lc-black/40">
               <div className="flex flex-wrap items-center gap-2 p-3">
                 <span className="text-[10px] font-mono text-lc-muted" title="Tier — higher wins">T{role.tier}</span>
+                <RoleEmojiField
+                  role={role}
+                  onPick={(emoji) => setDraft(draft.map((value) => value.id === role.id ? { ...value, emoji } : value))}
+                />
                 <input
                   value={role.name}
                   onChange={(event) => setDraft(draft.map((value) => value.id === role.id ? { ...value, name: event.target.value.slice(0, 32) } : value))}
@@ -210,6 +216,54 @@ export default function RelayRolesAdminModal({
         </div>
       </footer>
     </ModalShell>
+  );
+}
+
+function RoleEmojiField({ role, onPick }: { role: RelayRole; onPick: (emoji: string) => void }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-label={`${role.id} emoji`}
+        title="Badge emoji"
+        className="flex h-9 w-10 items-center justify-center rounded-lg border border-lc-border bg-lc-black text-base hover:border-lc-green/50"
+      >
+        {role.emoji || <span className="text-xs text-lc-muted">+</span>}
+      </button>
+      {role.emoji && (
+        <button
+          type="button"
+          onClick={() => onPick('')}
+          aria-label={`Clear ${role.id} emoji`}
+          className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-lc-border bg-lc-dark text-[9px] text-lc-muted hover:text-lc-white"
+        >
+          ✕
+        </button>
+      )}
+      {open && (
+        <>
+          {/* Catches the click that dismisses the picker without closing the
+              surrounding roles modal. */}
+          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} data-testid="role-emoji-backdrop" />
+          <EmojiPicker
+            placement="below"
+            skipRecent
+            customEmojis={{}}
+            onPick={(emoji) => {
+              // Unicode only: a custom emoji is a relay-scoped image, and the
+              // badge has to render from the catalog alone on any client.
+              const glyph = normalizeRoleEmoji(emoji);
+              if (glyph && !glyph.startsWith(':')) onPick(glyph);
+              setOpen(false);
+            }}
+            onClose={() => setOpen(false)}
+          />
+        </>
+      )}
+    </div>
   );
 }
 

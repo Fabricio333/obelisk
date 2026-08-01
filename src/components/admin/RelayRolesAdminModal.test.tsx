@@ -15,8 +15,8 @@ const BOB = 'b'.repeat(64);
 
 const SAVED: RelayRoles = {
   roles: [
-    { id: 'mod', name: 'Moderator', tier: 2, color: '#ff0000' },
-    { id: 'og', name: 'OG', tier: 1, color: '#00ff00' },
+    { id: 'mod', name: 'Moderator', tier: 2, color: '#ff0000', emoji: '🛡️' },
+    { id: 'og', name: 'OG', tier: 1, color: '#00ff00', emoji: '' },
   ],
   holders: { mod: [ALICE], og: [] },
   updatedAt: 10,
@@ -34,9 +34,9 @@ describe('RelayRolesAdminModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save roles' }));
 
     await waitFor(() => expect(publish).toHaveBeenCalledWith(RELAY, [
-      { id: 'mod', name: 'Moderator', tier: 3, color: '#ff0000' },
-      { id: 'og', name: 'OG', tier: 2, color: '#00ff00' },
-      { id: 'contributor', name: 'Contributor', tier: 1, color: roles.DEFAULT_ROLE_COLOR },
+      { id: 'mod', name: 'Moderator', tier: 3, color: '#ff0000', emoji: '🛡️' },
+      { id: 'og', name: 'OG', tier: 2, color: '#00ff00', emoji: '' },
+      { id: 'contributor', name: 'Contributor', tier: 1, color: roles.DEFAULT_ROLE_COLOR, emoji: '' },
     ]));
   });
 
@@ -48,8 +48,8 @@ describe('RelayRolesAdminModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save roles' }));
 
     await waitFor(() => expect(publish).toHaveBeenCalledWith(RELAY, [
-      { id: 'og', name: 'OG', tier: 2, color: '#00ff00' },
-      { id: 'mod', name: 'Moderator', tier: 1, color: '#ff0000' },
+      { id: 'og', name: 'OG', tier: 2, color: '#00ff00', emoji: '' },
+      { id: 'mod', name: 'Moderator', tier: 1, color: '#ff0000', emoji: '🛡️' },
     ]));
   });
 
@@ -90,6 +90,37 @@ describe('RelayRolesAdminModal', () => {
 
     const row = screen.getByTestId('role-row-contributor');
     expect(within(row).getByRole('button', { name: '0 members' })).toBeDisabled();
+  });
+
+  it('picks a badge emoji for a role and clears it again', async () => {
+    const publish = vi.spyOn(roles, 'publishRoleCatalog').mockResolvedValue(undefined);
+    render(<RelayRolesAdminModal relayUrl={RELAY} roles={SAVED} onClose={() => {}} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'og emoji' }));
+    fireEvent.click(screen.getByTitle('grinning'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save roles' }));
+
+    await waitFor(() => expect(publish).toHaveBeenCalledWith(RELAY, [
+      { id: 'mod', name: 'Moderator', tier: 2, color: '#ff0000', emoji: '🛡️' },
+      { id: 'og', name: 'OG', tier: 1, color: '#00ff00', emoji: '😀' },
+    ]));
+
+    // Clearing puts the draft back to what the relay already has, so the row
+    // returns to its placeholder and there is nothing left to publish.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save roles' })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Clear og emoji' }));
+
+    expect(screen.getByRole('button', { name: 'og emoji' })).toHaveTextContent('+');
+    expect(screen.queryByRole('button', { name: 'Clear og emoji' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save roles' })).toBeDisabled();
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the saved emoji on its role row', () => {
+    render(<RelayRolesAdminModal relayUrl={RELAY} roles={SAVED} onClose={() => {}} />);
+
+    expect(screen.getByRole('button', { name: 'mod emoji' })).toHaveTextContent('🛡️');
+    expect(screen.getByRole('button', { name: 'og emoji' })).toHaveTextContent('+');
   });
 
   it('accepts npub and hex pubkeys', () => {

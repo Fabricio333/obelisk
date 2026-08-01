@@ -11,7 +11,7 @@
  * Two d-tags:
  *
  *   `obelisk:roles:<relayUrl>`          — the catalog (which roles exist)
- *     ["role", id, name, tier, color]
+ *     ["role", id, name, tier, color, emoji]
  *
  *   `obelisk:role:<relayUrl>:<roleId>`  — that role's holders
  *     ["role", id]
@@ -41,6 +41,8 @@ export interface RelayRole {
   readonly tier: number;
   /** Badge color, `#rgb` or `#rrggbb`. */
   readonly color: string;
+  /** Optional glyph shown before the name on the badge. */
+  readonly emoji: string;
 }
 
 export interface RelayRoles {
@@ -59,6 +61,12 @@ export const MAX_ROLES = 24;
 const ROLE_ID_RE = /^[a-z0-9_-]{1,32}$/;
 const COLOR_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 const PUBKEY_RE = /^[0-9a-f]{64}$/i;
+/** Badge glyphs are display-only, so cap the length and drop whitespace. */
+export const MAX_ROLE_EMOJI_LENGTH = 8;
+
+export function normalizeRoleEmoji(value: string | undefined): string {
+  return (value ?? '').replace(/\s+/g, '').slice(0, MAX_ROLE_EMOJI_LENGTH);
+}
 
 export function normalizeRoleId(input: string): string {
   return input
@@ -107,6 +115,7 @@ function roleFromTag(tag: ReadonlyArray<string>): RelayRole | null {
     name,
     tier: Number.isFinite(tier) ? Math.min(999, Math.max(0, tier)) : 0,
     color: normalizeRoleColor(tag[4]),
+    emoji: normalizeRoleEmoji(tag[5]),
   };
 }
 
@@ -133,7 +142,12 @@ export function toRoleCatalogTags(roles: ReadonlyArray<RelayRole>, relayUrl: str
     const id = normalizeRoleId(role.id);
     if (!ROLE_ID_RE.test(id) || seen.has(id) || seen.size >= MAX_ROLES) continue;
     seen.add(id);
-    tags.push(['role', id, role.name.trim().slice(0, 32) || id, String(role.tier), normalizeRoleColor(role.color)]);
+    const tag = ['role', id, role.name.trim().slice(0, 32) || id, String(role.tier), normalizeRoleColor(role.color)];
+    const emoji = normalizeRoleEmoji(role.emoji);
+    // Positional tag: only append the glyph when there is one, so older
+    // readers that stop at the color keep parsing cleanly.
+    if (emoji) tag.push(emoji);
+    tags.push(tag);
   }
   return tags;
 }

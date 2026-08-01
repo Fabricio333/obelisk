@@ -17,7 +17,7 @@ Two `d` tags, both on kind 30078:
 
 | `d` tag | Holds | Tags |
 |---|---|---|
-| `obelisk:roles:<relayUrl>` | the catalog — which roles exist | `["role", id, name, tier, color]` |
+| `obelisk:roles:<relayUrl>` | the catalog — which roles exist | `["role", id, name, tier, color, emoji]` |
 | `obelisk:role:<relayUrl>:<roleId>` | that role's holders | `["role", id]`, `["p", pubkey]` … |
 
 Holders live in one event **per role** rather than inside the catalog:
@@ -29,7 +29,10 @@ Holders live in one event **per role** rather than inside the catalog:
 
 `id` is a slug (`[a-z0-9_-]{1,32}`, derived from the name), `tier` is an
 integer 0–999 where **higher is more senior**, `color` is `#rrggbb`
-(shorthand is expanded on parse). The catalog is capped at `MAX_ROLES` (24).
+(shorthand is expanded on parse), and `emoji` is an optional badge glyph
+(capped at 8 characters, whitespace stripped). The glyph is positional and only
+written when set, so a reader that stops at the color still parses cleanly.
+The catalog is capped at `MAX_ROLES` (24).
 `parseRoleHolders` requires the event's `d` tag to match the relay being read,
 so a holders list published for one relay can't grant roles on another.
 
@@ -67,8 +70,11 @@ message rows and member rows never open their own REQ.
 ## Admin surface
 
 Server settings → **Roles & ranks** (relay operator only). Create roles, rename
-them, set the badge color, reorder them (position sets the tier — top row is
-most senior), and grant/revoke per member by npub or hex pubkey. The catalog is
-edited as a draft and published with **Save roles**; grants and revokes publish
+them, pick a badge emoji, set the badge color, reorder them (position sets the
+tier — top row is most senior), and grant/revoke per member by npub or hex
+pubkey. The emoji picker is unicode-only: a custom emoji is a relay-scoped
+image, and the badge has to render from the catalog alone on any client.
+
+The catalog is edited as a draft and published with **Save roles**; grants and revokes publish
 immediately to that role's holder list. A newly added role can only be assigned
 once it has been saved to the relay.
