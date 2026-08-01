@@ -105,7 +105,7 @@ import RelayAdminPanel from '@/components/admin/RelayAdminPanel';
 import RelayEmojiAdminModal from '@/components/admin/RelayEmojiAdminModal';
 import RelayRolesAdminModal from '@/components/admin/RelayRolesAdminModal';
 import RoleBadge from '@/components/chat/RoleBadge';
-import { rolesByPubkey, useRelayRoles, type RelayRoles } from '@/lib/relay-roles';
+import { rolesByPubkey, useRelayRoles, type RelayRole, type RelayRoles } from '@/lib/relay-roles';
 import LanguagePreference from '@/components/LanguagePreference';
 import MediaLibraryModal from '@/components/media/MediaLibraryModal';
 import AppearancePreferenceControls from '@/components/AppearancePreferenceControls';
@@ -3697,7 +3697,7 @@ function ProfileViewScreen({
 // ───────────────────────────────────────────────────────────────────────────
 // 10 — member list
 
-function MemberListScreen({ groupId, back, openProfile }: { groupId: string; back: () => void; openProfile: (p: string) => void }) {
+export function MemberListScreen({ groupId, back, openProfile }: { groupId: string; back: () => void; openProfile: (p: string) => void }) {
   const { t } = useTranslation();
   const groups = useGroups();
   const relayUrl = useCurrentRelayUrl();
@@ -3712,6 +3712,33 @@ function MemberListScreen({ groupId, back, openProfile }: { groupId: string; bac
 
   const adminSet = useMemo(() => new Set(admins), [admins]);
   const nonAdminMembers = useMemo(() => members.filter((m) => !adminSet.has(m)), [members, adminSet]);
+  const memberRoles = useChatStore((s) => s.rolesByPubkey);
+
+  // Same ladder as the desktop rail: admins, then a section per relay role in
+  // tier order, then everyone holding no role.
+  const rankedSections = useMemo(() => {
+    const byRole = new Map<string, { role: RelayRole; pubkeys: string[] }>();
+    const plain: string[] = [];
+    for (const pubkey of nonAdminMembers) {
+      const top = memberRoles[pubkey]?.[0];
+      if (!top) {
+        plain.push(pubkey);
+        continue;
+      }
+      const bucket = byRole.get(top.id) ?? { role: top, pubkeys: [] };
+      bucket.pubkeys.push(pubkey);
+      byRole.set(top.id, bucket);
+    }
+    const ranked = Array.from(byRole.values())
+      .sort((a, b) => (b.role.tier - a.role.tier) || a.role.id.localeCompare(b.role.id))
+      .map(({ role, pubkeys }) => ({
+        key: role.id,
+        label: role.emoji ? `${role.emoji} ${role.name}` : role.name,
+        pubkeys,
+      }));
+    return [...ranked, { key: 'member', label: t('mobile.members.members'), pubkeys: plain }]
+      .filter((section) => section.pubkeys.length > 0);
+  }, [memberRoles, nonAdminMembers, t]);
 
   const allPubkeys = useMemo(() => {
     const set = new Set<string>([...admins, ...members]);
@@ -3751,16 +3778,16 @@ function MemberListScreen({ groupId, back, openProfile }: { groupId: string; bac
       <div className="search-body">
         {admins.length > 0 && (
           <>
-            <div className="member-section-label">{t('mobile.members.admins')} · {admins.length}</div>
+            <div className="member-section-label" data-testid="member-section-admin">{t('mobile.members.admins')} · {admins.length}</div>
             {admins.map((p) => <MemberRow key={p} pubkey={p} role="admin" online={isOnline(p)} onClick={() => openProfile(p)} />)}
           </>
         )}
-        {nonAdminMembers.length > 0 && (
-          <>
-            <div className="member-section-label">{t('mobile.members.members')} · {nonAdminMembers.length}</div>
-            {nonAdminMembers.map((p) => <MemberRow key={p} pubkey={p} online={isOnline(p)} onClick={() => openProfile(p)} />)}
-          </>
-        )}
+        {rankedSections.map((section) => (
+          <div key={section.key} data-testid={`member-section-${section.key}`}>
+            <div className="member-section-label">{section.label} · {section.pubkeys.length}</div>
+            {section.pubkeys.map((p) => <MemberRow key={p} pubkey={p} online={isOnline(p)} onClick={() => openProfile(p)} />)}
+          </div>
+        ))}
         {members.length === 0 && admins.length === 0 && !membershipReady && (
           <div
             className="empty-state"
