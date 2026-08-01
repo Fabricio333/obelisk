@@ -5,8 +5,14 @@ import RelayRolesAdminModal, { parsePubkeyInput } from './RelayRolesAdminModal';
 import * as roles from '@/lib/relay-roles';
 import type { RelayRoles } from '@/lib/relay-roles';
 
+const PEOPLE = [
+  { pubkey: 'b'.repeat(64), displayName: 'Bob Builder', nip05: 'bob@obelisk.ar', role: 'member' as const },
+  { pubkey: 'c'.repeat(64), displayName: 'Carol Danvers', role: 'admin' as const },
+];
+
 vi.mock('@/lib/nostr-bridge', () => ({
   useUserMetadata: () => ({ displayName: 'Alice' }),
+  useRelayPeople: () => PEOPLE,
 }));
 
 const RELAY = 'wss://relay.test';
@@ -59,8 +65,7 @@ describe('RelayRolesAdminModal', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '1 members' }));
     const panel = screen.getByTestId('role-members-mod');
-    fireEvent.change(within(panel).getByLabelText('Grant Moderator to'), { target: { value: BOB } });
-    fireEvent.click(within(panel).getByRole('button', { name: 'Grant' }));
+    fireEvent.click(within(panel).getByRole('button', { name: 'Grant Moderator to Bob Builder' }));
 
     await waitFor(() => expect(publish).toHaveBeenCalledWith(RELAY, 'mod', [ALICE, BOB]));
 
@@ -69,17 +74,46 @@ describe('RelayRolesAdminModal', () => {
     await waitFor(() => expect(publish).toHaveBeenLastCalledWith(RELAY, 'mod', []));
   });
 
-  it('rejects an unparseable pubkey instead of publishing it', async () => {
-    const publish = vi.spyOn(roles, 'publishRoleHolders').mockResolvedValue(undefined);
+  it('searches relay members by name and NIP-05', () => {
     render(<RelayRolesAdminModal relayUrl={RELAY} roles={SAVED} onClose={() => {}} />);
 
     fireEvent.click(screen.getByRole('button', { name: '1 members' }));
     const panel = screen.getByTestId('role-members-mod');
-    fireEvent.change(within(panel).getByLabelText('Grant Moderator to'), { target: { value: 'alice@example.com' } });
-    fireEvent.click(within(panel).getByRole('button', { name: 'Grant' }));
+    // Everyone on the relay is offered until the search narrows it.
+    expect(within(panel).getByText('Bob Builder')).toBeInTheDocument();
+    expect(within(panel).getByText('Carol Danvers')).toBeInTheDocument();
 
-    expect(publish).not.toHaveBeenCalled();
-    expect(screen.getByRole('status')).toHaveTextContent('Enter an npub or a 64-character hex pubkey.');
+    fireEvent.change(within(panel).getByLabelText('Grant Moderator to'), { target: { value: 'carol' } });
+    expect(within(panel).queryByText('Bob Builder')).not.toBeInTheDocument();
+    expect(within(panel).getByText('Carol Danvers')).toBeInTheDocument();
+
+    fireEvent.change(within(panel).getByLabelText('Grant Moderator to'), { target: { value: 'bob@obelisk' } });
+    expect(within(panel).getByText('Bob Builder')).toBeInTheDocument();
+
+    fireEvent.change(within(panel).getByLabelText('Grant Moderator to'), { target: { value: 'nobody here' } });
+    expect(within(panel).getByText('No members match that search.')).toBeInTheDocument();
+  });
+
+  it('hides existing holders from the candidate list', () => {
+    render(<RelayRolesAdminModal relayUrl={RELAY} roles={{ ...SAVED, holders: { mod: [ALICE, BOB], og: [] } }} onClose={() => {}} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '2 members' }));
+    const candidates = screen.getByTestId('role-candidates-mod');
+    expect(within(candidates).queryByText('Bob Builder')).not.toBeInTheDocument();
+    expect(within(candidates).getByText('Carol Danvers')).toBeInTheDocument();
+  });
+
+  it('still grants to a pubkey pasted for a stranger', async () => {
+    const publish = vi.spyOn(roles, 'publishRoleHolders').mockResolvedValue(undefined);
+    const stranger = 'd'.repeat(64);
+    render(<RelayRolesAdminModal relayUrl={RELAY} roles={SAVED} onClose={() => {}} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '1 members' }));
+    const panel = screen.getByTestId('role-members-mod');
+    fireEvent.change(within(panel).getByLabelText('Grant Moderator to'), { target: { value: nip19.npubEncode(stranger) } });
+    fireEvent.click(within(panel).getByRole('button', { name: /not a member of this relay yet/ }));
+
+    await waitFor(() => expect(publish).toHaveBeenCalledWith(RELAY, 'mod', [ALICE, stranger]));
   });
 
   it('defers assignment until a freshly added role exists on the relay', () => {

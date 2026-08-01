@@ -451,6 +451,50 @@ export interface JsMemberInfo {
   role: 'admin' | 'member';
 }
 
+/**
+ * Everyone the active relay knows about: the union of every channel's admin and
+ * member lists, with profile metadata attached and sorted by display name.
+ *
+ * Admin surfaces that hand something to a person (roles, moderation) need to
+ * offer a search over names — demanding a pasted pubkey is not a UI. `role` is
+ * `admin` when the pubkey administers *any* channel on the relay.
+ */
+export function useRelayPeople(): ReadonlyArray<JsMemberInfo> {
+  const adminsByGroup = useAdminsByGroup();
+  const membersByGroup = useMembersByGroup();
+  const admins = useMemo(
+    () => new Set(Object.values(adminsByGroup).flatMap((list) => [...list])),
+    [adminsByGroup],
+  );
+  const pubkeys = useMemo(() => {
+    const all = new Set<string>(admins);
+    for (const list of Object.values(membersByGroup)) for (const pubkey of list) all.add(pubkey);
+    return Array.from(all);
+  }, [admins, membersByGroup]);
+  const key = pubkeys.join(',');
+  const metadata = useSubscription<Readonly<Record<string, JsUserMetadata>>>(
+    (bridge, cb) => {
+      pubkeys.forEach((pubkey) => void bridge.ensureUserMetadata(pubkey));
+      return bridge.subscribeUserMetadataMap(cb);
+    },
+    {},
+    [key],
+  );
+  return useMemo(() => pubkeys
+    .map((pubkey) => {
+      const meta = metadata[pubkey];
+      return {
+        pubkey,
+        displayName: meta?.displayName ?? meta?.name ?? pubkey.slice(0, 10),
+        ...(meta?.picture ? { picture: meta.picture } : {}),
+        ...(meta?.nip05 ? { nip05: meta.nip05 } : {}),
+        role: admins.has(pubkey) ? 'admin' as const : 'member' as const,
+      };
+    })
+    .sort((a, b) => a.displayName.localeCompare(b.displayName)),
+    [pubkeys, metadata, admins]);
+}
+
 export function useGroupMemberInfo(groupId: string | null): ReadonlyArray<JsMemberInfo> {
   const admins = useAdmins(groupId);
   const members = useMembers(groupId);

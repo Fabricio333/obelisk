@@ -72,7 +72,10 @@ message rows and member rows never open their own REQ.
 Server settings → **Roles & ranks** (relay operator only). Create roles, rename
 them, pick a badge emoji, set the badge color, reorder them (position sets the
 tier — top row is most senior), and grant/revoke per member by npub or hex
-pubkey. The emoji picker is unicode-only: a custom emoji is a relay-scoped
+pubkey — the member picker searches everyone the relay knows about
+(`useRelayPeople()`, the union of every channel's admin and member lists) by
+display name, NIP-05 or pubkey, and still accepts a pasted npub for someone
+the relay has not seen. The emoji picker is unicode-only: a custom emoji is a relay-scoped
 image, and the badge has to render from the catalog alone on any client.
 
 The catalog is edited as a draft and published with **Save roles**; grants and revokes publish

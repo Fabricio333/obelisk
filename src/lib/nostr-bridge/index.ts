@@ -29,6 +29,7 @@ export {
   useMembers,
   useMembersByGroup,
   useGroupMemberInfo,
+  useRelayPeople,
   useMembershipReady,
   useGroupCreator,
   useGroupCreators,

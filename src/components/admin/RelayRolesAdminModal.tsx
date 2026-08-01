@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { nip19 } from 'nostr-tools';
 import ModalShell from '@/components/ModalShell';
 import EmojiPicker from '@/components/chat/EmojiPicker';
-import { useUserMetadata } from '@/lib/nostr-bridge';
+import { useRelayPeople, useUserMetadata, type JsMemberInfo } from '@/lib/nostr-bridge';
 import { shortNpub } from '@/lib/mentions';
 import {
   DEFAULT_ROLE_COLOR,
@@ -178,9 +178,17 @@ export default function RelayRolesAdminModal({
                   type="button"
                   onClick={() => setExpanded(expanded === role.id ? null : role.id)}
                   disabled={!savedIds.has(role.id)}
+                  aria-expanded={expanded === role.id}
                   title={savedIds.has(role.id) ? undefined : 'Save roles before assigning members.'}
-                  className="rounded border border-lc-border px-2 py-1 text-xs text-lc-white disabled:opacity-30"
+                  className={'flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold disabled:opacity-30 ' + (
+                    expanded === role.id
+                      ? 'border-lc-green bg-lc-green/15 text-lc-green'
+                      : 'border-lc-green/60 bg-lc-green/5 text-lc-green hover:bg-lc-green/15'
+                  )}
                 >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="9" cy="8" r="3.2" /><path d="M3 20a6 6 0 0 1 12 0" /><path d="M17 11h4M19 9v4" />
+                  </svg>
                   {(roles.holders[role.id] ?? []).length} members
                 </button>
                 <button type="button" onClick={() => removeRole(role)} className="rounded border border-red-500/30 px-2 py-1 text-xs text-red-300" aria-label={`Delete ${role.name}`}>Delete</button>
@@ -275,38 +283,127 @@ function RoleMembers({ role, holders, busy, onGrant, onRevoke, onError }: {
   onRevoke: (pubkey: string) => void;
   onError: (message: string) => void;
 }) {
-  const [value, setValue] = useState('');
+  const [query, setQuery] = useState('');
+  const people = useRelayPeople();
+  const held = useMemo(() => new Set(holders), [holders]);
 
-  const submit = () => {
-    const pubkey = parsePubkeyInput(value);
-    if (!pubkey) {
-      onError('Enter an npub or a 64-character hex pubkey.');
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const pool = people.filter((person) => !held.has(person.pubkey));
+    if (!q) return pool.slice(0, 40);
+    return pool
+      .filter((person) => `${person.displayName} ${person.nip05 ?? ''} ${person.pubkey}`.toLowerCase().includes(q))
+      .slice(0, 40);
+  }, [held, people, query]);
+
+  // A pubkey pasted for someone the relay has never seen still has to work.
+  const pasted = parsePubkeyInput(query);
+  const pastedIsNew = !!pasted && !held.has(pasted) && !matches.some((person) => person.pubkey === pasted);
+
+  const grantPasted = () => {
+    if (!pasted) {
+      onError('No match — search by name, or paste an npub or hex pubkey.');
       return;
     }
-    onGrant(pubkey);
-    setValue('');
+    onGrant(pasted);
+    setQuery('');
   };
 
   return (
     <div className="border-t border-lc-border/60 px-3 pb-3 pt-2" data-testid={`role-members-${role.id}`}>
-      <div className="flex flex-wrap gap-2">
-        <input
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          onKeyDown={(event) => { if (event.key === 'Enter') submit(); }}
-          placeholder="npub1… or hex pubkey"
-          aria-label={`Grant ${role.name} to`}
-          className={`${fieldClass} min-w-[200px] flex-1`}
-        />
-        <button type="button" onClick={submit} disabled={busy} className="lc-pill lc-pill-secondary text-xs disabled:opacity-40">Grant</button>
+      <input
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        onKeyDown={(event) => { if (event.key === 'Enter' && pastedIsNew) grantPasted(); }}
+        placeholder="Search members by name, NIP-05 or npub…"
+        aria-label={`Grant ${role.name} to`}
+        className={`${fieldClass} w-full`}
+      />
+
+      {pastedIsNew && (
+        <button
+          type="button"
+          onClick={grantPasted}
+          disabled={busy}
+          className="mt-2 w-full rounded-lg border border-lc-green/60 px-3 py-2 text-left text-xs text-lc-green disabled:opacity-40"
+        >
+          Grant to {shortNpub(pasted)} — not a member of this relay yet
+        </button>
+      )}
+
+      <div className="mt-2 max-h-56 overflow-y-auto" data-testid={`role-candidates-${role.id}`}>
+        <ul className="grid gap-1">
+          {matches.map((person) => (
+            <RolePersonRow
+              key={person.pubkey}
+              person={person}
+              busy={busy}
+              action="grant"
+              roleName={role.name}
+              onClick={() => { onGrant(person.pubkey); setQuery(''); }}
+            />
+          ))}
+          {matches.length === 0 && !pastedIsNew && (
+            <li className="py-3 text-center text-xs text-lc-muted">
+              {people.length === 0 ? 'Loading relay members…' : 'No members match that search.'}
+            </li>
+          )}
+        </ul>
       </div>
-      <ul className="mt-2 grid gap-1">
-        {holders.map((pubkey) => (
-          <RoleHolderRow key={pubkey} pubkey={pubkey} roleName={role.name} busy={busy} onRevoke={() => onRevoke(pubkey)} />
-        ))}
-        {holders.length === 0 && <li className="py-2 text-xs text-lc-muted">Nobody holds this role yet.</li>}
-      </ul>
+
+      <div className="mt-3 border-t border-lc-border/60 pt-2">
+        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-lc-muted">
+          Holds this role — {holders.length}
+        </div>
+        <ul className="grid gap-1">
+          {holders.map((pubkey) => (
+            <RoleHolderRow key={pubkey} pubkey={pubkey} roleName={role.name} busy={busy} onRevoke={() => onRevoke(pubkey)} />
+          ))}
+          {holders.length === 0 && <li className="py-2 text-xs text-lc-muted">Nobody holds this role yet.</li>}
+        </ul>
+      </div>
     </div>
+  );
+}
+
+function RolePersonRow({ person, busy, roleName, onClick }: {
+  person: JsMemberInfo;
+  busy: boolean;
+  action: 'grant';
+  roleName: string;
+  onClick: () => void;
+}) {
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={busy}
+        aria-label={`Grant ${roleName} to ${person.displayName}`}
+        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-lc-card disabled:opacity-40"
+      >
+        <PersonAvatar person={person} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm text-lc-white">{person.displayName}</span>
+          <span className="block truncate text-[10px] text-lc-muted">{person.nip05 ?? shortNpub(person.pubkey)}</span>
+        </span>
+        {person.role === 'admin' && (
+          <span className="shrink-0 rounded-full bg-lc-green/15 px-1.5 py-px text-[9px] font-bold uppercase text-lc-green">admin</span>
+        )}
+        <span className="shrink-0 text-xs font-semibold text-lc-green">Grant</span>
+      </button>
+    </li>
+  );
+}
+
+function PersonAvatar({ person }: { person: JsMemberInfo }) {
+  if (person.picture) {
+    return <img src={person.picture} alt="" className="h-7 w-7 shrink-0 rounded-full object-cover" />;
+  }
+  return (
+    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-lc-olive text-[10px] font-medium text-lc-green">
+      {person.displayName.slice(0, 2).toUpperCase()}
+    </span>
   );
 }
 
