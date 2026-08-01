@@ -7,6 +7,7 @@ import type { JsMemberInfo } from '@/lib/nostr-bridge';
 import { shortNpub } from '@/lib/mentions';
 import { presenceActivityKey, useNostrPresence, PRESENCE_WINDOW_MS } from '@/hooks/chat/useNostrPresence';
 import RoleBadge from '@/components/chat/RoleBadge';
+import type { RelayRole } from '@/lib/relay-roles';
 
 function MemberItem({ member, isOnline }: { member: JsMemberInfo; isOnline: boolean }) {
   const name = member.displayName || shortNpub(member.pubkey);
@@ -48,6 +49,7 @@ export default function MemberList({ groupId }: { groupId: string }) {
   const relayUrl = useCurrentRelayUrl();
   const lastActivityAt = useChatStore((state) => state.lastActivityAt);
   const presenceTick = useChatStore((state) => state.presenceTick);
+  const rolesByPubkey = useChatStore((state) => state.rolesByPubkey);
   const [offlineCollapsed, setOfflineCollapsed] = useState(false);
 
   const memberPubkeys = useMemo(() => memberList.map((member) => member.pubkey), [memberList]);
@@ -59,26 +61,58 @@ export default function MemberList({ groupId }: { groupId: string }) {
     return new Set(memberPubkeys.filter((pubkey) => (lastActivityAt[presenceActivityKey(relayUrl, pubkey)] ?? 0) >= cutoff));
   }, [lastActivityAt, memberPubkeys, presenceTick, relayUrl]);
 
-  const { admins, members, offline } = useMemo(() => {
-    const groups = { admins: [] as JsMemberInfo[], members: [] as JsMemberInfo[], offline: [] as JsMemberInfo[] };
-    for (const member of memberList) {
-      if (!onlinePubkeys.has(member.pubkey)) groups.offline.push(member);
-      else if (member.role === 'admin') groups.admins.push(member);
-      else groups.members.push(member);
-    }
-    return groups;
-  }, [memberList, onlinePubkeys]);
+  // Online members are bucketed by standing: channel admins, then one section
+  // per relay role in tier order (the same ladder the badge picks from), then
+  // everyone without a role. Offline stays one section regardless of standing —
+  // splitting absent people by rank is noise.
+  const { onlineGroups, offline } = useMemo(() => {
+    const admins: JsMemberInfo[] = [];
+    const plain: JsMemberInfo[] = [];
+    const away: JsMemberInfo[] = [];
+    const byRole = new Map<string, { role: RelayRole; members: JsMemberInfo[] }>();
 
-  const onlineGroups = [
-    { label: 'Admin', members: admins },
-    { label: 'Member', members },
-  ].filter((group) => group.members.length > 0);
+    for (const member of memberList) {
+      if (!onlinePubkeys.has(member.pubkey)) {
+        away.push(member);
+        continue;
+      }
+      if (member.role === 'admin') {
+        admins.push(member);
+        continue;
+      }
+      const top = rolesByPubkey[member.pubkey]?.[0];
+      if (!top) {
+        plain.push(member);
+        continue;
+      }
+      const bucket = byRole.get(top.id) ?? { role: top, members: [] };
+      bucket.members.push(member);
+      byRole.set(top.id, bucket);
+    }
+
+    const ranked = Array.from(byRole.values())
+      .sort((a, b) => (b.role.tier - a.role.tier) || a.role.id.localeCompare(b.role.id))
+      .map(({ role, members }) => ({
+        key: role.id,
+        label: role.emoji ? `${role.emoji} ${role.name}` : role.name,
+        members,
+      }));
+
+    return {
+      onlineGroups: [
+        { key: 'admin', label: 'Admin', members: admins },
+        ...ranked,
+        { key: 'member', label: 'Member', members: plain },
+      ].filter((group) => group.members.length > 0),
+      offline: away,
+    };
+  }, [memberList, onlinePubkeys, rolesByPubkey]);
 
   return (
     <div className="w-60 h-full bg-lc-dark border-l border-lc-border flex flex-col shrink-0">
       <div className="flex-1 overflow-y-auto px-2 py-2 space-y-2" data-testid="member-list">
         {onlineGroups.map((group) => (
-          <div key={group.label}>
+          <div key={group.key} data-testid={`member-group-${group.key}`}>
             <div className="px-2 py-1 text-[10px] font-semibold text-lc-muted uppercase tracking-wider">
               {group.label} — {group.members.length}
             </div>

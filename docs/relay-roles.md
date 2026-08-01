@@ -67,6 +67,11 @@ Each shell (`DesktopShell`, `mobile/PhoneShell`) holds the single subscription
 and fans `rolesByPubkey()` into the chat store; `RoleBadge` reads that map, so
 message rows and member rows never open their own REQ.
 
+The desktop member list reads the same map to section online members by
+standing: channel admins first, then one section per role in tier order, then
+everyone without a role. Offline stays a single section — splitting absent
+people by rank is noise.
+
 ## Admin surface
 
 Server settings → **Roles & ranks** (relay operator only). Create roles, rename

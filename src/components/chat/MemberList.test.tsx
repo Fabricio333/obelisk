@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import MemberList from './MemberList';
 import { useChatStore } from '@/store/chat';
 
@@ -51,7 +51,7 @@ describe('MemberList', () => {
   it('shows each member’s highest relay role beside their name', () => {
     setOnline('admin', 'member');
     useChatStore.getState().setRolesByPubkey({
-      admin: [{ id: 'core', name: 'Core', tier: 5, color: '#ff0000' }, { id: 'og', name: 'OG', tier: 1, color: '#00ff00' }],
+      admin: [{ id: 'core', name: 'Core', tier: 5, color: '#ff0000', emoji: '' }, { id: 'og', name: 'OG', tier: 1, color: '#00ff00', emoji: '' }],
     });
     render(<MemberList groupId="group-1" />);
 
@@ -59,6 +59,35 @@ describe('MemberList', () => {
     expect(badges).toHaveLength(1);
     expect(badges[0]).toHaveTextContent('Core');
     expect(badges[0].closest('[data-testid="member-item"]')).toHaveTextContent('Alice');
+  });
+
+  it('ranks online members by role under admins', () => {
+    bridge.members = [
+      { pubkey: 'admin', displayName: 'Alice', role: 'admin' },
+      { pubkey: 'mod', displayName: 'Mallory', role: 'member' },
+      { pubkey: 'og', displayName: 'Oscar', role: 'member' },
+      { pubkey: 'plain', displayName: 'Pia', role: 'member' },
+      { pubkey: 'away', displayName: 'Wendy', role: 'member' },
+    ];
+    setOnline('admin', 'mod', 'og', 'plain');
+    useChatStore.getState().setRolesByPubkey({
+      mod: [{ id: 'mod', name: 'Moderator', tier: 5, color: '#ff0000', emoji: '🛡️' }],
+      og: [{ id: 'og', name: 'OG', tier: 2, color: '#00ff00', emoji: '' }],
+      // A role on an admin does not move them out of the admin section.
+      admin: [{ id: 'og', name: 'OG', tier: 2, color: '#00ff00', emoji: '' }],
+    });
+    render(<MemberList groupId="group-1" />);
+
+    const headings = Array.from(
+      screen.getByTestId('member-list').querySelectorAll('[data-testid^="member-group-"] > div:first-child'),
+    ).map((node) => node.textContent);
+    expect(headings).toEqual(['Admin — 1', '🛡️ Moderator — 1', 'OG — 1', 'Member — 1']);
+    expect(within(screen.getByTestId('member-group-admin')).getByText('Alice')).toBeInTheDocument();
+    expect(within(screen.getByTestId('member-group-mod')).getByText('Mallory')).toBeInTheDocument();
+    expect(within(screen.getByTestId('member-group-og')).getByText('Oscar')).toBeInTheDocument();
+    expect(within(screen.getByTestId('member-group-member')).getByText('Pia')).toBeInTheDocument();
+    // Offline stays one section whatever rank they hold.
+    expect(screen.getByText(/Offline — 1/)).toBeInTheDocument();
   });
 
   it('collapses offline members', () => {
