@@ -1128,7 +1128,7 @@ export function RelaySettingsModal({
     ['emoji', 'Emoji, GIFs & stickers', 'Server favorites, packs, and marketplace.', onEmojis],
     ['channels', 'Channels & categories', 'Category names and channel ordering.', onLayout],
     ['roles', 'Roles & ranks', 'Tiered badges shown next to member names.', onRoles],
-    ['members', 'Members & roles', 'Review and moderate membership across channels.', onMembers],
+    ['members', 'Members & moderation', 'Review, demote, and kick across channels.', onMembers],
   ] as const;
 
   return (
