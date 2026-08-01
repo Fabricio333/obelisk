@@ -127,6 +127,19 @@ describe('EmojiPicker', () => {
     expect(section).not.toHaveTextContent(':wave:');
   });
 
+  it('hangs the popover off either edge of its trigger', () => {
+    const props = { onPick: vi.fn(), onClose: vi.fn(), skipRecent: true, customEmojis: {} };
+    const { rerender } = render(<EmojiPicker {...props} />);
+
+    expect(screen.getByRole('dialog', { name: 'Emoji picker' })).toHaveClass('right-0');
+
+    rerender(<EmojiPicker {...props} align="left" />);
+
+    const dialog = screen.getByRole('dialog', { name: 'Emoji picker' });
+    expect(dialog).toHaveClass('left-0');
+    expect(dialog).not.toHaveClass('right-0');
+  });
+
   it('positions popovers above or below the trigger', () => {
     const props = {
       onPick: vi.fn(),

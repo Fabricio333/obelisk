@@ -53,6 +53,12 @@ export interface EmojiPickerProps {
   variant?: 'popover' | 'sheet';
   /** Popover direction relative to the trigger. Ignored for sheet variant. */
   placement?: 'above' | 'below';
+  /**
+   * Which edge of the trigger the popover hangs from. Defaults to `right`
+   * (the composer/reaction buttons sit on the right of their row); triggers on
+   * the left of a panel need `left` or the popover runs off it.
+   */
+  align?: 'left' | 'right';
   showClose?: boolean;
   className?: string;
   customEmojis?: CustomEmojiMap;
@@ -108,6 +114,7 @@ export default function EmojiPicker({
   skipRecent = false,
   variant = 'popover',
   placement = 'above',
+  align = 'right',
   showClose = true,
   className,
   customEmojis: customEmojisProp,
@@ -208,7 +215,7 @@ export default function EmojiPicker({
   const popoverPlacementClass = placement === 'below' ? 'top-full mt-1' : 'bottom-full mb-1';
   const containerClass = isSheet
     ? 'flex h-full w-full flex-col bg-lc-black p-2 text-lc-white '
-    : `absolute right-0 ${popoverPlacementClass} z-30 flex h-[430px] w-[360px] flex-col overflow-hidden rounded-lg border border-lc-border bg-lc-black text-lc-white shadow-2xl `;
+    : `absolute ${align === 'left' ? 'left-0' : 'right-0'} ${popoverPlacementClass} z-30 flex h-[430px] w-[360px] flex-col overflow-hidden rounded-lg border border-lc-border bg-lc-black text-lc-white shadow-2xl `;
   const gridClass = columns === 12
     ? 'grid grid-cols-12 gap-0.5'
     : isSheet

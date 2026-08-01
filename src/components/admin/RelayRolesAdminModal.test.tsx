@@ -150,6 +150,22 @@ describe('RelayRolesAdminModal', () => {
     expect(publish).toHaveBeenCalledTimes(1);
   });
 
+  it('opens the emoji picker in a fixed layer the panel cannot clip', () => {
+    render(<RelayRolesAdminModal relayUrl={RELAY} roles={SAVED} onClose={() => {}} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'og emoji' }));
+
+    // Absolutely positioned inside the row it would be clipped by the panel's
+    // overflow-hidden, and right-aligned it would run off the left edge.
+    const popover = screen.getByTestId('role-emoji-popover-og');
+    expect(popover).toHaveClass('fixed');
+    expect(screen.getByRole('dialog', { name: 'Emoji picker' })).toHaveClass('left-0', 'top-full');
+    expect(screen.getByRole('button', { name: 'og emoji' })).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.click(screen.getByTestId('role-emoji-backdrop'));
+    expect(screen.queryByTestId('role-emoji-popover-og')).not.toBeInTheDocument();
+  });
+
   it('shows the saved emoji on its role row', () => {
     render(<RelayRolesAdminModal relayUrl={RELAY} roles={SAVED} onClose={() => {}} />);
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { nip19 } from 'nostr-tools';
 import ModalShell from '@/components/ModalShell';
 import EmojiPicker from '@/components/chat/EmojiPicker';
@@ -227,15 +227,35 @@ export default function RelayRolesAdminModal({
   );
 }
 
+const EMOJI_POPOVER_W = 360;
+const EMOJI_POPOVER_H = 430;
+
 function RoleEmojiField({ role, onPick }: { role: RelayRole; onPick: (emoji: string) => void }) {
-  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<{ left: number; top: number } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  // The picker lives in a fixed layer rather than inside this row: the roles
+  // panel is overflow-hidden and the list scrolls, so an absolutely positioned
+  // popover gets clipped away entirely. Anchored off the button's rect and
+  // flipped/clamped so it stays on screen from any row.
+  const open = () => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const room = window.innerHeight - rect.bottom;
+    setAnchor({
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - EMOJI_POPOVER_W - 8)),
+      top: room >= EMOJI_POPOVER_H + 12 ? rect.bottom + 4 : Math.max(8, rect.top - EMOJI_POPOVER_H - 4),
+    });
+  };
 
   return (
     <div className="relative shrink-0">
       <button
+        ref={buttonRef}
         type="button"
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => (anchor ? setAnchor(null) : open())}
         aria-label={`${role.id} emoji`}
+        aria-expanded={!!anchor}
         title="Badge emoji"
         className="flex h-9 w-10 items-center justify-center rounded-lg border border-lc-border bg-lc-black text-base hover:border-lc-green/50"
       >
@@ -251,24 +271,27 @@ function RoleEmojiField({ role, onPick }: { role: RelayRole; onPick: (emoji: str
           ✕
         </button>
       )}
-      {open && (
+      {anchor && (
         <>
           {/* Catches the click that dismisses the picker without closing the
               surrounding roles modal. */}
-          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} data-testid="role-emoji-backdrop" />
-          <EmojiPicker
-            placement="below"
-            skipRecent
-            customEmojis={{}}
-            onPick={(emoji) => {
-              // Unicode only: a custom emoji is a relay-scoped image, and the
-              // badge has to render from the catalog alone on any client.
-              const glyph = normalizeRoleEmoji(emoji);
-              if (glyph && !glyph.startsWith(':')) onPick(glyph);
-              setOpen(false);
-            }}
-            onClose={() => setOpen(false)}
-          />
+          <div className="fixed inset-0 z-40" onClick={() => setAnchor(null)} data-testid="role-emoji-backdrop" />
+          <div className="fixed z-50" style={{ left: anchor.left, top: anchor.top }} data-testid={`role-emoji-popover-${role.id}`}>
+            <EmojiPicker
+              placement="below"
+              align="left"
+              skipRecent
+              customEmojis={{}}
+              onPick={(emoji) => {
+                // Unicode only: a custom emoji is a relay-scoped image, and the
+                // badge has to render from the catalog alone on any client.
+                const glyph = normalizeRoleEmoji(emoji);
+                if (glyph && !glyph.startsWith(':')) onPick(glyph);
+                setAnchor(null);
+              }}
+              onClose={() => setAnchor(null)}
+            />
+          </div>
         </>
       )}
     </div>
