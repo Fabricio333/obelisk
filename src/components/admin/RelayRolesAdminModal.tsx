@@ -35,6 +35,10 @@ export function parsePubkeyInput(value: string): string | null {
   return null;
 }
 
+function serializeRoles(list: ReadonlyArray<RelayRole>): string {
+  return JSON.stringify(list.map((role) => [role.id, role.name, role.tier, role.color, role.emoji]));
+}
+
 /** Tiers are dense and descending by list position: top row is most senior. */
 function retier(roles: ReadonlyArray<RelayRole>): RelayRole[] {
   return roles.map((role, index) => ({ ...role, tier: roles.length - index }));
@@ -56,11 +60,20 @@ export default function RelayRolesAdminModal({
   const [message, setMessage] = useState<string | null>(null);
   const savedIds = useMemo(() => new Set(roles.roles.map((role) => role.id)), [roles.roles]);
 
-  const dirty = useMemo(() => {
-    const serialize = (list: ReadonlyArray<RelayRole>) =>
-      JSON.stringify(list.map((role) => [role.id, role.name, role.tier, role.color, role.emoji]));
-    return serialize(draft) !== serialize(sortRoles(roles.roles));
-  }, [draft, roles.roles]);
+  const savedKey = useMemo(() => serializeRoles(sortRoles(roles.roles)), [roles.roles]);
+  const [baseKey, setBaseKey] = useState(savedKey);
+  // The catalog usually lands after this modal opens. Seeding the draft only at
+  // mount left it empty against a relay that had roles — which read as an edit,
+  // so Save lit up and publishing it would have wiped the catalog. Adopt each
+  // new catalog while the draft is untouched, and never clobber real edits.
+  if (savedKey !== baseKey) {
+    setBaseKey(savedKey);
+    if (serializeRoles(draft) === baseKey) setDraft(sortRoles(roles.roles));
+  }
+
+  // Compare what Save would actually publish: re-tiering is applied on the way
+  // out, so a reorder back to the original order is not a change.
+  const dirty = serializeRoles(retier(draft)) !== savedKey;
 
   const run = async (label: string, action: () => Promise<void>) => {
     setBusy(true);

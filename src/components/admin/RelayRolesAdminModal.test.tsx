@@ -31,6 +31,39 @@ const SAVED: RelayRoles = {
 afterEach(() => vi.restoreAllMocks());
 
 describe('RelayRolesAdminModal', () => {
+  it('offers nothing to save until something actually changes', () => {
+    const { rerender } = render(<RelayRolesAdminModal relayUrl={RELAY} roles={roles.EMPTY_RELAY_ROLES} onClose={() => {}} />);
+
+    // Opened before the catalog arrived: the draft must adopt it, not read as
+    // an edit that would publish an empty catalog over the relay's roles.
+    rerender(<RelayRolesAdminModal relayUrl={RELAY} roles={SAVED} onClose={() => {}} />);
+
+    expect(screen.getByDisplayValue('Moderator')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save roles' })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('mod name'), { target: { value: 'Mods' } });
+    expect(screen.getByRole('button', { name: 'Save roles' })).not.toBeDisabled();
+  });
+
+  it('keeps local edits when a newer catalog arrives', () => {
+    const { rerender } = render(<RelayRolesAdminModal relayUrl={RELAY} roles={SAVED} onClose={() => {}} />);
+
+    fireEvent.change(screen.getByLabelText('mod name'), { target: { value: 'Mods' } });
+    rerender(<RelayRolesAdminModal relayUrl={RELAY} roles={{ ...SAVED, updatedAt: 20, holders: { mod: [ALICE, BOB], og: [] } }} onClose={() => {}} />);
+
+    expect(screen.getByDisplayValue('Mods')).toBeInTheDocument();
+  });
+
+  it('treats a reorder back to the original order as no change', () => {
+    render(<RelayRolesAdminModal relayUrl={RELAY} roles={SAVED} onClose={() => {}} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Move OG up' }));
+    expect(screen.getByRole('button', { name: 'Save roles' })).not.toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Move OG down' }));
+    expect(screen.getByRole('button', { name: 'Save roles' })).toBeDisabled();
+  });
+
   it('publishes a new role at the bottom of the ladder', async () => {
     const publish = vi.spyOn(roles, 'publishRoleCatalog').mockResolvedValue(undefined);
     render(<RelayRolesAdminModal relayUrl={RELAY} roles={SAVED} onClose={() => {}} />);
