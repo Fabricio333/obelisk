@@ -103,6 +103,9 @@ import { groupReactions, resolveReactionEmoji } from '@/lib/emoji-shortcodes';
 import BlossomImageInput, { ChannelAppearanceInput } from '@/components/BlossomImageInput';
 import RelayAdminPanel from '@/components/admin/RelayAdminPanel';
 import RelayEmojiAdminModal from '@/components/admin/RelayEmojiAdminModal';
+import RelayRolesAdminModal from '@/components/admin/RelayRolesAdminModal';
+import RoleBadge from '@/components/chat/RoleBadge';
+import { rolesByPubkey, useRelayRoles, type RelayRoles } from '@/lib/relay-roles';
 import LanguagePreference from '@/components/LanguagePreference';
 import MediaLibraryModal from '@/components/media/MediaLibraryModal';
 import AppearancePreferenceControls from '@/components/AppearancePreferenceControls';
@@ -427,6 +430,7 @@ export function RelayMenuSheet({
   isAdmin = false,
   branding,
   emojiSet,
+  roles,
   layout,
   rootChannels,
 }: {
@@ -437,13 +441,14 @@ export function RelayMenuSheet({
   isAdmin?: boolean;
   branding?: RelayBranding;
   emojiSet?: RelayEmojiSet;
+  roles?: RelayRoles;
   layout?: ChannelLayout;
   rootChannels?: ReadonlyArray<JsGroup>;
 }) {
   const relays = useConfiguredRelays();
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [adminPanel, setAdminPanel] = useState<null | 'branding' | 'emojis' | 'categories' | 'members'>(null);
+  const [adminPanel, setAdminPanel] = useState<null | 'branding' | 'emojis' | 'categories' | 'members' | 'roles'>(null);
 
   const flash = (msg: string) => {
     setToast(msg);
@@ -604,6 +609,12 @@ export function RelayMenuSheet({
                 onClick={() => setAdminPanel('categories')}
               />
               <Row
+                icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3 9.5 8 4 9l4 4-1 6 5-3 5 3-1-6 4-4-5.5-1z" /></svg>}
+                rowLabel="Roles & ranks"
+                hint="tiered badges"
+                onClick={() => setAdminPanel('roles')}
+              />
+              <Row
                 icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>}
                 rowLabel="Admins & members"
                 hint="bulk cleanup"
@@ -649,6 +660,13 @@ export function RelayMenuSheet({
       )}
       {adminPanel === 'members' && (
         <RelayAdminPanel onClose={() => setAdminPanel(null)} />
+      )}
+      {adminPanel === 'roles' && roles && (
+        <RelayRolesAdminModal
+          relayUrl={relayUrl}
+          roles={roles}
+          onClose={() => setAdminPanel(null)}
+        />
       )}
     </div>
   );
@@ -2244,6 +2262,13 @@ function ServerScreen({
   );
   const branding = useRelayBranding(relay || null, relayAuthors);
   const emojiSet = useRelayEmojiSet(relay || null, relayAuthors);
+  // Operator-defined ranks: one relay-wide subscription, fanned into the chat
+  // store so message rows and the member list just read their badge.
+  const relayRoles = useRelayRoles(relay || null, relayAuthors);
+  const setRolesByPubkey = useChatStore((s) => s.setRolesByPubkey);
+  useEffect(() => {
+    setRolesByPubkey(rolesByPubkey(relayRoles));
+  }, [relayRoles, setRolesByPubkey]);
   const mediaPacks = useMediaPacks();
   const resolvedEmojiSet = useMemo(() => resolveRelayEmojiSet(emojiSet, mediaPacks), [emojiSet, mediaPacks]);
   const setServerEmojis = useChatStore((s) => s.setServerEmojis);
@@ -2404,6 +2429,7 @@ function ServerScreen({
           isAdmin={!!myPubkey && relayAuthors.includes(myPubkey)}
           branding={branding}
           emojiSet={emojiSet}
+          roles={relayRoles}
           layout={layout}
           rootChannels={roots}
         />
@@ -3095,6 +3121,7 @@ export function ChannelMessage({
         )}
         <div className="msg-head">
           <span className="msg-name" onClick={onAvatar} role="button">{name}</span>
+          <RoleBadge pubkey={msg.pubkey} />
           <span className="msg-time">{timeOfDay(msg.createdAt)}</span>
           {msg.pending && <span className="msg-spinner" aria-label="Sending" role="status" />}
           <button
@@ -3768,6 +3795,7 @@ function MemberRow({ pubkey, role, online, onClick }: { pubkey: string; role?: '
         <span className="member-row-name">{name}</span>
         <span className="member-row-nip">{meta?.nip05 ?? shortNpub(pubkey)}</span>
       </div>
+      <RoleBadge pubkey={pubkey} />
       {role === 'admin' && <span className="role-badge b-core">{t('mobile.members.admin')}</span>}
       <span className={`member-row-presence ${online ? 'on' : 'off'}`} />
     </button>

@@ -6,6 +6,7 @@ import { useCurrentRelayUrl, useGroupMemberInfo } from '@/lib/nostr-bridge';
 import type { JsMemberInfo } from '@/lib/nostr-bridge';
 import { shortNpub } from '@/lib/mentions';
 import { presenceActivityKey, useNostrPresence, PRESENCE_WINDOW_MS } from '@/hooks/chat/useNostrPresence';
+import RoleBadge from '@/components/chat/RoleBadge';
 
 function MemberItem({ member, isOnline }: { member: JsMemberInfo; isOnline: boolean }) {
   const name = member.displayName || shortNpub(member.pubkey);
@@ -37,6 +38,7 @@ function MemberItem({ member, isOnline }: { member: JsMemberInfo; isOnline: bool
       <span className={`text-sm truncate ${isOnline ? 'text-lc-white' : 'text-lc-muted'}`}>
         {name}
       </span>
+      <RoleBadge pubkey={member.pubkey} className="ml-auto max-w-[42%]" />
     </button>
   );
 }

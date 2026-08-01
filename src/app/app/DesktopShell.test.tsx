@@ -24,10 +24,19 @@ describe('SidebarMe', () => {
 
 describe('RelaySettingsModal', () => {
   it('shows an SVG icon for every server settings destination', () => {
-    render(<RelaySettingsModal onClose={vi.fn()} onBranding={vi.fn()} onEmojis={vi.fn()} onLayout={vi.fn()} onMembers={vi.fn()} />);
+    render(<RelaySettingsModal onClose={vi.fn()} onBranding={vi.fn()} onEmojis={vi.fn()} onLayout={vi.fn()} onMembers={vi.fn()} onRoles={vi.fn()} />);
 
-    expect(screen.getAllByTestId(/^server-settings-icon-/)).toHaveLength(4);
+    expect(screen.getAllByTestId(/^server-settings-icon-/)).toHaveLength(5);
     expect(screen.getAllByTestId(/^server-settings-icon-/).every((icon) => icon.querySelector('svg'))).toBe(true);
+  });
+
+  it('routes the roles entry to the roles admin surface', () => {
+    const onRoles = vi.fn();
+    render(<RelaySettingsModal onClose={vi.fn()} onBranding={vi.fn()} onEmojis={vi.fn()} onLayout={vi.fn()} onMembers={vi.fn()} onRoles={onRoles} />);
+
+    fireEvent.click(screen.getByText('Roles & ranks'));
+
+    expect(onRoles).toHaveBeenCalled();
   });
 });
 

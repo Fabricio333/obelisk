@@ -48,6 +48,19 @@ describe('MemberList', () => {
     expect(screen.getByLabelText('Role: Admin')).toBeInTheDocument();
   });
 
+  it('shows each member’s highest relay role beside their name', () => {
+    setOnline('admin', 'member');
+    useChatStore.getState().setRolesByPubkey({
+      admin: [{ id: 'core', name: 'Core', tier: 5, color: '#ff0000' }, { id: 'og', name: 'OG', tier: 1, color: '#00ff00' }],
+    });
+    render(<MemberList groupId="group-1" />);
+
+    const badges = screen.getAllByTestId('role-badge');
+    expect(badges).toHaveLength(1);
+    expect(badges[0]).toHaveTextContent('Core');
+    expect(badges[0].closest('[data-testid="member-item"]')).toHaveTextContent('Alice');
+  });
+
   it('collapses offline members', () => {
     setOnline('admin');
     render(<MemberList groupId="group-1" />);

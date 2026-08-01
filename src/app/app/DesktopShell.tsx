@@ -112,6 +112,9 @@ import { channelInitialAnchorFromCursor } from '@/lib/channel-scroll-anchor';
 import { useChannelScrollPosition } from '@/hooks/chat/useChannelScrollPosition';
 import { useHistoryPagination } from '@/hooks/chat/useHistoryPagination';
 import RelayEmojiAdminModal from '@/components/admin/RelayEmojiAdminModal';
+import RelayRolesAdminModal from '@/components/admin/RelayRolesAdminModal';
+import RoleBadge from '@/components/chat/RoleBadge';
+import { rolesByPubkey, useRelayRoles } from '@/lib/relay-roles';
 import { ChannelAppearanceInput } from '@/components/BlossomImageInput';
 import { extractUrls, isImageUrl } from '@/lib/markdown';
 import { stickerTagsForContent, type MessageSticker } from '@/lib/sticker-tags';
@@ -807,6 +810,14 @@ function Sidebar({
   );
   const branding = useRelayBranding(relay || null, relayAuthors);
   const emojiSet = useRelayEmojiSet(relay || null, relayAuthors);
+  // Roles are relay-wide operator data: subscribe once here and fan the
+  // per-pubkey map into the chat store so message rows and the member list
+  // render badges without each opening their own REQ.
+  const relayRoles = useRelayRoles(relay || null, relayAuthors);
+  const setRolesByPubkey = useChatStore((s) => s.setRolesByPubkey);
+  useEffect(() => {
+    setRolesByPubkey(rolesByPubkey(relayRoles));
+  }, [relayRoles, setRolesByPubkey]);
   const mediaPacks = useMediaPacks();
   const resolvedEmojiSet = useMemo(() => resolveRelayEmojiSet(emojiSet, mediaPacks), [emojiSet, mediaPacks]);
   const setServerEmojis = useChatStore((s) => s.setServerEmojis);
@@ -835,6 +846,7 @@ function Sidebar({
   const [brandingOpen, setBrandingOpen] = useState(false);
   const [emojisOpen, setEmojisOpen] = useState(false);
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
+  const [rolesOpen, setRolesOpen] = useState(false);
   const configuredRelays = useConfiguredRelays();
   // The desktop FloatingUserPanel (SidebarMe pill, plus VoiceStatusBar when a
   // call is active) sits absolutely over the bottom of the channel list. Pad
@@ -1049,6 +1061,7 @@ function Sidebar({
           onEmojis={() => setEmojisOpen(true)}
           onLayout={() => setLayoutOpen(true)}
           onMembers={() => setAdminPanelOpen(true)}
+          onRoles={() => setRolesOpen(true)}
         />
       )}
       {layoutOpen && relay && isRelayOperator && (
@@ -1077,6 +1090,13 @@ function Sidebar({
       {adminPanelOpen && isRelayOperator && (
         <RelayAdminPanel onClose={() => setAdminPanelOpen(false)} />
       )}
+      {rolesOpen && relay && isRelayOperator && (
+        <RelayRolesAdminModal
+          relayUrl={relay}
+          roles={relayRoles}
+          onClose={() => setRolesOpen(false)}
+        />
+      )}
 
       <div className="shrink-0 border-t border-lc-border bg-lc-card/50 md:hidden">
         <VoiceStatusBar />
@@ -1094,17 +1114,20 @@ export function RelaySettingsModal({
   onEmojis,
   onLayout,
   onMembers,
+  onRoles,
 }: {
   onClose: () => void;
   onBranding: () => void;
   onEmojis: () => void;
   onLayout: () => void;
   onMembers: () => void;
+  onRoles: () => void;
 }) {
   const items = [
     ['profile', 'Server profile & banner', 'Name, icon, banner, and description.', onBranding],
     ['emoji', 'Emoji, GIFs & stickers', 'Server favorites, packs, and marketplace.', onEmojis],
     ['channels', 'Channels & categories', 'Category names and channel ordering.', onLayout],
+    ['roles', 'Roles & ranks', 'Tiered badges shown next to member names.', onRoles],
     ['members', 'Members & roles', 'Review and moderate membership across channels.', onMembers],
   ] as const;
 
@@ -1141,12 +1164,13 @@ export function RelaySettingsModal({
   );
 }
 
-function RelaySettingsIcon({ kind }: { kind: 'profile' | 'emoji' | 'channels' | 'members' }) {
+function RelaySettingsIcon({ kind }: { kind: 'profile' | 'emoji' | 'channels' | 'members' | 'roles' }) {
   const paths = {
     profile: <><circle cx="12" cy="8" r="3"/><path d="M5 20a7 7 0 0 1 14 0M4 4h16v16H4z"/></>,
     emoji: <><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></>,
     channels: <><path d="M5 4v16M19 4v16M4 8h16M4 16h16"/><circle cx="8" cy="8" r="1" fill="currentColor"/><circle cx="16" cy="16" r="1" fill="currentColor"/></>,
     members: <><circle cx="9" cy="8" r="3"/><circle cx="17" cy="10" r="2"/><path d="M3 20a6 6 0 0 1 12 0M14 16a5 5 0 0 1 7 4"/></>,
+    roles: <><path d="M12 3 9.5 8 4 9l4 4-1 6 5-3 5 3-1-6 4-4-5.5-1z"/></>,
   } as const;
   return <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[kind]}</svg>;
 }
@@ -3102,6 +3126,7 @@ function MessageRow({
         {!grouped && (
           <div className="flex items-baseline gap-2">
             <button onClick={openProfile} className="text-sm font-bold text-lc-white hover:underline">{displayName}</button>
+            <RoleBadge pubkey={msg.pubkey} />
             <span className="text-[10px] text-lc-muted">
               {new Date(msg.createdAt * 1000).toLocaleString(undefined, {
                 hour: '2-digit',
