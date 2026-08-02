@@ -1,6 +1,7 @@
 import type { ImgHTMLAttributes } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { LocaleProvider } from '@/i18n/context';
 import LandingPage from './LandingPage';
 
@@ -100,6 +101,52 @@ describe('LandingPage hero', () => {
       'src',
       '/pictures-for-posts/mobile-server-and-channels-view.png',
     );
+  });
+
+  it('embeds the demo video between the hero and the screenshot cards', () => {
+    render(
+      <LocaleProvider initialLocale="en">
+        <LandingPage />
+      </LocaleProvider>,
+    );
+
+    const hero = screen.getByTestId('landing-hero');
+    const video = screen.getByTestId('landing-demo-video');
+    const desktopPreview = screen.getByTestId('landing-preview-desktop');
+
+    // Document order: hero -> video -> screenshots.
+    expect(hero.compareDocumentPosition(video) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(video.compareDocumentPosition(desktopPreview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('renders the video as a click-to-play facade, not a live YouTube iframe', () => {
+    render(
+      <LocaleProvider initialLocale="en">
+        <LandingPage />
+      </LocaleProvider>,
+    );
+
+    const video = screen.getByTestId('landing-demo-video');
+    // No third-party frame on first paint — the whole point of the facade.
+    expect(video.querySelector('iframe')).toBeNull();
+
+    const thumb = within(video).getByTestId('youtube-thumbnail');
+    expect(thumb.querySelector('img')?.src).toContain('Z86oghQkUbk');
+  });
+
+  it('swaps in the nocookie player once the visitor asks for it', async () => {
+    const user = userEvent.setup();
+    render(
+      <LocaleProvider initialLocale="en">
+        <LandingPage />
+      </LocaleProvider>,
+    );
+
+    const video = screen.getByTestId('landing-demo-video');
+    await user.click(within(video).getByTestId('youtube-thumbnail'));
+
+    const iframe = within(video).getByTestId('youtube-iframe').querySelector('iframe');
+    expect(iframe?.src).toContain('youtube-nocookie.com/embed/Z86oghQkUbk');
   });
 
   it('allows the Spanish hero headline to wrap on narrow screens', () => {

@@ -12,6 +12,7 @@ import ObeliskIcon from '@/components/ObeliskIcon';
 import ShootingStars from '@/components/ShootingStars';
 import FAQItem from '@/components/FAQItem';
 import Footer from '@/components/Footer';
+import YouTubeEmbed from '@/components/chat/YouTubeEmbed';
 import { useTranslation } from '@/i18n/context';
 import { guidesHref } from '@/lib/guide-urls';
 
@@ -131,6 +132,9 @@ const TECH_STACK: { name: string; desc: string; color: string; icon?: string; im
   { name: 'Tailwind v4', desc: 'Styling', color: 'text-cyan-400', icon: '~', href: 'https://tailwindcss.com' },
 ];
 
+
+/** youtu.be/Z86oghQkUbk — the Obelisk walkthrough shown under the hero. */
+const DEMO_VIDEO_ID = 'Z86oghQkUbk';
 
 function LandingHeroAnimation() {
   return (
@@ -333,6 +337,7 @@ export default function LandingPage() {
   const [isNavigating, setIsNavigating] = useState(false);
   const { t, locale } = useTranslation();
 
+  const [videoRef, videoVisible] = useScrollReveal<HTMLElement>();
   const [previewRef, previewVisible] = useScrollReveal<HTMLElement>();
   const [featuresRef, featuresVisible] = useScrollReveal<HTMLElement>();
   const [stepsRef, stepsVisible] = useScrollReveal<HTMLElement>();
@@ -438,6 +443,34 @@ export default function LandingPage() {
               mobileAlt={t('landing.preview.mobile.alt')}
             />
           </div>
+        </div>
+      </section>
+
+      {/* Demo video — sits between the hero pitch and the device screenshots
+          so the flow is claim → see it move → see it still. Click-to-play:
+          no YouTube iframe (and no Google cookies) until the visitor asks
+          for it, so the landing page's first paint stays first-party. */}
+      <section
+        id="demo-video"
+        ref={videoRef}
+        data-testid="landing-demo-video"
+        className={`pt-10 pb-4 px-6 ${videoVisible ? 'animate-fade-in-up' : 'opacity-0'}`}
+      >
+        <div className="max-w-4xl mx-auto">
+          <div className="text-center mb-8">
+            <h2 className="text-3xl md:text-4xl font-bold mb-4">
+              {t('landing.video.heading')}<span className="text-lc-green">.</span>
+            </h2>
+            <p className="text-lc-muted text-lg max-w-2xl mx-auto">
+              {t('landing.video.subtitle')}
+            </p>
+          </div>
+          <YouTubeEmbed
+            videoId={DEMO_VIDEO_ID}
+            className="w-full shadow-2xl shadow-black/40"
+            title={t('landing.video.title')}
+            thumbnailRes="maxres"
+          />
         </div>
       </section>
 

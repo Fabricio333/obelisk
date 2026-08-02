@@ -183,6 +183,9 @@
   "inbox.timeAgo.hours": "{n}h",
   "inbox.timeAgo.days": "{n}d",
 
+  "landing.video.heading": "Mirá el recorrido",
+  "landing.video.subtitle": "Dos minutos sobre un relay real: entrá con tus claves, sumate a un grupo, hablá, zapeá.",
+  "landing.video.title": "Video de recorrido por Obelisk",
   "landing.preview.heading": "Vélo en acción",
   "landing.preview.subtitle": "El mismo cliente puro Nostr, pensado para tu laptop y para tu celular. Tomá el tour del dispositivo que realmente usás.",
   "landing.preview.desktop.badge": "Desktop",

@@ -183,6 +183,9 @@
   "inbox.timeAgo.hours": "{n}h",
   "inbox.timeAgo.days": "{n}d",
 
+  "landing.video.heading": "Watch the walkthrough",
+  "landing.video.subtitle": "Two minutes through a real relay: log in with your keys, join a group, talk, zap.",
+  "landing.video.title": "Obelisk walkthrough video",
   "landing.preview.heading": "See it in action",
   "landing.preview.subtitle": "The same Nostr-only client, designed for both your laptop and your phone. Take the tour for the device you actually use.",
   "landing.preview.desktop.badge": "Desktop",
