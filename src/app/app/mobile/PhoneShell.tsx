@@ -2469,9 +2469,28 @@ function ReplyAuthorName({ pubkey }: { pubkey: string }) {
 /**
  * Mention popover anchored above the mobile composer. Mirrors the desktop
  * `MentionAutocomplete` shape but uses mobile CSS variables and tap-friendly
- * row sizing. Keeps focus on the input across tap (preventDefault on
- * mousedown) so the soft keyboard doesn't dismiss mid-selection.
+ * row sizing.
+ *
+ * Touch and mouse are handled on separate, non-overlapping paths:
+ *
+ *   touch → `touchend`, with `preventDefault()`
+ *   mouse → `click`, with `preventDefault()` on `mousedown`
+ *
+ * Touch resolves on `touchend` because preventing its default is the one
+ * thing that reliably stops the browser from moving focus off the composer
+ * — losing focus dismisses the soft keyboard, `useKeyboardInset` drops to
+ * 0, and the shell's `height: calc(100dvh - var(--kb-inset))` reflows the
+ * whole screen. Preventing it also suppresses the synthetic mouse events
+ * and the trailing `click`, which is what stopped the tap from landing as
+ * a ghost click on whatever the reflow moved under the finger — the bottom
+ * nav un-hides at exactly that moment (`shouldHideMobileBottomNav` keys off
+ * `kbInset > 0`), which is how a mention tap ended up on the DMs tab.
+ *
+ * A tap that travelled more than TAP_SLOP_PX was the user scrolling the
+ * list, so it selects nothing.
  */
+const TAP_SLOP_PX = 10;
+
 export function MobileMentionAutocomplete({
   members,
   selectedIndex,
@@ -2483,6 +2502,7 @@ export function MobileMentionAutocomplete({
   onSelect: (m: MemberInfo) => void;
   onHover: (i: number) => void;
 }) {
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   if (members.length === 0) return null;
   return (
     <div className="composer-mention-popup" data-testid="mobile-mention-autocomplete">
@@ -2491,19 +2511,23 @@ export function MobileMentionAutocomplete({
           key={m.pubkey}
           type="button"
           className={`composer-mention-row ${i === selectedIndex ? 'active' : ''}`}
-          // Selection fires on `click`, not `mousedown`: on touch the
-          // synthesized mousedown is unreliable (and never arrives at all
-          // if the gesture gets claimed as a scroll), whereas click fires
-          // for mouse and tap alike and is suppressed after a real scroll.
-          //
-          // `pointerdown` is where the blur has to be stopped. It is the
-          // first event of the sequence and precedes the browser moving
-          // focus, for both mouse and touch. The `mousedown` guard alone
-          // was not enough on touch: the compatibility mouse events are
-          // synthesized *after* focus has already left the composer, so the
-          // keyboard was dismissed before we ever got a say. Preventing the
-          // default here keeps the input focused; `click` still fires.
-          onPointerDown={(e) => e.preventDefault()}
+          onTouchStart={(e) => {
+            const t = e.touches[0];
+            touchStartRef.current = t ? { x: t.clientX, y: t.clientY } : null;
+          }}
+          onTouchEnd={(e) => {
+            const start = touchStartRef.current;
+            touchStartRef.current = null;
+            if (!start) return;
+            const t = e.changedTouches[0];
+            if (!t) return;
+            const moved = Math.hypot(t.clientX - start.x, t.clientY - start.y);
+            if (moved > TAP_SLOP_PX) return; // scrolled the list, not a tap
+            // Suppresses focus change, the synthetic mouse events, and the
+            // trailing click — see the block comment above.
+            e.preventDefault();
+            onSelect(m);
+          }}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => onSelect(m)}
           onMouseEnter={() => onHover(i)}

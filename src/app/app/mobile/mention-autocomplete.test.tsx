@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen } from '@testing-library/react';
 
 // PhoneShell imports the entire bridge surface as a side effect of the
 // module evaluation; stub every named import so this focused test on the
@@ -142,11 +142,12 @@ describe('MobileMentionAutocomplete', () => {
     expect(onSelect).toHaveBeenCalledWith(BOB);
   });
 
-  it('preventDefaults pointerdown so touch never blurs the composer', () => {
-    // The blur has to be stopped at pointerdown: it precedes the browser
-    // moving focus, whereas the compatibility mouse events are synthesized
-    // after focus has already left the input. Losing focus dismisses the
-    // soft keyboard, which collapses the shell's --kb-inset layout.
+  it('selects on touchend and preventDefaults it', () => {
+    // Preventing touchend's default is the one thing that reliably stops the
+    // browser moving focus off the composer. It also suppresses the synthetic
+    // click, which is what previously landed as a ghost tap on the bottom nav
+    // once the collapsing keyboard un-hid it — that is how a mention tap ended
+    // up navigating to the DMs screen.
     const onSelect = vi.fn();
     render(
       <MobileMentionAutocomplete
@@ -156,15 +157,43 @@ describe('MobileMentionAutocomplete', () => {
         onHover={() => {}}
       />,
     );
-    const rows = screen.getAllByTestId('mobile-mention-option');
-    const ev = new Event('pointerdown', { bubbles: true, cancelable: true });
-    rows[1].dispatchEvent(ev);
+    const row = screen.getAllByTestId('mobile-mention-option')[1];
+
+    fireEvent.touchStart(row, { touches: [{ clientX: 100, clientY: 200 }] });
+    const ev = createEvent.touchEnd(row, {
+      changedTouches: [{ clientX: 102, clientY: 201 }],
+    });
+    fireEvent(row, ev);
 
     expect(ev.defaultPrevented).toBe(true);
-    expect(onSelect).not.toHaveBeenCalled();
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith(BOB);
   });
 
-  it('preventDefaults mousedown without selecting, so focus and the soft keyboard survive', () => {
+  it('does not select when the touch was a scroll, not a tap', () => {
+    const onSelect = vi.fn();
+    render(
+      <MobileMentionAutocomplete
+        members={[ALICE, BOB]}
+        selectedIndex={0}
+        onSelect={onSelect}
+        onHover={() => {}}
+      />,
+    );
+    const row = screen.getAllByTestId('mobile-mention-option')[1];
+
+    fireEvent.touchStart(row, { touches: [{ clientX: 100, clientY: 200 }] });
+    const ev = createEvent.touchEnd(row, {
+      changedTouches: [{ clientX: 104, clientY: 260 }], // dragged 60px
+    });
+    fireEvent(row, ev);
+
+    expect(onSelect).not.toHaveBeenCalled();
+    // Left un-prevented so the browser handles the scroll normally.
+    expect(ev.defaultPrevented).toBe(false);
+  });
+
+  it('preventDefaults mousedown without selecting, so focus survives a mouse click', () => {
     const onSelect = vi.fn();
     render(
       <MobileMentionAutocomplete
@@ -179,7 +208,7 @@ describe('MobileMentionAutocomplete', () => {
     rows[1].dispatchEvent(ev);
 
     expect(ev.defaultPrevented).toBe(true);
-    // Must NOT select here — otherwise a mouse tap fires onSelect twice.
+    // Must NOT select here — otherwise a mouse click fires onSelect twice.
     expect(onSelect).not.toHaveBeenCalled();
   });
 
