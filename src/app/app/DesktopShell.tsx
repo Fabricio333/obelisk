@@ -781,20 +781,30 @@ export function RelayTopBar({
           <div className="flex items-center justify-between px-4 py-3 border-b border-lc-border">
             <span className="text-sm font-semibold text-lc-white">{t('common.help')}</span>
           </div>
-          <div className="overflow-y-auto flex-1">
-            <ul className="flex flex-col">
+          {/* One `lc-card` per topic — the same card treatment the /help
+              page gives these four, just at popover scale. Flat list rows
+              read as a menu; discrete cards match where the user has seen
+              this content before.
+
+              The well is `lc-black` because `.lc-card` paints #171717, the
+              exact colour of the popover's own `bg-lc-dark` — on that
+              background the cards would be invisible apart from their
+              border. Recessing the scroll area reproduces the page/card
+              contrast /help gets for free from the black page behind it. */}
+          <div className="overflow-y-auto flex-1 bg-lc-black/50 p-3">
+            <ul className="flex flex-col gap-2">
               {HELP_TOPICS[locale].map((topic) => (
                 <li key={topic.slug}>
                   <a
                     href={guidesHref(locale, topic.slug)}
                     data-testid={`help-popover-topic-${topic.slug}`}
                     onClick={() => setHelpOpen(false)}
-                    className="group block px-4 py-3 hover:bg-lc-card/60 transition-colors"
+                    className="lc-card group block p-3 hover:border-lc-green/50"
                   >
                     <div className="text-sm font-semibold text-lc-white group-hover:text-lc-green">
                       {topic.title}
                     </div>
-                    <div className="mt-0.5 text-xs leading-5 text-lc-muted">
+                    <div className="mt-1 text-xs leading-5 text-lc-muted">
                       {topic.description}
                     </div>
                   </a>

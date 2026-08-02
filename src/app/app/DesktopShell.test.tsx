@@ -139,6 +139,20 @@ describe('RelayTopBar help popover', () => {
     expect(viewMore.className).toContain('rounded-full');
   });
 
+  it('wraps each topic in its own card container', () => {
+    renderTopBar();
+    fireEvent.click(screen.getByLabelText('Help'));
+
+    const topics = screen.getAllByTestId(/^help-popover-topic-/);
+    expect(topics).toHaveLength(4);
+    // Each option is a discrete lc-card, not a flat menu row.
+    expect(topics.every((a) => a.className.includes('lc-card'))).toBe(true);
+    // Cards need a recessed well behind them, otherwise .lc-card's #171717
+    // is identical to the popover's own bg-lc-dark and they vanish.
+    const well = topics[0].closest('[data-help-popover] > div');
+    expect(well?.className).toContain('bg-lc-black');
+  });
+
   it('closes on Escape', () => {
     renderTopBar();
     fireEvent.click(screen.getByLabelText('Help'));
