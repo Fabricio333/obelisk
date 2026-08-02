@@ -142,6 +142,28 @@ describe('MobileMentionAutocomplete', () => {
     expect(onSelect).toHaveBeenCalledWith(BOB);
   });
 
+  it('preventDefaults pointerdown so touch never blurs the composer', () => {
+    // The blur has to be stopped at pointerdown: it precedes the browser
+    // moving focus, whereas the compatibility mouse events are synthesized
+    // after focus has already left the input. Losing focus dismisses the
+    // soft keyboard, which collapses the shell's --kb-inset layout.
+    const onSelect = vi.fn();
+    render(
+      <MobileMentionAutocomplete
+        members={[ALICE, BOB]}
+        selectedIndex={0}
+        onSelect={onSelect}
+        onHover={() => {}}
+      />,
+    );
+    const rows = screen.getAllByTestId('mobile-mention-option');
+    const ev = new Event('pointerdown', { bubbles: true, cancelable: true });
+    rows[1].dispatchEvent(ev);
+
+    expect(ev.defaultPrevented).toBe(true);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
   it('preventDefaults mousedown without selecting, so focus and the soft keyboard survive', () => {
     const onSelect = vi.fn();
     render(

@@ -2495,8 +2495,15 @@ export function MobileMentionAutocomplete({
           // synthesized mousedown is unreliable (and never arrives at all
           // if the gesture gets claimed as a scroll), whereas click fires
           // for mouse and tap alike and is suppressed after a real scroll.
-          // `mousedown` is kept purely to preventDefault, which stops the
-          // input from blurring so the soft keyboard survives the tap.
+          //
+          // `pointerdown` is where the blur has to be stopped. It is the
+          // first event of the sequence and precedes the browser moving
+          // focus, for both mouse and touch. The `mousedown` guard alone
+          // was not enough on touch: the compatibility mouse events are
+          // synthesized *after* focus has already left the composer, so the
+          // keyboard was dismissed before we ever got a say. Preventing the
+          // default here keeps the input focused; `click` still fires.
+          onPointerDown={(e) => e.preventDefault()}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => onSelect(m)}
           onMouseEnter={() => onHover(i)}
@@ -2594,6 +2601,8 @@ function ChannelScreen({
     return target;
   }, [initialAnchorMessageId]);
   const composerInputRef = useRef<HTMLInputElement>(null);
+  /** Caret position owed to the composer once a mention insert re-renders. */
+  const pendingCaretRef = useRef<number | null>(null);
   const channelHighlights = useChannelHighlights(groupId, myPubkey);
 
   // ── @-mention autocomplete ───────────────────────────────────────────
@@ -2657,13 +2666,31 @@ function ChannelScreen({
     const { next, cursor: nextCursor } = applyMentionToDraft(draft, cursor, member.pubkey);
     setDraft(next);
     setMentionQuery(null);
-    requestAnimationFrame(() => {
-      const el = composerInputRef.current;
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(nextCursor, nextCursor);
-    });
+    // Focus MUST be restored synchronously, while we are still inside the
+    // tap's user-activation task. This previously ran inside
+    // requestAnimationFrame, which lands in a later task: mobile browsers
+    // then refuse to reopen the soft keyboard, `useKeyboardInset` falls to
+    // 0, the shell's `height: calc(100dvh - var(--kb-inset))` snaps back to
+    // full height and the entire screen reflows — the "tapping a mention
+    // collapses the UI" bug.
+    //
+    // Caret restoration has no user-activation requirement, so it waits for
+    // the controlled value to land (see the layout effect below).
+    ta?.focus({ preventScroll: true });
+    pendingCaretRef.current = nextCursor;
   }
+
+  // Park the caret after a mention insert until React has flushed the new
+  // controlled value — setting it before that would clamp against the old,
+  // shorter draft. Split out from `pickMention` because focus is
+  // gesture-bound and this is not.
+  useLayoutEffect(() => {
+    const caret = pendingCaretRef.current;
+    if (caret === null) return;
+    pendingCaretRef.current = null;
+    const el = composerInputRef.current;
+    el?.setSelectionRange(caret, caret);
+  }, [draft]);
 
   // Reset reply target whenever the user navigates to a different channel.
   useEffect(() => { setReplyingTo(null); }, [groupId]);
