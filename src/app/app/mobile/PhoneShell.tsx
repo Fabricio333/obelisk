@@ -120,6 +120,8 @@ import { useTranslation } from '@/i18n/context';
 import { npubToHex } from '@nostr-wot/data';
 import {
   applyMentionToDraft,
+  resolveDraftMentions,
+  type DraftMention,
   detectMentionQuery,
   filterMembers,
   relayMentionCandidates,
@@ -2628,6 +2630,13 @@ function ChannelScreen({
   const composerInputRef = useRef<HTMLInputElement>(null);
   /** Caret position owed to the composer once a mention insert re-renders. */
   const pendingCaretRef = useRef<number | null>(null);
+  /**
+   * Mentions the draft is currently holding as readable `@Name` text.
+   * Resolved back to `nostr:npub1…` in `send()` — without that the event
+   * would carry no `nostr:` token, so no `#p` tag and no mention
+   * notification for the person named.
+   */
+  const [draftMentions, setDraftMentions] = useState<DraftMention[]>([]);
   const channelHighlights = useChannelHighlights(groupId, myPubkey);
 
   // ── @-mention autocomplete ───────────────────────────────────────────
@@ -2673,7 +2682,7 @@ function ChannelScreen({
   }, [mentionCandidatePubkeys, metaMap, mentionQuery]);
   // Close the popup whenever we change channels — stale @-state from a
   // previous channel shouldn't bleed into a fresh composer.
-  useEffect(() => { setMentionQuery(null); }, [groupId]);
+  useEffect(() => { setMentionQuery(null); setDraftMentions([]); }, [groupId]);
 
   function handleDraftInput(value: string, cursor: number) {
     setDraft(value);
@@ -2688,8 +2697,14 @@ function ChannelScreen({
   function pickMention(member: MemberInfo) {
     const ta = composerInputRef.current;
     const cursor = ta?.selectionStart ?? draft.length;
-    const { next, cursor: nextCursor } = applyMentionToDraft(draft, cursor, member.pubkey);
+    const { next, cursor: nextCursor, mention } = applyMentionToDraft(
+      draft,
+      cursor,
+      member.pubkey,
+      { displayName: member.displayName },
+    );
     setDraft(next);
+    if (mention) setDraftMentions((prev) => [...prev, mention]);
     setMentionQuery(null);
     // Focus MUST be restored synchronously, while we are still inside the
     // tap's user-activation task. This previously ran inside
@@ -2803,12 +2818,16 @@ function ChannelScreen({
   });
 
   const send = () => {
-    const text = draft.trim();
+    // The composer holds mentions as readable `@Name`; the wire format is
+    // `nostr:npub1…`. Resolve before anything downstream sees the text —
+    // emoji/sticker/voice tag builders and the publish path all read it.
+    const text = resolveDraftMentions(draft.trim(), draftMentions);
     if (!text) return;
     const replyToCopy = replyingTo ? { id: replyingTo.id, pubkey: replyingTo.pubkey } : null;
     // Optimistic — placeholder appears in-list with a spinner; failures
     // surface a retry button on the bubble itself, not in the composer.
     setDraft('');
+    setDraftMentions([]);
     setDraftCustomEmojis({});
     setDraftSticker(null);
     setDraftVoiceNote(null);

@@ -98,7 +98,7 @@ import { parseZapCommand } from '@/lib/wallet/parse-zap-command';
 import MentionAutocomplete from '@/components/chat/MentionAutocomplete';
 import SlashCommandAutocomplete, { SLASH_COMMANDS, type SlashCommand } from '@/components/chat/SlashCommandAutocomplete';
 import SlashCommandScaffold, { scaffoldMentionSlotQuery, scaffoldMentionSlotRange } from '@/components/chat/SlashCommandScaffold';
-import { applyMentionToDraft, filterMembers, relayMentionCandidates } from '@/lib/mentions';
+import { applyMentionToDraft, filterMembers, relayMentionCandidates, resolveDraftMentions, type DraftMention } from '@/lib/mentions';
 import { npubToHex } from '@nostr-wot/data';
 import {
   applyLayout,
@@ -2397,6 +2397,12 @@ function ChatPanel({
     return () => { unsub?.(); };
   }, []);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  /**
+   * Mentions the draft is holding as readable `@Name` text, resolved back to
+   * `nostr:npub1…` in `onSend`. Slash-command slots are not tracked here —
+   * those already carry the npub.
+   */
+  const [draftMentions, setDraftMentions] = useState<DraftMention[]>([]);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [slashQuery, setSlashQuery] = useState<string | null>(null);
   const [slashIndex, setSlashIndex] = useState(0);
@@ -2475,9 +2481,20 @@ function ChatPanel({
     // When the picker is opened by a slash-command slot, replace whatever
     // partial token the user already typed (e.g. `/zap dum` → the `dum`
     // token) instead of appending another mention token after it.
+    //
+    // Slot mentions stay `nostr:npub1…`: those slots are whitespace
+    // tokenized, so a display name with a space would split into two
+    // arguments. Prose mentions become readable `@Name` and are resolved
+    // back on send.
     const slotRange = scaffoldMentionSlotRange(draft, cursor);
-    const { next, cursor: nextCursor } = applyMentionToDraft(draft, cursor, member.pubkey, slotRange);
+    const { next, cursor: nextCursor, mention } = applyMentionToDraft(
+      draft,
+      cursor,
+      member.pubkey,
+      { displayName: member.displayName, slotRange },
+    );
     setDraft(next);
+    if (mention) setDraftMentions((prev) => [...prev, mention]);
     setMentionQuery(null);
     requestAnimationFrame(() => {
       ta.focus();
@@ -2605,15 +2622,23 @@ function ChatPanel({
     setDraftVoiceNote(null);
     setReplyingTo(null);
 
+    // The composer holds mentions as readable `@Name`; the wire format is
+    // `nostr:npub1…`. Resolve here, past the /zap branch (frontend-only, it
+    // never publishes) and before anything downstream reads the text.
+    // Without this the event carries no `nostr:` token, so no `#p` tag and
+    // no mention notification for the person named.
+    const wire = resolveDraftMentions(content, draftMentions);
+    setDraftMentions([]);
+
     // Fire-and-forget — bridge inserts the pending placeholder synchronously
     // and surfaces send failures via the bubble's `failed` flag (with retry).
-    const voiceTag = voiceNoteTagForContent(content, draftVoiceNote);
+    const voiceTag = voiceNoteTagForContent(wire, draftVoiceNote);
     const emojiTags = [
-      ...emojiTagsForContent(content, mergeCustomEmojiMaps(serverEmojis, draftCustomEmojis)),
-      ...stickerTagsForContent(content, draftSticker).filter((tag) => tag[0] === 'sticker'),
+      ...emojiTagsForContent(wire, mergeCustomEmojiMaps(serverEmojis, draftCustomEmojis)),
+      ...stickerTagsForContent(wire, draftSticker).filter((tag) => tag[0] === 'sticker'),
       ...(voiceTag ? [voiceTag] : []),
     ];
-    nostrActions.sendMessage(groupId, content, replyToCopy, emojiTags).catch((err) => {
+    nostrActions.sendMessage(groupId, wire, replyToCopy, emojiTags).catch((err) => {
       console.error('send failed', err);
     });
   }

@@ -13,6 +13,7 @@ import {
   relayMentionCandidates,
   detectMentionQuery,
   applyMentionToDraft,
+  resolveDraftMentions,
   MemberInfo,
 } from './mentions';
 
@@ -466,21 +467,108 @@ describe('applyMentionToDraft', () => {
 
     it('replaces the slot range when the user typed a partial name', () => {
       // `/zap dum` — slot range covers "dum" at chars 5..8.
-      const { next, cursor } = applyMentionToDraft('/zap dum', 8, pk, { start: 5, end: 8 });
+      const { next, cursor } = applyMentionToDraft('/zap dum', 8, pk, { slotRange: { start: 5, end: 8 } });
       expect(next).toBe(`/zap nostr:${npub} `);
       expect(cursor).toBe(`/zap nostr:${npub} `.length);
     });
 
     it('preserves the trailing amount when replacing an in-slot token', () => {
       // `/zap dum 100` — slot covers "dum"; the trailing "100" stays put.
-      const { next } = applyMentionToDraft('/zap dum 100', 8, pk, { start: 5, end: 8 });
+      const { next } = applyMentionToDraft('/zap dum 100', 8, pk, { slotRange: { start: 5, end: 8 } });
       expect(next).toBe(`/zap nostr:${npub}  100`);
     });
 
     it('ignores the @-regex path even if `@name` sits before the slot', () => {
       // The slot range takes priority over the legacy `@word` capture.
-      const { next } = applyMentionToDraft('@bystander /zap dum', 19, pk, { start: 16, end: 19 });
+      const { next } = applyMentionToDraft('@bystander /zap dum', 19, pk, { slotRange: { start: 16, end: 19 } });
       expect(next).toBe(`@bystander /zap nostr:${npub} `);
     });
+  });
+
+  describe('prose mentions (readable @Name)', () => {
+    it('inserts @DisplayName instead of a raw npub', () => {
+      const { next, mention } = applyMentionToDraft('hi @ali', 7, pk, {
+        displayName: 'Alice',
+      });
+      expect(next).toBe('hi @Alice ');
+      expect(next).not.toContain('npub');
+      expect(mention).toEqual({ token: '@Alice', pubkey: pk });
+    });
+
+    it('handles display names containing spaces', () => {
+      const { next, mention } = applyMentionToDraft('', 0, pk, {
+        displayName: 'Fabricio Acosta',
+      });
+      expect(next).toBe('@Fabricio Acosta ');
+      expect(mention?.token).toBe('@Fabricio Acosta');
+    });
+
+    it('keeps the npub for slash-command slots, which are whitespace-tokenized', () => {
+      const { next, mention } = applyMentionToDraft('/zap dum', 8, pk, {
+        displayName: 'Fabricio Acosta',
+        slotRange: { start: 5, end: 8 },
+      });
+      expect(next).toBe(`/zap nostr:${nip19.npubEncode(pk)} `);
+      // Nothing to resolve later — it is already the wire format.
+      expect(mention).toBeNull();
+    });
+
+    it('falls back to the npub when no display name is known', () => {
+      const { next, mention } = applyMentionToDraft('', 0, pk);
+      expect(next.startsWith('nostr:')).toBe(true);
+      expect(mention).toBeNull();
+    });
+  });
+});
+
+describe('resolveDraftMentions', () => {
+  const pk = 'a'.repeat(64);
+  const pk2 = 'b'.repeat(64);
+  const npub = nip19.npubEncode(pk);
+  const npub2 = nip19.npubEncode(pk2);
+
+  it('turns tracked @Name tokens back into nostr:npub for the wire', () => {
+    const out = resolveDraftMentions('hi @Alice how are you', [
+      { token: '@Alice', pubkey: pk },
+    ]);
+    expect(out).toBe(`hi nostr:${npub} how are you`);
+  });
+
+  it('resolves names containing spaces', () => {
+    const out = resolveDraftMentions('cc @Fabricio Acosta please', [
+      { token: '@Fabricio Acosta', pubkey: pk },
+    ]);
+    expect(out).toBe(`cc nostr:${npub} please`);
+  });
+
+  it('matches the longest token first so a prefix cannot eat it', () => {
+    const out = resolveDraftMentions('@Fabricio and @Fab', [
+      { token: '@Fab', pubkey: pk2 },
+      { token: '@Fabricio', pubkey: pk },
+    ]);
+    expect(out).toBe(`nostr:${npub} and nostr:${npub2}`);
+  });
+
+  it('treats tokens literally, so regex metacharacters in names are safe', () => {
+    const out = resolveDraftMentions('ping @a.b(c)+d done', [
+      { token: '@a.b(c)+d', pubkey: pk },
+    ]);
+    expect(out).toBe(`ping nostr:${npub} done`);
+  });
+
+  it('leaves an edited token alone rather than resolving the wrong person', () => {
+    const out = resolveDraftMentions('hi @Alic', [{ token: '@Alice', pubkey: pk }]);
+    expect(out).toBe('hi @Alic');
+  });
+
+  it('resolves every occurrence of a repeated mention', () => {
+    const out = resolveDraftMentions('@Alice and @Alice', [
+      { token: '@Alice', pubkey: pk },
+    ]);
+    expect(out).toBe(`nostr:${npub} and nostr:${npub}`);
+  });
+
+  it('is a no-op with no tracked mentions', () => {
+    expect(resolveDraftMentions('plain text', [])).toBe('plain text');
   });
 });
