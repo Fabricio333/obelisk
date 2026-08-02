@@ -7,7 +7,7 @@ import remarkSpoiler from '@/lib/remark-spoiler';
 import { preprocessForMarkdown, MENTION_PLACEHOLDER_REGEX, EVERYONE_PLACEHOLDER, isImageUrl, extractYouTubeId, extractUrls } from '@/lib/markdown';
 import { isUploadUrl, filenameFromUrl, isVideoUrl, isAudioUrl } from '@/lib/attachments';
 import { useChatStore } from '@/store/chat';
-import { useGroupMemberInfo, useMediaPacks, type JsMediaItem } from '@/lib/nostr-bridge';
+import { useGroupMemberInfo, useMediaPacks, useUserMetadata, type JsMediaItem } from '@/lib/nostr-bridge';
 import {
   replaceShortcodes,
   CUSTOM_EMOJI_PLACEHOLDER_REGEX,
@@ -31,6 +31,14 @@ import type { MessageVoiceNote } from '@/lib/voice-note-tags';
 
 function MentionChip({ pubkey, displayName }: { pubkey: string; displayName: string }) {
   const openProfilePopup = useChatStore((s) => s.openProfilePopup);
+  // `parseMentions` resolves names from the channel's member list alone, so
+  // mentioning anyone who isn't a member of *this* channel fell back to a
+  // short npub — the raw `@npub16dew…` in the message body. The bridge's
+  // kind:0 cache normally knows them regardless, and subscribing here also
+  // triggers `ensureUserMetadata`, so an unseen pubkey is fetched and the
+  // chip fills in as soon as the profile lands.
+  const meta = useUserMetadata(pubkey);
+  const resolvedName = meta?.displayName || meta?.name || displayName;
   return (
     <button
       type="button"
@@ -39,7 +47,7 @@ function MentionChip({ pubkey, displayName }: { pubkey: string; displayName: str
       title={pubkey}
       data-testid="mention-highlight"
     >
-      @{displayName}
+      @{resolvedName}
     </button>
   );
 }
