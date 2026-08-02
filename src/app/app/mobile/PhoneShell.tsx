@@ -157,6 +157,7 @@ import MessageZapModal from '@/components/chat/MessageZapModal';
 import { type ScreenName, type NavState, initialNav, urlFor, parseUrl } from './url-state';
 import { buildSeedHistory, decideSnap, decideSwipeNav, decideTabPress, isAdjacentTabSwitch, neighborsFor, NAV_ORDER, resolveParent } from './swipe-nav';
 import { useKeyboardInset } from './use-keyboard';
+import { MESSAGE_INPUT_PROPS } from '@/lib/message-input-props';
 import { channelScrollPositionKey } from '@/lib/channel-scroll-position';
 import { channelInitialAnchorFromCursor } from '@/lib/channel-scroll-anchor';
 import { useChannelScrollPosition } from '@/hooks/chat/useChannelScrollPosition';
@@ -2995,6 +2996,7 @@ function ChannelScreen({
             />
           )}
           <input
+            {...MESSAGE_INPUT_PROPS}
             ref={composerInputRef}
             className={draftVoiceNote ? "hidden" : "composer-input"}
             value={draft}
@@ -3611,6 +3613,7 @@ function DmThreadScreen({
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
           </button>
           <input
+            {...MESSAGE_INPUT_PROPS}
             className="composer-input"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}

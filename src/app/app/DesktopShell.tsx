@@ -79,6 +79,7 @@ import {
 } from '@/lib/notifications/selectors';
 import { useChannelHighlights, useCachedChannelHighlights } from '@/lib/read-state/selectors';
 import { guidesHref } from '@/lib/guide-urls';
+import { MESSAGE_INPUT_PROPS } from '@/lib/message-input-props';
 import { HELP_TOPICS, HELP_VIEW_MORE } from '@/lib/help-topics';
 import { subscribeVoiceJump } from '@/lib/voice/jump-to-voice';
 import { useVoiceChatPane } from '@/hooks/chat/useVoiceChatPane';
@@ -2911,6 +2912,7 @@ function ChatPanel({
               />
             )}
             <input
+              {...MESSAGE_INPUT_PROPS}
               ref={inputRef}
               value={draft}
               onChange={(e) => {
@@ -4354,6 +4356,7 @@ function DMPanel({ peer }: { peer: string | null; onPickPeer: (p: string) => voi
       <form onSubmit={onSend} className="shrink-0 px-5 pt-3 pb-3">
         <div className="flex min-h-[3.5rem] items-center gap-2 rounded-xl border border-lc-border bg-lc-card px-4 focus-within:border-lc-green">
           <input
+            {...MESSAGE_INPUT_PROPS}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder={t('dm.placeholderEncrypted')}
