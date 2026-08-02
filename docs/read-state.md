@@ -11,9 +11,10 @@ data-loading orchestrator.
 
 ## 1. Architecture in one paragraph
 
-The bridge's `messagesByGroup`, `dmsByPeer`, and inbox-event ring buffer
-are the source of truth. Pure selectors derive unread counts and
-highlights from the persisted cursor store. An auto-mark hook advances
+The bridge's `messagesByGroup` and `dmsByPeer` are the source of truth
+for message data; `useNotificationsStore` holds the notification card
+logs. Pure selectors derive unread counts and highlights from the
+persisted cursor stores. An auto-mark hook advances
 cursors when the user is watching a channel/DM. A relay-sync engine
 wraps cursor snapshots in NIP-59 gift wraps and publishes them to the
 right relays with an 8-second debounce; the same engine subscribes on
@@ -22,7 +23,7 @@ each device so cursors converge via monotonic `max()` merge.
 ```
             ┌─────────────────────────────┐
             │ bridge: messagesByGroup,    │
-            │ dmsByPeer, inboxEvents      │ (source of truth, in-memory)
+            │ dmsByPeer                   │ (source of truth, in-memory)
             └────────────┬────────────────┘
                          │
             ┌────────────▼────────────────┐    ┌──────────────────────────┐
@@ -54,8 +55,7 @@ each device so cursors converge via monotonic `max()` merge.
 interface ReadStateStore {
   dmCursors: Record<peerHex, tsMs>;      // unix ms; only advances
   groupCursors: Record<groupId, tsMs>;   // unix ms; only advances
-  inboxLastReadAt: number;               // unix ms; older = read
-  inboxEvents: InboxEvent[];             // ring buffer, cap 50, newest first
+  inboxLastReadAt: number;               // DM-notification cursor, unix ms
   // ...
   applyRemoteState(remote: RemoteReadState): void;
 }
@@ -75,6 +75,43 @@ interface ReadStateStore {
 - **Multi-account isolation** — persist key `obelisk-read-state:{myPubkey}`
   via `ensureReadStateStoreForAccount`. Mounted from
   `ReadStateRoot` on every login change.
+
+### 2b. Notification streams (`src/store/notifications.ts`)
+
+Notifications are **two independent streams that never share a cursor**.
+Conflating them was the original bug: one `inboxEvents` ring buffer and
+one `inboxLastReadAt` meant reading your DMs silently marked every
+channel mention read.
+
+| Stream | Log | Cursor | Scope | Synced by |
+|---|---|---|---|---|
+| Mentions | `mentionsByRelay[relay]` (cap 50/relay) | `mentionCursorByRelay[relay]` | **Per relay** | groups-scope wrap (`mentionsReadAt`) |
+| DMs | `dmNotifications` (cap 50) | `useReadStateStore.inboxLastReadAt` | Account-wide | DM-scope wrap (existing field) |
+
+Rules:
+
+- **Only an explicit `@you` pings.** Not ordinary traffic, not
+  replies-to-you. `ingestMessage` returns early unless
+  `mentions.includes(me)`.
+- **Mentions are scanned only while their relay is active.** Group kind-9
+  subscriptions exist only for the active relay (see CLAUDE.md,
+  "Single-relay rule for groups"), so this falls out of the architecture
+  rather than being enforced separately. Each card is stamped with the
+  relay it was scanned on and is never rendered while browsing another.
+- **Cards persist per relay.** Leaving a relay and coming back restores
+  its mention cards with their unread state intact.
+- **First connect to an unseen relay ignores history.** `registerRelay`
+  stamps `Date.now()` as that relay's cursor the first time the bridge
+  connects to it — called from `finalizeLogin` and `switchRelay`, both
+  *before* subscriptions open. A relay whose cursor already exists keeps
+  it, so a reconnect never silences cards the user hasn't read.
+- **A mention also clears when its channel is read.** `isMentionRead`
+  takes `max(relay cursor, channel cursor)`, so scrolling past the
+  mention in-channel dismisses the bell without a second interaction.
+
+The DM cursor deliberately stays in the read-state store: it is already
+the wire field in the DM-scope gift wrap, so multi-device convergence
+works untouched. One source of truth per value, two stores.
 
 ## 3. Mention detection
 
@@ -102,9 +139,10 @@ render.
 Root-only e-tags (`marker === "root"` or unmarked positional) are NOT
 replies — those denote thread membership.
 
-The inbox push site at `client.ts:ingestMessage` fires a `'reply'`
-`InboxEvent` when a message is reply-to-me. Mentions take precedence
-over replies in the card type when both apply.
+Replies feed the **channel highlight** views only (the `↑↓`
+MentionNavigator and the green channel-row pill). They deliberately do
+**not** produce a notification card and do not badge the tab — only an
+explicit `@you` does. See §2b.
 
 ## 5. Highlights selector
 
@@ -131,8 +169,8 @@ ServerRail relay-tile `@` overlay on the active relay.
 | Relay-tile `@` overlay | `src/app/app/ServerRail.tsx` (RelayTile) | Tiny green `@` badge when the active relay has unread mentions or replies in any channel. Cross-relay surveillance is a follow-up. |
 | Channel row badges | desktop `DesktopShell.tsx` (`GroupNode`), mobile `PhoneShell.tsx` (channel list) | Gray unread count + green pill for `mentions + replies`. Bold name when unread > 0. |
 | MentionNavigator | `src/components/chat/MentionNavigator.tsx` | Floating bottom-right of the message viewport. `↑ N / total ↓` when there are highlights; `F7` / `Shift+F7` keyboard shortcuts. Plus a `⌄` jump-to-latest button when scrolled away from the bottom. |
-| Inbox bell | desktop `DesktopShell.tsx`, mobile inbox tab | Ring buffer of recent mention/reply/dm cards. `inboxLastReadAt` syncs across devices via the DM-state event. |
-| Tab title + favicon | `src/hooks/useFaviconBadge.ts` | Sums `useTotalDMUnread` + `useTotalChannelUnread`; subtracts the active channel's contribution while watching. |
+| Inbox bell | desktop `DesktopShell.tsx` (`RelayTopBar`), mobile inbox tab | Two tabs — **Mentions** (active relay) and **DMs** — with independent counts, independent "mark read", and independent "clear". The bell glyph shows their sum. |
+| Tab title + favicon | `src/hooks/useFaviconBadge.ts` | `useTotalDMUnread` + unread mentions on the active relay. Ordinary channel traffic does **not** badge the tab — a busy relay would otherwise pin it at `(99+)` forever. |
 
 ## 7. Encrypted multi-device sync
 
@@ -140,7 +178,7 @@ Two scopes share the same engine (`src/lib/read-state/relay-sync.ts`):
 
 | Scope | Where it's published | Inner d-tag | Contents |
 |---|---|---|---|
-| **Groups state** | The **active** relay only (`useCurrentRelayUrl`) | `obelisk:readstate:v1` | `{ v:1, groups: { [groupId]: { lastReadAt } } }` |
+| **Groups state** | The **active** relay only (`useCurrentRelayUrl`) | `obelisk:readstate:v1` | `{ v:1, groups: { [groupId]: { lastReadAt } }, mentionsReadAt? }` |
 | **DM state** | User's NIP-65 read+write union (`fetchRelayList`) | `obelisk:dm-readstate:v1` | `{ v:1, dms: { [peerHex]: { lastReadAt } }, inboxLastReadAt }` |
 
 The groups-scope sub used to fan out across `useConfiguredRelays()` —
@@ -265,7 +303,8 @@ src/app/app/AppGate.tsx
 
 | Data type | Key pattern | Mechanism |
 |---|---|---|
-| Per-user cursors + inbox events | `obelisk-read-state:{myPubkey}` | Zustand `persist` + `ensureReadStateStoreForAccount` |
+| Per-user cursors | `obelisk-read-state:{myPubkey}` | Zustand `persist` + `ensureReadStateStoreForAccount` |
+| Notification cards + mention cursors | `obelisk-notifications:{myPubkey}` | Zustand `persist` + `ensureNotificationsStoreForAccount` |
 | Relay-derived metadata + state-event cache | `obelisk-cache-v3/{relay}/1059/{dTag}` | `bridgeCache` |
 | UI-only flags | `obelisk-dex/{namespace}/{id}` | direct `localStorage` |
 
@@ -285,8 +324,9 @@ Two tabs on the same account converge automatically:
    relay even when the user isn't on them. Tracked as a follow-up; the
    data path is otherwise ready.
 2. **Reply-to-me requires the parent in local state** — backfill that
-   arrives before the parent does won't trigger a reply notification.
-   Acceptable because messages stream in chronologically.
+   arrives before the parent does won't count toward the channel's reply
+   highlight. Acceptable because messages stream in chronologically.
+   (Replies don't produce notifications at all — see §2b.)
 3. **Gift wrap accumulation** — handled by the 8-second debounce, but
    long-running users on a single relay will accumulate ~10-30 KB of
    stale wraps per month. Future cleanup pass (NIP-09 deletions) is a
@@ -295,12 +335,16 @@ Two tabs on the same account converge automatically:
 ## 13. Phase 1.5 (next): browser + PWA notifications + sound
 
 Once the data layer is stable in production, OS-level notifications get
-layered on top. Same predicate as the inbox push at
-`client.ts:ingestMessage`:
+layered on top. Same predicate as the notification push at
+`client.ts:ingestMessage` / `ingestDM`:
 
 ```
-isNew && !isUserWatching(channel|dm) && (mentioned || replyToMe || isDM)
+isNew && !isUserWatching(channel|dm) && (mentioned || isDM)
 ```
+
+Per CLAUDE.md, background OS notifications are **DM-only**: group
+mentions only notify while the user has that group's relay open as the
+active relay, because that's the only time they're scanned.
 
 When that fires AND the user has opted in:
 
@@ -317,7 +361,9 @@ in-page and the browser owns the OS handoff.
 
 | File | Covers |
 |---|---|
-| `src/store/read-state.test.ts` | monotonicity, inbox cap/dedup, account-swap persist key, `applyRemoteState` merge semantics |
+| `src/store/read-state.test.ts` | cursor monotonicity, account-swap persist key, `applyRemoteState` merge semantics |
+| `src/store/notifications.test.ts` | stream independence, per-relay bucketing, first-connect floor, backfill drop, caps/dedup, remote cursor merge |
+| `src/lib/nostr-bridge/bridge.test.ts` (`mention notifications`) | mentions-only ingest, relay stamping, self-mention and reply suppression, cursor-gated backfill |
 | `src/lib/read-state/selectors.test.ts` | unread counts, own-message exclusion, `computeChannelHighlights` ordering, mention + reply union |
 | `src/lib/read-state/replies.test.ts` | NIP-10 strict reply detection, parent lookup, edge cases |
 | `src/lib/read-state/relay-sync.test.ts` | sub/ingest with merged cursors, debounced publish, d-tag filtering, cache-first paint |
@@ -326,7 +372,7 @@ in-page and the browser owns the OS handoff.
 | `src/lib/mentions.test.ts` | content-only and `#p`-tag mention extraction |
 | `src/components/chat/MentionNavigator.test.tsx` | ↑↓ clamping, F7 / Shift+F7 keys, scrollIntoView, hidden when no highlights |
 | `src/hooks/useAutoMarkRead.test.tsx` | cursor advances on watching, halts on hidden, monotonic on backfill |
-| `src/hooks/useFaviconBadge.test.tsx` | tab title + favicon reflect derived totals, react to cursor advance |
+| `src/hooks/useFaviconBadge.test.tsx` | tab title + favicon count DMs + active-relay mentions only, ignore ordinary traffic and other relays' mentions |
 
 End-to-end (Playwright):
 

@@ -2,9 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   useReadStateStore,
   ensureReadStateStoreForAccount,
-  getInboxUnreadCount,
   READ_STATE_INITIAL,
-  INBOX_CAP,
 } from './read-state';
 
 describe('useReadStateStore', () => {
@@ -16,7 +14,6 @@ describe('useReadStateStore', () => {
     const s = useReadStateStore.getState();
     expect(s.dmCursors).toEqual({});
     expect(s.groupCursors).toEqual({});
-    expect(s.inboxEvents).toEqual([]);
     expect(s.inboxLastReadAt).toBe(0);
   });
 
@@ -49,33 +46,7 @@ describe('useReadStateStore', () => {
     });
   });
 
-  describe('inbox', () => {
-    it('pushes events newest-first and dedupes by id', () => {
-      const base = {
-        type: 'mention' as const,
-        senderPubkey: 'pk',
-        channelId: 'ch1',
-        messageId: 'm1',
-        createdAt: '2026-05-08T10:00:00Z',
-      };
-      useReadStateStore.getState().pushInboxEvent(base);
-      useReadStateStore.getState().pushInboxEvent(base);
-      expect(useReadStateStore.getState().inboxEvents).toHaveLength(1);
-    });
-
-    it(`caps inbox at INBOX_CAP=${INBOX_CAP}`, () => {
-      for (let i = 0; i < INBOX_CAP + 10; i++) {
-        useReadStateStore.getState().pushInboxEvent({
-          type: 'mention',
-          senderPubkey: 'pk',
-          channelId: 'ch1',
-          messageId: `m${i}`,
-          createdAt: `2026-05-08T10:00:${i.toString().padStart(2, '0')}Z`,
-        });
-      }
-      expect(useReadStateStore.getState().inboxEvents).toHaveLength(INBOX_CAP);
-    });
-
+  describe('cursors', () => {
     it('advanceInboxRead sets inboxLastReadAt to ~now', () => {
       const before = Date.now();
       useReadStateStore.getState().advanceInboxRead();
@@ -117,49 +88,12 @@ describe('useReadStateStore', () => {
       expect(s.groupCursors['g1']).toBe(future);
     });
 
-    it('clearInboxEvents wipes the log', () => {
-      useReadStateStore.getState().pushInboxEvent({
-        type: 'mention', senderPubkey: 'pk', channelId: 'ch1', messageId: 'm1',
-        createdAt: '2026-05-08T10:00:00Z',
-      });
-      useReadStateStore.getState().clearInboxEvents();
-      expect(useReadStateStore.getState().inboxEvents).toEqual([]);
-    });
-
-    it('marks mention and reply notifications read from their channel cursor', () => {
-      useReadStateStore.getState().pushInboxEvent({
-        type: 'mention', senderPubkey: 'pk', channelId: 'ch1', messageId: 'm1',
-        createdAt: '2026-05-08T10:00:00Z',
-      });
-      useReadStateStore.getState().pushInboxEvent({
-        type: 'reply', senderPubkey: 'pk', channelId: 'ch1', messageId: 'm2',
-        createdAt: '2026-05-08T11:00:00Z',
-      });
-      useReadStateStore.getState().pushInboxEvent({
-        type: 'mention', senderPubkey: 'pk', channelId: 'ch2', messageId: 'm3',
-        createdAt: '2026-05-08T09:00:00Z',
-      });
-
-      useReadStateStore.getState().setGroupCursor('ch1', Date.parse('2026-05-08T11:00:00Z'));
-
-      expect(getInboxUnreadCount()).toBe(1);
-    });
-
-    it('getInboxUnreadCount counts events newer than the cursor', () => {
-      useReadStateStore.setState({ inboxLastReadAt: Date.parse('2026-05-08T10:00:00Z') });
-      useReadStateStore.getState().pushInboxEvent({
-        type: 'mention', senderPubkey: 'pk', channelId: 'ch1', messageId: 'm1',
-        createdAt: '2026-05-08T09:00:00Z', // older — read
-      });
-      useReadStateStore.getState().pushInboxEvent({
-        type: 'mention', senderPubkey: 'pk', channelId: 'ch1', messageId: 'm2',
-        createdAt: '2026-05-08T11:00:00Z', // newer — unread
-      });
-      useReadStateStore.getState().pushInboxEvent({
-        type: 'mention', senderPubkey: 'pk', channelId: 'ch1', messageId: 'm3',
-        createdAt: '2026-05-08T12:00:00Z', // newer — unread
-      });
-      expect(getInboxUnreadCount()).toBe(2);
+    it('markAllAsRead with only channels leaves the DM notification cursor advanced but no peers', () => {
+      // The desktop bell's "mentions" tab calls markAllAsRead([], groupIds).
+      useReadStateStore.getState().markAllAsRead([], ['g1']);
+      const s = useReadStateStore.getState();
+      expect(s.dmCursors).toEqual({});
+      expect(s.groupCursors['g1']).toBeGreaterThan(0);
     });
   });
 
@@ -226,18 +160,14 @@ describe('useReadStateStore', () => {
   });
 
   describe('reset', () => {
-    it('wipes all cursors and inbox', () => {
+    it('wipes all cursors', () => {
       useReadStateStore.getState().setDmCursor('alice', 1000);
       useReadStateStore.getState().setGroupCursor('g1', 2000);
-      useReadStateStore.getState().pushInboxEvent({
-        type: 'mention', senderPubkey: 'pk', channelId: 'ch1', messageId: 'm1',
-        createdAt: '2026-05-08T10:00:00Z',
-      });
+      useReadStateStore.getState().advanceInboxRead();
       useReadStateStore.getState().reset();
       const s = useReadStateStore.getState();
       expect(s.dmCursors).toEqual({});
       expect(s.groupCursors).toEqual({});
-      expect(s.inboxEvents).toEqual([]);
       expect(s.inboxLastReadAt).toBe(0);
     });
   });

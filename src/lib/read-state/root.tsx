@@ -44,6 +44,7 @@ import { useMyPubkey } from '@/lib/nostr-bridge';
 import { useAutoMarkRead } from '@/hooks/useAutoMarkRead';
 import { useFaviconBadge } from '@/hooks/useFaviconBadge';
 import { ensureReadStateStoreForAccount } from '@/store/read-state';
+import { ensureNotificationsStoreForAccount } from '@/store/notifications';
 import { ensureDMStoreForAccount } from '@/store/dm';
 import { ensureModerationStoreForAccount } from '@/store/moderation';
 import { startGroupsRelaySync, startDMRelaySync } from './relay-sync';
@@ -58,6 +59,7 @@ import { DEFAULT_PROFILE_LOOKUP_RELAYS } from '@/lib/nostr-bridge/client';
  */
 const PER_ACCOUNT_STORES = [
   ensureReadStateStoreForAccount,
+  ensureNotificationsStoreForAccount,
   ensureDMStoreForAccount,
   ensureModerationStoreForAccount,
 ] as const;

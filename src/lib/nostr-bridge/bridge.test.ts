@@ -3214,6 +3214,131 @@ describe('nostr-bridge', () => {
     expect(cached!.value.map((m) => m.content)).toEqual(['first', 'second']);
   });
 
+  describe('mention notifications', () => {
+    // The bridge is the sole producer of mention cards. These lock in the
+    // three rules the notification split is built on: mentions-only,
+    // stamped with the active relay, and gated by the relay's cursor.
+    async function loginAndSubscribe(groupId: string) {
+      const { getBridge, getBridgeImpl } = await import('./client');
+      const { useNotificationsStore, NOTIFICATIONS_INITIAL } = await import('@/store/notifications');
+      const { skHex, pkHex } = makeKeypair();
+      const bridge = await getBridge();
+      await bridge.loginWithNsec(skHex, pkHex);
+      await flush();
+      // Clear the first-connect floor stamped by finalizeLogin so the test
+      // events (created "now") aren't dropped as backfill.
+      useNotificationsStore.setState({ ...NOTIFICATIONS_INITIAL });
+      bridge.subscribeMessages(groupId, () => {});
+      await flush();
+      return { bridge, impl: getBridgeImpl()!, skHex, pkHex, useNotificationsStore };
+    }
+
+    it('pushes a card for an explicit @-mention, stamped with the active relay', async () => {
+      const groupId = 'notif-mention';
+      const { impl, pkHex, useNotificationsStore } = await loginAndSubscribe(groupId);
+
+      deliver(await fakeRelayMessageWithTags({
+        groupId,
+        content: 'hey there',
+        tags: [['p', pkHex]],
+      }));
+      await flush();
+
+      const relay = impl.currentRelayUrl.get();
+      const cards = useNotificationsStore.getState().mentionsByRelay[relay] ?? [];
+      expect(cards).toHaveLength(1);
+      expect(cards[0].relay).toBe(relay);
+      expect(cards[0].channelId).toBe(groupId);
+      expect(cards[0].preview).toBe('hey there');
+    });
+
+    it('does NOT push a card for a reply to my message', async () => {
+      const groupId = 'notif-reply';
+      const { bridge, impl, useNotificationsStore } = await loginAndSubscribe(groupId);
+
+      // My message first, so the reply's parent resolves to me.
+      await bridge.sendMessage(groupId, 'mine');
+      await flush();
+      const mine = impl.messagesByGroup.get()[groupId]?.find((m) => m.content === 'mine');
+      expect(mine).toBeTruthy();
+
+      deliver(await fakeRelayMessageWithTags({
+        groupId,
+        content: 'replying to you',
+        tags: [['e', mine!.id, '', 'reply']],
+      }));
+      await flush();
+
+      // The reply itself must still be ingested — only the notification is
+      // suppressed. Without this the assertion below would pass vacuously.
+      const list = impl.messagesByGroup.get()[groupId] ?? [];
+      const reply = list.find((m) => m.content === 'replying to you');
+      expect(reply).toBeTruthy();
+      expect(reply!.replyToId).toBe(mine!.id);
+
+      const relay = impl.currentRelayUrl.get();
+      expect(useNotificationsStore.getState().mentionsByRelay[relay]).toBeUndefined();
+    });
+
+    it('does NOT push a card for ordinary channel traffic', async () => {
+      const groupId = 'notif-plain';
+      const { impl, useNotificationsStore } = await loginAndSubscribe(groupId);
+
+      deliver(await fakeRelayMessage({ groupId, content: 'just chatting' }));
+      await flush();
+
+      expect(impl.messagesByGroup.get()[groupId]).toHaveLength(1);
+      const relay = impl.currentRelayUrl.get();
+      expect(useNotificationsStore.getState().mentionsByRelay[relay]).toBeUndefined();
+    });
+
+    it('does NOT push a card when I mention myself', async () => {
+      const groupId = 'notif-self';
+      const { impl, skHex, pkHex, useNotificationsStore } = await loginAndSubscribe(groupId);
+
+      // Signed by MY key and #p-tagging me: everything a mention needs
+      // except being from someone else.
+      deliver(finalizeEvent(
+        {
+          kind: 9,
+          content: 'note to self',
+          tags: [['h', groupId], ['p', pkHex]],
+          created_at: Math.floor(Date.now() / 1000),
+        } as Parameters<typeof finalizeEvent>[0],
+        hexToBytesForTest(skHex),
+      ));
+      await flush();
+
+      const mineList = impl.messagesByGroup.get()[groupId] ?? [];
+      const self = mineList.find((m) => m.content === 'note to self');
+      expect(self).toBeTruthy();
+      expect(self!.mentions).toContain(pkHex);   // it IS a mention...
+      expect(self!.pubkey).toBe(pkHex);          // ...but it is mine
+      const relay = impl.currentRelayUrl.get();
+      expect(useNotificationsStore.getState().mentionsByRelay[relay]).toBeUndefined();
+    });
+
+    it('drops backfill older than the relay cursor', async () => {
+      const groupId = 'notif-backfill';
+      const { impl, pkHex, useNotificationsStore } = await loginAndSubscribe(groupId);
+      const relay = impl.currentRelayUrl.get();
+
+      // Simulate "user has read this relay's mentions up to now".
+      useNotificationsStore.getState().markMentionsRead(relay);
+
+      deliver(await fakeRelayMessageWithTags({
+        groupId,
+        content: 'old mention from history',
+        tags: [['p', pkHex]],
+        createdAt: Math.floor(Date.now() / 1000) - 86_400,
+      }));
+      await flush();
+
+      expect(impl.messagesByGroup.get()[groupId]).toHaveLength(1);
+      expect(useNotificationsStore.getState().mentionsByRelay[relay]).toBeUndefined();
+    });
+  });
+
   it('cached messages cap at MESSAGE_CACHE_LIMIT (last 50 by createdAt)', async () => {
     const { getBridge, getBridgeImpl } = await import('./client');
     const { cacheGet } = await import('./cache');
@@ -4086,6 +4211,27 @@ async function fakeRelayMessage(opts: {
       content: opts.content,
       tags: [['h', opts.groupId]],
       created_at: Math.floor(Date.now() / 1000),
+      pubkey: pk,
+    } as Parameters<typeof finalizeEvent>[0],
+    sk,
+  );
+}
+
+/** kind 9 with arbitrary extra tags — used for mention / reply notification tests. */
+async function fakeRelayMessageWithTags(opts: {
+  groupId: string;
+  content: string;
+  tags?: string[][];
+  createdAt?: number;
+}): Promise<NostrEvent> {
+  const sk = generateSecretKey();
+  const pk = getPublicKey(sk);
+  return finalizeEvent(
+    {
+      kind: 9,
+      content: opts.content,
+      tags: [['h', opts.groupId], ...(opts.tags ?? [])],
+      created_at: opts.createdAt ?? Math.floor(Date.now() / 1000),
       pubkey: pk,
     } as Parameters<typeof finalizeEvent>[0],
     sk,

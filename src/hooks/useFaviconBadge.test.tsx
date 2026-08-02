@@ -1,15 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
-// Mock the bridge so we control what messages and pubkey the hook sees.
+// Mock the bridge so we control what messages, relay, and pubkey the hook sees.
+const RELAY = 'wss://relay.example';
+
 const mockState = {
   myPubkey: 'me' as string | null,
+  relay: RELAY as string | null,
   dmsByPeer: {} as Record<string, Array<{ id: string; counterparty: string; outgoing: boolean; content: string; createdAt: number }>>,
   channelMessages: {} as Record<string, Array<{ id: string; pubkey: string; content: string; createdAt: number; kind: number; replyToId: string | null }>>,
 };
 
 vi.mock('@/lib/nostr-bridge', () => ({
   useMyPubkey: () => mockState.myPubkey,
+  useCurrentRelayUrl: () => mockState.relay,
   useDirectMessages: () => mockState.dmsByPeer,
   useMessages: (groupId: string | null) =>
     (groupId ? mockState.channelMessages[groupId] ?? [] : []),
@@ -25,7 +29,24 @@ vi.mock('@/lib/favicon-badge', () => ({
 import * as faviconBadge from '@/lib/favicon-badge';
 import { useFaviconBadge } from './useFaviconBadge';
 import { useReadStateStore, READ_STATE_INITIAL } from '@/store/read-state';
+import {
+  useNotificationsStore,
+  NOTIFICATIONS_INITIAL,
+  type MentionNotification,
+} from '@/store/notifications';
 import { useChatStore } from '@/store/chat';
+
+function mention(over: Partial<MentionNotification> = {}): MentionNotification {
+  return {
+    id: 'm1',
+    relay: RELAY,
+    channelId: 'ch1',
+    senderPubkey: 'someone',
+    preview: 'hey @me',
+    createdAt: Date.now(),
+    ...over,
+  };
+}
 
 const ORIGINAL_TITLE = 'Obelisk';
 
@@ -33,9 +54,11 @@ describe('useFaviconBadge', () => {
   beforeEach(() => {
     document.title = ORIGINAL_TITLE;
     mockState.myPubkey = 'me';
+    mockState.relay = RELAY;
     mockState.dmsByPeer = {};
     mockState.channelMessages = {};
     useReadStateStore.setState({ ...READ_STATE_INITIAL });
+    useNotificationsStore.setState({ ...NOTIFICATIONS_INITIAL });
     useChatStore.setState({ activeChannelId: null, isNearBottom: true } as any);
     (faviconBadge.setBadgeCount as any).mockClear();
     (faviconBadge.clearBadge as any).mockClear();
@@ -80,7 +103,10 @@ describe('useFaviconBadge', () => {
     expect(document.title).toBe(`(2) ${ORIGINAL_TITLE}`);
   });
 
-  it('counts unread channel messages, skipping own', () => {
+  it('does NOT count ordinary channel traffic', () => {
+    // Regression: the badge used to sum every unread message in every
+    // channel, pinning a busy relay at (99+) permanently. Only things
+    // addressed to you badge the tab now.
     mockState.channelMessages = {
       ch1: [
         { id: 'a', pubkey: 'me', content: 'mine', createdAt: Math.floor(Date.now() / 1000) - 100, kind: 9, replyToId: null },
@@ -90,7 +116,58 @@ describe('useFaviconBadge', () => {
 
     renderHook(() => useFaviconBadge());
 
+    expect(document.title).toBe(ORIGINAL_TITLE);
+    expect(faviconBadge.clearBadge).toHaveBeenCalled();
+  });
+
+  it('counts unread mentions on the active relay', () => {
+    useNotificationsStore.setState({
+      mentionsByRelay: { [RELAY]: [mention({ id: 'a' }), mention({ id: 'b' })] },
+    });
+
+    renderHook(() => useFaviconBadge());
+
+    expect(faviconBadge.setBadgeCount).toHaveBeenLastCalledWith(2);
+  });
+
+  it('ignores mentions belonging to a relay that is not active', () => {
+    // Mentions are only scanned on the active relay; another relay's
+    // cached cards must not badge the tab.
+    useNotificationsStore.setState({
+      mentionsByRelay: { 'wss://other.example': [mention({ relay: 'wss://other.example' })] },
+    });
+
+    renderHook(() => useFaviconBadge());
+
+    expect(document.title).toBe(ORIGINAL_TITLE);
+  });
+
+  it('sums unread DMs and unread mentions', () => {
+    mockState.dmsByPeer = {
+      alice: [{ id: 'a', counterparty: 'alice', outgoing: false, content: 'hi', createdAt: Math.floor(Date.now() / 1000) - 100 }],
+    };
+    useNotificationsStore.setState({
+      mentionsByRelay: { [RELAY]: [mention()] },
+    });
+
+    renderHook(() => useFaviconBadge());
+
+    expect(faviconBadge.setBadgeCount).toHaveBeenLastCalledWith(2);
+  });
+
+  it('drops the mention from the badge once its channel is read', () => {
+    useNotificationsStore.setState({
+      mentionsByRelay: { [RELAY]: [mention({ createdAt: Date.now() - 5_000 })] },
+    });
+
+    const { rerender } = renderHook(() => useFaviconBadge());
     expect(faviconBadge.setBadgeCount).toHaveBeenLastCalledWith(1);
+
+    act(() => {
+      useReadStateStore.getState().setGroupCursor('ch1', Date.now());
+    });
+    rerender();
+    expect(document.title).toBe(ORIGINAL_TITLE);
   });
 
   it('updates when the cursor advances', () => {

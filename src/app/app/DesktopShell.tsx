@@ -61,8 +61,23 @@ import ForumView from '@/components/chat/ForumView';
 import VoiceStatusBar from '@/components/voice/VoiceStatusBar';
 import BackgroundVoiceAudio from '@/components/voice/BackgroundVoiceAudio';
 import { useVoiceStore } from '@/store/voice';
-import { isInboxEventRead, useReadStateStore, type InboxEvent } from '@/store/read-state';
-import { useInboxUnreadCount, useChannelHighlights, useCachedChannelHighlights } from '@/lib/read-state/selectors';
+import { useReadStateStore } from '@/store/read-state';
+import {
+  isDmNotificationRead,
+  isMentionRead,
+  useNotificationsStore,
+  type DmNotification,
+  type MentionNotification,
+} from '@/store/notifications';
+import {
+  useDmNotifications,
+  useMentionCursor,
+  useMentionNotifications,
+  useNotificationBadgeCount,
+  useUnreadDmNotificationCount,
+  useUnreadMentionCount,
+} from '@/lib/notifications/selectors';
+import { useChannelHighlights, useCachedChannelHighlights } from '@/lib/read-state/selectors';
 import { subscribeVoiceJump } from '@/lib/voice/jump-to-voice';
 import { useVoiceChatPane } from '@/hooks/chat/useVoiceChatPane';
 import { useChatStore } from '@/store/chat';
@@ -470,23 +485,44 @@ function RelayTopBar({
   const [info, setInfo] = useState<{ name?: string; icon?: string } | null>(null);
   const [iconFailed, setIconFailed] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
-  const inboxEvents = useReadStateStore((s) => s.inboxEvents);
-  const inboxLastReadAt = useReadStateStore((s) => s.inboxLastReadAt);
+  // Two independent streams — see `src/store/notifications.ts`. Mentions are
+  // scoped to the relay this top bar represents; DMs are account-wide.
+  const [notifTab, setNotifTab] = useState<'mentions' | 'dms'>('mentions');
+  const mentions = useMentionNotifications(relay);
+  const mentionCursor = useMentionCursor(relay);
+  const dmNotifications = useDmNotifications();
+  const dmCursor = useReadStateStore((s) => s.inboxLastReadAt);
   const groupCursors = useReadStateStore((s) => s.groupCursors);
-  const unreadInboxCount = useInboxUnreadCount();
+  const unreadMentions = useUnreadMentionCount(relay);
+  const unreadDms = useUnreadDmNotificationCount();
+  const unreadInboxCount = useNotificationBadgeCount(relay);
+  const markMentionsRead = useNotificationsStore((s) => s.markMentionsRead);
+  const clearMentions = useNotificationsStore((s) => s.clearMentions);
+  const clearDmNotifications = useNotificationsStore((s) => s.clearDmNotifications);
   const markAllAsRead = useReadStateStore((s) => s.markAllAsRead);
-  const clearInboxEvents = useReadStateStore((s) => s.clearInboxEvents);
-  // Snapshot the bridge's loaded peers + groups at click time so "Mark all
-  // read" advances the cursors that drive the tab-title `(N)` badge —
-  // otherwise the badge stays stuck on unread chat traffic the user has
-  // acknowledged by emptying the inbox. Read imperatively to avoid
-  // re-rendering the top bar on every message arrival.
-  const handleMarkAllAsRead = () => {
+
+  // Marking read is per-stream: dismissing mentions must not silence DMs.
+  // The mentions side also advances the channel cursors for this relay so
+  // the sidebar unread dots agree with the bell; the DM side advances the
+  // per-peer cursors for the same reason. Bridge stores are read
+  // imperatively at click time to keep this top bar from re-rendering on
+  // every message arrival.
+  const handleMarkRead = () => {
     const impl = getBridgeImpl();
-    const peers = impl ? Object.keys(impl.dmsByPeer.get()) : [];
-    const groupIds = impl ? Object.keys(impl.messagesByGroup.get()) : [];
-    markAllAsRead(peers, groupIds);
+    if (notifTab === 'mentions') {
+      markMentionsRead(relay);
+      markAllAsRead([], impl ? Object.keys(impl.messagesByGroup.get()) : []);
+    } else {
+      markAllAsRead(impl ? Object.keys(impl.dmsByPeer.get()) : [], []);
+    }
   };
+  const handleClear = () => {
+    if (notifTab === 'mentions') clearMentions(relay);
+    else clearDmNotifications();
+  };
+
+  const tabItems = notifTab === 'mentions' ? mentions : dmNotifications;
+  const tabUnread = notifTab === 'mentions' ? unreadMentions : unreadDms;
   useEffect(() => {
     let alive = true;
     setIconFailed(false);
@@ -516,9 +552,12 @@ function RelayTopBar({
     };
   }, [notifOpen]);
 
-  const handleEventClick = (e: InboxEvent) => {
-    if (e.type === 'dm' && onJumpToDm) onJumpToDm(e.senderPubkey);
-    else if (e.channelId && onJumpToChannel) onJumpToChannel(e.channelId);
+  const handleMentionClick = (m: MentionNotification) => {
+    onJumpToChannel?.(m.channelId);
+    setNotifOpen(false);
+  };
+  const handleDmClick = (d: DmNotification) => {
+    onJumpToDm?.(d.senderPubkey);
     setNotifOpen(false);
   };
 
@@ -580,18 +619,20 @@ function RelayTopBar({
           <div className="flex items-center justify-between px-4 py-3 border-b border-lc-border">
             <span className="text-sm font-semibold text-lc-white">{t('common.notifications')}</span>
             <div className="flex gap-2">
-              {inboxEvents.length > 0 && unreadInboxCount > 0 && (
+              {tabItems.length > 0 && tabUnread > 0 && (
                 <button
-                  onClick={handleMarkAllAsRead}
+                  onClick={handleMarkRead}
                   className="text-xs text-lc-green hover:underline"
-                  title={t('desktop.inbox.markReadTitle')}
+                  title={notifTab === 'mentions'
+                    ? t('desktop.inbox.markReadMentionsTitle')
+                    : t('desktop.inbox.markReadDmsTitle')}
                 >
                   {t('desktop.inbox.markRead')}
                 </button>
               )}
-              {inboxEvents.length > 0 && (
+              {tabItems.length > 0 && (
                 <button
-                  onClick={clearInboxEvents}
+                  onClick={handleClear}
                   className="text-xs text-lc-muted hover:text-lc-white"
                   title={t('common.clear')}
                 >
@@ -600,33 +641,91 @@ function RelayTopBar({
               )}
             </div>
           </div>
+          <div
+            className="flex gap-1 px-2 py-2 border-b border-lc-border"
+            role="tablist"
+            data-testid="notif-tabs"
+          >
+            {(['mentions', 'dms'] as const).map((key) => {
+              const count = key === 'mentions' ? unreadMentions : unreadDms;
+              const active = notifTab === key;
+              return (
+                <button
+                  key={key}
+                  role="tab"
+                  aria-selected={active}
+                  data-testid={`notif-tab-${key}`}
+                  onClick={() => setNotifTab(key)}
+                  className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                    active
+                      ? 'bg-lc-olive/40 text-lc-white'
+                      : 'text-lc-muted hover:text-lc-white hover:bg-lc-border/40'
+                  }`}
+                >
+                  {key === 'mentions' ? t('inbox.tab.mentions') : t('inbox.tab.dms')}
+                  {count > 0 && (
+                    <span className="min-w-[16px] h-[16px] px-1 rounded-full bg-lc-green text-lc-black text-[9px] font-bold flex items-center justify-center leading-none">
+                      {count > 99 ? '99+' : count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
           <div className="overflow-y-auto flex-1">
-            {inboxEvents.length === 0 ? (
+            {tabItems.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-lc-muted">
-                {t('desktop.inbox.caughtUp')}
+                {notifTab === 'mentions'
+                  ? t('desktop.inbox.caughtUpMentions')
+                  : t('desktop.inbox.caughtUpDms')}
               </div>
-            ) : (
+            ) : notifTab === 'mentions' ? (
               <ul className="flex flex-col">
-                {inboxEvents.map((e) => {
-                  const isRead = isInboxEventRead(e, inboxLastReadAt, groupCursors[e.channelId ?? '']);
+                {mentions.map((m) => {
+                  const isRead = isMentionRead(m, mentionCursor, groupCursors[m.channelId] ?? 0);
                   return (
-                  <li key={e.id}>
+                  <li key={m.id}>
                     <button
-                      onClick={() => handleEventClick(e)}
+                      onClick={() => handleMentionClick(m)}
                       className={`w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-lc-card/60 transition-colors ${isRead ? '' : 'bg-lc-olive/30'}`}
                     >
                       <span className={`mt-1 inline-block w-2 h-2 rounded-full shrink-0 ${isRead ? 'bg-transparent' : 'bg-lc-green'}`} />
                       <div className="flex-1 min-w-0">
                         <div className="text-xs uppercase tracking-wider text-lc-muted font-mono mb-0.5">
-                          {e.type === 'dm' ? t('inbox.type.dm') : e.type === 'mention' ? t('desktop.inbox.type.mention') : e.type === 'reply' ? t('desktop.inbox.type.reply') : e.type === 'everyone' ? t('desktop.inbox.type.everyone') : t('inbox.type.message')}
-                          <span className="ml-2 text-lc-muted/70 normal-case tracking-normal">{new Date(e.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          {t('desktop.inbox.type.mention')}
+                          <span className="ml-2 text-lc-muted/70 normal-case tracking-normal">{new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         </div>
-                        {e.preview && (
-                          <div className="text-sm text-lc-white truncate"><MentionText content={e.preview} /></div>
+                        {m.preview && (
+                          <div className="text-sm text-lc-white truncate"><MentionText content={m.preview} /></div>
                         )}
                       </div>
                     </button>
                   </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <ul className="flex flex-col">
+                {dmNotifications.map((d) => {
+                  const isRead = isDmNotificationRead(d, dmCursor);
+                  return (
+                    <li key={d.id}>
+                      <button
+                        onClick={() => handleDmClick(d)}
+                        className={`w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-lc-card/60 transition-colors ${isRead ? '' : 'bg-lc-olive/30'}`}
+                      >
+                        <span className={`mt-1 inline-block w-2 h-2 rounded-full shrink-0 ${isRead ? 'bg-transparent' : 'bg-lc-green'}`} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs uppercase tracking-wider text-lc-muted font-mono mb-0.5">
+                            {t('inbox.type.dm')}
+                            <span className="ml-2 text-lc-muted/70 normal-case tracking-normal">{new Date(d.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                          {d.preview && (
+                            <div className="text-sm text-lc-white truncate"><MentionText content={d.preview} /></div>
+                          )}
+                        </div>
+                      </button>
+                    </li>
                   );
                 })}
               </ul>

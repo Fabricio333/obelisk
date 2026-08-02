@@ -1,5 +1,6 @@
 import { useChatStore } from '@/store/chat';
 import { useReadStateStore } from '@/store/read-state';
+import { useNotificationsStore } from '@/store/notifications';
 import { useVoiceStore } from "@/store/voice";
 import { useDMStore } from "@/store/dm";
 
@@ -12,6 +13,7 @@ import { useDMStore } from "@/store/dm";
 export function resetAllClientState(): void {
   useChatStore.getState().reset();
   useReadStateStore.getState().reset();
+  useNotificationsStore.getState().reset();
   useVoiceStore.getState().leaveVoice();
   useDMStore.setState({
     isDMMode: false,

@@ -25,6 +25,7 @@ import type { Filter } from 'nostr-tools';
 import { getBridgeImpl } from '@/lib/nostr-bridge/client';
 import { unwrapForSelf, wrapForSelf, type Rumor } from '@/lib/nip-59';
 import { useReadStateStore, type RemoteReadState } from '@/store/read-state';
+import { useNotificationsStore } from '@/store/notifications';
 import { cacheGet, cacheSet } from '@/lib/nostr-bridge/cache';
 import { KIND_GIFT_WRAP, KIND_NIP78_APP_DATA as KIND_INNER } from '@/lib/nip-kinds';
 
@@ -48,6 +49,14 @@ const SCHEMA_VERSION = 1;
 interface GroupsPayload {
   v: 1;
   groups: Record<string, { lastReadAt: number }>;
+  /**
+   * Relay-scoped mention read cursor (unix ms). Optional and additive —
+   * `v` stays at 1 because older clients simply ignore the field and
+   * newer ones treat its absence as "no remote cursor". Rides in the
+   * groups-scope wrap because mentions are per-relay, exactly like the
+   * group cursors around it.
+   */
+  mentionsReadAt?: number;
 }
 
 interface DmsPayload {
@@ -162,6 +171,9 @@ function watchAndPublish(
   // forward; if cleanup/page-hide fires while the fingerprint matches the
   // last publish, there's nothing new to push.
   let lastPublishedFingerprint = lastFingerprint;
+  // Groups-scope fingerprints span two stores (cursors in read-state, the
+  // mention cursor in notifications), so both are watched.
+  const watchedStores = [useReadStateStore, useNotificationsStore] as const;
 
   const flush = async () => {
     timer = null;
@@ -211,13 +223,15 @@ function watchAndPublish(
     void flush();
   };
 
-  const unsub = useReadStateStore.subscribe(() => {
+  const onStoreChange = () => {
     const fp = selectFingerprint();
     if (fp === lastFingerprint) return;
     lastFingerprint = fp;
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => void flush(), DEBOUNCE_MS);
-  });
+  };
+  const storeUnsubs = watchedStores.map((s) => s.subscribe(onStoreChange));
+  const unsub = () => storeUnsubs.forEach((fn) => fn());
 
   // Browser lifecycle hooks — flush before the page goes away so the
   // multi-device sync converges even when the user just closes the tab.
@@ -279,6 +293,14 @@ export function startGroupsRelaySync(
     if (Object.keys(groupCursors).length > 0) {
       useReadStateStore.getState().applyRemoteState({ groupCursors });
     }
+    // Mention cursor converges across devices under the same max() rule as
+    // the group cursors — dismiss the bell on desktop, it's dismissed on
+    // the phone. Absent on wraps written by older clients.
+    if (typeof payload.mentionsReadAt === 'number') {
+      useNotificationsStore
+        .getState()
+        .applyRemoteMentionCursor(relayUrl, payload.mentionsReadAt);
+    }
   };
 
   const unsubIngest = subscribeAndIngest(opts, apply);
@@ -293,9 +315,14 @@ export function startGroupsRelaySync(
     return parts.join('|');
   };
 
+  const mentionCursor = (): number =>
+    useNotificationsStore.getState().mentionCursorByRelay[relayUrl] ?? 0;
+
   const unsubPublish = watchAndPublish(
     opts,
-    () => fingerprintCursors(useReadStateStore.getState().groupCursors),
+    () =>
+      `m:${mentionCursor()}|`
+      + fingerprintCursors(useReadStateStore.getState().groupCursors),
     (): GroupsPayload | null => {
       const cursors = useReadStateStore.getState().groupCursors;
       const groups: Record<string, { lastReadAt: number }> = {};
@@ -307,8 +334,9 @@ export function startGroupsRelaySync(
           any = true;
         }
       }
-      if (!any) return null;
-      return { v: 1, groups };
+      const mentionsReadAt = mentionCursor();
+      if (!any && mentionsReadAt <= 0) return null;
+      return mentionsReadAt > 0 ? { v: 1, groups, mentionsReadAt } : { v: 1, groups };
     },
   );
 

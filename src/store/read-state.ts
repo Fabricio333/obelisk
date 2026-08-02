@@ -2,35 +2,24 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { createEnsureForAccount } from './multi-account';
 
-export type InboxEventType = 'mention' | 'reply' | 'everyone' | 'dm' | 'message' | 'zap';
-
-export interface InboxEventInput {
-  type: InboxEventType;
-  channelId?: string;
-  serverId?: string;
-  messageId?: string;
-  postId?: string;
-  senderPubkey: string;
-  preview?: string;
-  /** ISO timestamp string (relay-derived), e.g. `new Date(ev.created_at * 1000).toISOString()`. */
-  createdAt: string;
-}
-
-export interface InboxEvent extends InboxEventInput {
-  id: string;
-}
-
-export const INBOX_CAP = 50;
-
 interface ReadStatePersisted {
   /** Per-peer DM read cursor in unix milliseconds. Monotonic — only advances. */
   dmCursors: Record<string, number>;
   /** Per-channel read cursor in unix milliseconds. Monotonic. */
   groupCursors: Record<string, number>;
-  /** Single inbox cursor (unix ms). Anything older than this is "read". */
+  /**
+   * Read cursor for the **DM notification stream** (unix ms). A DM card
+   * older than this is read.
+   *
+   * Group mentions have their own per-relay cursor in
+   * `useNotificationsStore.mentionCursorByRelay` and are deliberately NOT
+   * governed by this value — reading DMs must not silence channel pings.
+   *
+   * The name is kept (rather than `dmNotificationLastReadAt`) because it
+   * is the wire field in the NIP-59 DM-scope payload; renaming it would
+   * desync every already-published gift wrap.
+   */
   inboxLastReadAt: number;
-  /** Ring buffer of mention/dm/etc cards. Newest first, capped at INBOX_CAP. */
-  inboxEvents: InboxEvent[];
 }
 
 /**
@@ -55,7 +44,7 @@ interface ReadStateActions {
   setDmCursor: (peer: string, tsMs: number) => void;
   /** Advance the channel cursor. No-op if `tsMs` <= existing. */
   setGroupCursor: (groupId: string, tsMs: number) => void;
-  /** Mark the entire inbox as read at `Date.now()`. */
+  /** Mark the DM notification stream as read at `Date.now()`. */
   advanceInboxRead: () => void;
   /**
    * Mark everything as read at `Date.now()` — inbox cursor + every DM peer
@@ -66,10 +55,6 @@ interface ReadStateActions {
    * `(N)` badge, which sums DM+channel unreads.
    */
   markAllAsRead: (peers: ReadonlyArray<string>, groupIds: ReadonlyArray<string>) => void;
-  /** Push an event to the inbox (dedupes by id, caps at INBOX_CAP). */
-  pushInboxEvent: (evt: InboxEventInput) => void;
-  /** Wipe the inbox log entirely (button in the bell menu). */
-  clearInboxEvents: () => void;
   /**
    * Merge a remote state snapshot (from a NIP-59 state event) into the
    * local store. Each cursor advances to `max(local, remote)`; smaller
@@ -83,31 +68,11 @@ interface ReadStateActions {
 
 export type ReadStateStore = ReadStatePersisted & ReadStateActions;
 
-export function isInboxEventRead(
-  event: InboxEvent,
-  inboxLastReadAt: number,
-  groupCursor = 0,
-): boolean {
-  const createdAt = Date.parse(event.createdAt);
-  if (Number.isNaN(createdAt) || createdAt <= inboxLastReadAt) return true;
-  return !!event.channelId && createdAt <= groupCursor;
-}
-
 export const READ_STATE_INITIAL: ReadStatePersisted = {
   dmCursors: {},
   groupCursors: {},
   inboxLastReadAt: 0,
-  inboxEvents: [],
 };
-
-function buildInboxId(evt: InboxEventInput): string {
-  // `createdAt` + sender + (messageId|channelId|postId|nonce) is unique enough
-  // to dedupe relay replays. If multiple producers ever share all four, dedup
-  // collisions are benign — the last write wins on the same id slot.
-  return `${evt.createdAt}-${evt.senderPubkey}-${
-    evt.messageId ?? evt.channelId ?? evt.postId ?? Math.random().toString(36).slice(2, 8)
-  }`;
-}
 
 export const useReadStateStore = create<ReadStateStore>()(
   persist(
@@ -152,15 +117,6 @@ export const useReadStateStore = create<ReadStateStore>()(
           inboxLastReadAt: now,
         };
       }),
-
-      pushInboxEvent: (evt) => set((state) => {
-        const id = buildInboxId(evt);
-        if (state.inboxEvents.some((e) => e.id === id)) return state;
-        const next: InboxEvent = { ...evt, id };
-        return { inboxEvents: [next, ...state.inboxEvents].slice(0, INBOX_CAP) };
-      }),
-
-      clearInboxEvents: () => set({ inboxEvents: [], inboxLastReadAt: Date.now() }),
 
       applyRemoteState: (remote) => set((state) => {
         const next: Partial<ReadStatePersisted> = {};
@@ -217,7 +173,6 @@ export const useReadStateStore = create<ReadStateStore>()(
           dmCursors: state.dmCursors,
           groupCursors: state.groupCursors,
           inboxLastReadAt: state.inboxLastReadAt,
-          inboxEvents: state.inboxEvents,
         }) as ReadStatePersisted,
     },
   ),
@@ -231,16 +186,3 @@ export const ensureReadStateStoreForAccount = createEnsureForAccount(
   'obelisk-read-state',
   useReadStateStore,
 );
-
-/**
- * Inbox unread count selector for use outside React. Counts events whose
- * Counts events newer than both the global inbox cursor and their channel cursor.
- */
-export function getInboxUnreadCount(): number {
-  const { inboxEvents, inboxLastReadAt, groupCursors } = useReadStateStore.getState();
-  let n = 0;
-  for (const e of inboxEvents) {
-    if (!isInboxEventRead(e, inboxLastReadAt, groupCursors[e.channelId ?? ''])) n++;
-  }
-  return n;
-}

@@ -20,7 +20,10 @@ import { resetAllClientState } from '@/lib/reset';
 import { pushActivity, resolveActivity, failActivity, trackActivity, dismissActivity } from '@/lib/activity-log';
 import { getPreferences } from '@/lib/preferences';
 import { pushRelayDebug } from './relay-debug';
-import { useReadStateStore } from '@/store/read-state';
+import {
+  ensureNotificationsStoreForAccount,
+  useNotificationsStore,
+} from '@/store/notifications';
 import { isUserWatchingDM, isUserWatchingChannel } from '@/lib/read-gates';
 import { extractMentionPubkeysFromMessage } from '@/lib/mentions';
 import { customEmojiMapFromTags } from '@/lib/custom-emoji-tags';
@@ -1740,6 +1743,15 @@ export class BridgeImpl {
     // this relay" produce identical UX.
     this.seedCacheForRelay(sessionRelay);
     if (this.session) this.seedMyContactListCache(this.session.pubKeyHex);
+    // Point the notification log at this account and stamp the relay's
+    // first-connect floor BEFORE connect() opens any kind-9 REQ. Both must
+    // precede the first ingest: the account swap so mention cards don't
+    // land in the unscoped store and get dropped on rehydrate, the floor
+    // so a relay the user has never opened doesn't backfill 50 historical
+    // mentions into the bell. `ReadStateRoot` re-runs the account ensure
+    // on mount; both calls are idempotent.
+    if (this.session) ensureNotificationsStoreForAccount(this.session.pubKeyHex);
+    useNotificationsStore.getState().registerRelay(sessionRelay);
     await this.connect();
     this.myPubkey.set(this.session?.pubKeyHex ?? null);
     this.myLoginMethod.set(this.session?.loginMethod ?? null);
@@ -2347,6 +2359,10 @@ export class BridgeImpl {
     this.pool = this.createPool();
     this.relays = [normalized];
     this.currentRelayUrl.set(normalized);
+    // Stamp the mention floor before the new relay's subscriptions open.
+    // A relay seen before keeps its stored cursor, so cached mentions stay
+    // unread; a brand-new relay starts from "now" and ignores its history.
+    useNotificationsStore.getState().registerRelay(normalized);
     this.ensureRelayInList(normalized);
     if (this.session) this.session.relayUrl = normalized;
     this.persist();
@@ -5888,40 +5904,34 @@ export class BridgeImpl {
       // {@link flushMessageCache} for the cap + sanitization.
       this.scheduleMessageCacheFlush(groupId);
     }
-    // Inbox card for @-mentions. Unread badges are derived in the UI from
-    // `useReadStateStore.groupCursors[groupId]` vs `messages[].createdAt`,
-    // so this path only needs to surface the mention as an inbox event
-    // (the bell / mobile inbox UI). Historical backfill is filtered by the
-    // user's existing inbox cursor — a cached event older than
-    // `inboxLastReadAt` is read by definition.
+    // Mention notification. ONLY an explicit `@you` pings — ordinary
+    // channel traffic and replies-to-you do not. Per-channel unread dots
+    // are a separate concern, derived in the UI from
+    // `useReadStateStore.groupCursors[groupId]` vs `messages[].createdAt`.
+    //
+    // This runs exclusively on the active relay: kind-9 subscriptions only
+    // exist for the relay the user is browsing (CLAUDE.md, "Single-relay
+    // rule for groups"), so mention scanning is inherently scoped to the
+    // relay the user is connected to right now. The card is stamped with
+    // that relay so it can never surface while browsing a different one.
+    //
+    // Backfill is filtered by the relay's mention cursor inside
+    // `pushMention` — `registerRelay` stamps a floor on first connect so
+    // the history of a relay the user just joined doesn't flood the bell.
     if (!isNew) return;
     const me = this.session?.pubKeyHex ?? null;
     if (!me || ev.pubkey === me) return;
+    if (!mentions.includes(me)) return;
     if (isUserWatchingChannel(groupId)) return;
-    const mentioned = mentions.includes(me);
-    // Reply-to-me detection: NIP-10 strict — `["e", id, "", "reply"]` whose
-    // parent is one of MY messages in this channel. Resolved against the
-    // already-ingested message list so we only fire when we can prove
-    // authorship; backfill that arrives before the parent gets dropped.
-    const replyToMe = (() => {
-      if (!replyTo) return false;
-      const list = this.messagesByGroup.get()[groupId] ?? [];
-      const parent = list.find((m) => m.id === replyTo);
-      return !!parent && parent.pubkey === me;
-    })();
-    if (!mentioned && !replyToMe) return;
-    const evMs = ev.created_at * 1000;
-    if (evMs <= useReadStateStore.getState().inboxLastReadAt) return;
-    useReadStateStore.getState().pushInboxEvent({
-      // Mentions take precedence over replies in the inbox card type — if
-      // a message is both, surfacing it as a "mention" matches user
-      // intent (the @ was the explicit ping).
-      type: mentioned ? 'mention' : 'reply',
+    const relay = this.currentRelayUrl.get();
+    if (!relay) return;
+    useNotificationsStore.getState().pushMention({
+      id: ev.id,
+      relay,
       channelId: groupId,
-      messageId: ev.id,
       senderPubkey: ev.pubkey,
       preview: ev.content.slice(0, 280),
-      createdAt: new Date(evMs).toISOString(),
+      createdAt: ev.created_at * 1000,
     });
   }
 
@@ -6115,18 +6125,22 @@ export class BridgeImpl {
     });
     if (replacedClientTag) this.pendingDMSends.delete(replacedClientTag);
     this.ensureUserMetadata(counterparty);
-    // Inbox card for incoming DMs the user isn't actively watching. Unread
-    // badges are derived from the read-state cursor + bridge `dmsByPeer`, so
-    // we don't bump any counter here — only push a card for the bell/inbox.
+    // DM notification for incoming DMs the user isn't actively watching.
+    // Kept in its own stream, with its own cursor (`inboxLastReadAt`), so
+    // clearing DMs never touches channel mentions. Unread *counts* still
+    // come from the read-state cursor + bridge `dmsByPeer`; this only
+    // pushes a card for the bell / mobile inbox.
+    //
+    // Relay-agnostic on purpose: DMs are the one thing that runs
+    // cross-relay (NIP-65 read+write union), so they are not scoped to
+    // the active relay the way mentions are.
     if (!isNew || outgoing) return;
     if (isUserWatchingDM(counterparty)) return;
-    const evMs = ev.created_at * 1000;
-    if (evMs <= useReadStateStore.getState().inboxLastReadAt) return;
-    useReadStateStore.getState().pushInboxEvent({
-      type: 'dm',
+    useNotificationsStore.getState().pushDmNotification({
+      id: ev.id,
       senderPubkey: counterparty,
       preview: plaintext.slice(0, 280),
-      createdAt: new Date(evMs).toISOString(),
+      createdAt: ev.created_at * 1000,
     });
   }
 

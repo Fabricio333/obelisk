@@ -24,7 +24,7 @@ Payments          Nostr Wallet Connect (NIP-47) — src/lib/wallet/
 - **Next.js 16** + TypeScript + Tailwind CSS v4 (purely client-rendered — no API routes)
 - **nostr-tools** — `SimplePool`, `BunkerSigner`, `finalizeEvent`, NIP-04/NIP-44 helpers. This is the only Nostr client in the running code path.
 - **@nostr-wot/data** + **@nostr-wot/ui** — WoT-aware profile/follow hooks (`useProfile`, `useFollows`, `usePubkey`, `formatPubkey`, `hexToNpub`) consumed by the rail / search / DM list. Orthogonal to the bridge — the bridge owns identity + relay subs; nostr-wot owns WoT scoring + profile cache.
-- **Zustand** — client-side state under `src/store/` (chat, dm, voice, notification, read-state, settings, appearance, moderation, multi-account, search, toast, locale, messageZap, notificationPrefs). Identity is NOT a Zustand store — it lives on the bridge.
+- **Zustand** — client-side state under `src/store/` (chat, dm, voice, notifications, read-state, moderation, multi-account, toast, locale, messageZap). Identity is NOT a Zustand store — it lives on the bridge.
 - **Vitest** + **React Testing Library** + **jsdom** — testing
 - **NDK** is in `package.json` for historical reasons but is **not imported anywhere in `src/`** — do not reach for it when adding features.
 
@@ -96,13 +96,13 @@ src/
 │   ├── voice/                     # Mesh + SFU client (`client.ts`, `peer.ts`, `sfu-client.ts`)
 │   ├── wot/                       # Web-of-trust engine + colors
 │   ├── read-state/                # Read-state store + relay-sync (NIP-59 gift wrap)
-│   ├── notifications/             # Inbox cards + favicon badge
+│   ├── notifications/             # Notification selectors (mentions vs DMs)
 │   ├── hooks/                     # Bridge-internal hook utilities
 │   ├── server/                    # Server-side helpers (currently OG image)
 │   ├── nostr-hooks.ts, nostr-pool.ts, nostr-read.ts  # Legacy thin wrappers
-├── store/                         # Zustand stores (chat, dm, voice, notification,
-│                                   # read-state, settings, search, multi-account,
-│                                   # moderation, appearance, locale, toast, …)
+├── store/                         # Zustand stores (chat, dm, voice, notifications,
+│                                   # read-state, multi-account, moderation,
+│                                   # locale, toast, messageZap, …)
 └── test/setup.ts                  # Vitest + jsdom setup
 ```
 
@@ -170,7 +170,7 @@ predictable:
 |----------------------------------|--------------------------------------------|
 | Group metadata / messages / reactions / admin / member (kinds 9, 39000, 39001, 39002, 7, 9007) | **Active relay only** (`this.relays = [activeRelay]`) |
 | Group read-state cursors (NIP-59 wraps over kind 30078) | **Active relay only** — `startGroupsRelaySync(activeRelay, ids)` in `src/lib/read-state/root.tsx` |
-| Inbox / mention / reply / @everyone notifications | **Active relay only** (derived from active-relay messages) |
+| Mention notifications (kind 9 `@you`) | **Active relay only** — scanned solely while that relay is active; cards are stamped with it and cached per relay (`src/store/notifications.ts`) |
 | DMs (kind 4) | **NIP-65 read+write union** of the user's relay list |
 | DM read-state cursors + `inboxLastReadAt` (NIP-59 wraps) | **NIP-65 read+write union** |
 | Voice signaling / SFU RPC (kinds 25050, 31313, 31314) | Per-channel relay set (mesh: active relay; SFU: pinned trust set) |
@@ -184,6 +184,11 @@ and produces the `Tried to send AUTH on a closed connection` loop.
 Future: in-OS background notifications (browser Notification API,
 service-worker push) are DM-only too. Group mentions only notify while
 the user has the group's relay open as the active relay.
+
+**Notifications are two separate streams** — private DMs and group
+`@`-mentions — with independent logs and independent read cursors.
+Only an explicit mention pings; ordinary channel traffic and
+replies-to-you do not. See [docs/read-state.md §2b](docs/read-state.md).
 
 ## bridgeCache (stale-while-revalidate)
 
@@ -319,7 +324,7 @@ for where this sits relative to the bridgeCache.
 
 ## Resources
 - [docs/data-system.md](docs/data-system.md) — priority orchestrator (P0/P1/P2/P3), login → connect contract, whitelist preflight (1.5s, no soak), connection banner, bridgeCache, NIP-42 AUTH, watchdog tunables, UI loading states, "Clear cache" semantics
-- [docs/read-state.md](docs/read-state.md) — per-channel and per-DM cursors, mention/reply detection, MentionNavigator, encrypted multi-device sync via NIP-59 gift wrap (groups state per relay; DM state on NIP-65 relays), deferred-mount gating for relay-sync subs
+- [docs/read-state.md](docs/read-state.md) — per-channel and per-DM cursors, the two notification streams (per-relay mentions vs account-wide DMs), mention/reply detection, MentionNavigator, encrypted multi-device sync via NIP-59 gift wrap (groups state per relay; DM state on NIP-65 relays), deferred-mount gating for relay-sync subs
 - [docs/voice/](docs/voice/README.md) — mesh voice: protocol, modules, failure modes, testing (P2P WebRTC over Nostr signaling + `obelisk-control` data channel)
 - [docs/sfu-system.md](docs/sfu-system.md) — SFU architecture (mediasoup engine, Nostr-RPC signaling)
 - [obelisk-app/obelisk-sfu](https://github.com/obelisk-app/obelisk-sfu) — SFU server repo (protocol spec, operator guide, deploy)

@@ -22,7 +22,7 @@ import {
   useMessages,
   useMessagesByGroup,
 } from '@/lib/nostr-bridge';
-import { isInboxEventRead, useReadStateStore } from '@/store/read-state';
+import { useReadStateStore } from '@/store/read-state';
 import { buildAuthorIndex, isReplyToMe } from './replies';
 
 const FALLBACK_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -269,15 +269,7 @@ export function useHasAnyHighlights(ownPubkey: string | null): boolean {
   }, [byGroup, cursors, ownPubkey]);
 }
 
-export function useInboxUnreadCount(): number {
-  const events = useReadStateStore((s) => s.inboxEvents);
-  const cursor = useReadStateStore((s) => s.inboxLastReadAt);
-  const groupCursors = useReadStateStore((s) => s.groupCursors);
-  return useMemo(() => {
-    let n = 0;
-    for (const e of events) {
-      if (!isInboxEventRead(e, cursor, groupCursors[e.channelId ?? ''])) n++;
-    }
-    return n;
-  }, [events, cursor, groupCursors]);
-}
+// Notification counts moved to `@/lib/notifications/selectors` when the
+// single mixed inbox was split into independent DM and mention streams.
+// See `useNotificationBadgeCount` / `useUnreadMentionCount` /
+// `useUnreadDmNotificationCount` there.
