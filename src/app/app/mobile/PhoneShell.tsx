@@ -260,6 +260,11 @@ const MOBILE_SWIPE_IGNORE_SELECTOR = [
   '.app-header .icon-btn',
   '.chat-actions .icon-btn',
   '.search-header',
+  // Mention autocomplete floats above the composer. A thumb tap on a row
+  // drifts a few px, which crosses the 8px horizontal threshold in
+  // onTouchMove — the carousel would start dragging and the user would
+  // land on a neighbouring screen instead of inserting the mention.
+  '.composer-mention-popup',
   '[data-no-swipe]',
   'input',
   'textarea',
@@ -2486,7 +2491,14 @@ export function MobileMentionAutocomplete({
           key={m.pubkey}
           type="button"
           className={`composer-mention-row ${i === selectedIndex ? 'active' : ''}`}
-          onMouseDown={(e) => { e.preventDefault(); onSelect(m); }}
+          // Selection fires on `click`, not `mousedown`: on touch the
+          // synthesized mousedown is unreliable (and never arrives at all
+          // if the gesture gets claimed as a scroll), whereas click fires
+          // for mouse and tap alike and is suppressed after a real scroll.
+          // `mousedown` is kept purely to preventDefault, which stops the
+          // input from blurring so the soft keyboard survives the tap.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onSelect(m)}
           onMouseEnter={() => onHover(i)}
           data-testid="mobile-mention-option"
         >

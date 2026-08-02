@@ -3,11 +3,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChatStore } from '@/store/chat';
 import type { JsGroup } from '@/lib/nostr-bridge';
 import type { ChannelLayout } from '@/lib/channel-layout';
-import { ManageLayoutModal, RelayBrandingModal, RelaySettingsModal, SidebarMe } from './DesktopShell';
+import { LocaleProvider } from '@/i18n/context';
+import { useNotificationsStore, NOTIFICATIONS_INITIAL } from '@/store/notifications';
+import { useReadStateStore, READ_STATE_INITIAL } from '@/store/read-state';
+import { ManageLayoutModal, RelayBrandingModal, RelaySettingsModal, RelayTopBar, SidebarMe } from './DesktopShell';
 
 vi.mock('@/lib/nostr-bridge', () => ({
   useMyPubkey: () => 'a'.repeat(64),
   useUserMetadata: () => ({ displayName: 'Alice', picture: null }),
+  getBridgeImpl: () => null,
+}));
+
+vi.mock('@/lib/relay-info', () => ({
+  faviconFor: (url: string) => `https://favicon/${url}`,
+  fetchRelayInfo: vi.fn().mockResolvedValue(null),
 }));
 
 describe('SidebarMe', () => {
@@ -82,5 +91,119 @@ describe('ManageLayoutModal', () => {
 
     expect(screen.getByTestId('layout-category-voice')).toContainElement(screen.getByTestId('layout-channel-chat'));
     expect(screen.getByLabelText('Grab category General')).toHaveAttribute('draggable', 'true');
+  });
+});
+
+
+describe('RelayTopBar help popover', () => {
+  const RELAY = 'wss://relay.test';
+
+  function renderTopBar() {
+    return render(
+      <LocaleProvider initialLocale="en">
+        <RelayTopBar relay={RELAY} />
+      </LocaleProvider>,
+    );
+  }
+
+  beforeEach(() => {
+    useNotificationsStore.setState({ ...NOTIFICATIONS_INITIAL });
+    useReadStateStore.setState({ ...READ_STATE_INITIAL });
+  });
+
+  it('opens an in-place panel instead of navigating away to /help', () => {
+    renderTopBar();
+    expect(screen.queryByTestId('help-popover')).toBeNull();
+
+    fireEvent.click(screen.getByLabelText('Help'));
+
+    expect(screen.getByTestId('help-popover')).toBeTruthy();
+  });
+
+  it('lists the four help topics and a view-more pill', () => {
+    renderTopBar();
+    fireEvent.click(screen.getByLabelText('Help'));
+
+    const topics = screen.getAllByTestId(/^help-popover-topic-/);
+    expect(topics).toHaveLength(4);
+    expect(topics.map((a) => a.getAttribute('href'))).toEqual([
+      '/guides/what-is-obelisk',
+      '/guides/how-obelisk-works',
+      '/guides/admin-cli',
+      '/guides/bitcoin-zaps',
+    ]);
+
+    const viewMore = screen.getByTestId('help-popover-view-more');
+    expect(viewMore.getAttribute('href')).toBe('/guides');
+    // "pill" == fully rounded, per the La Crypta convention.
+    expect(viewMore.className).toContain('rounded-full');
+  });
+
+  it('closes on Escape', () => {
+    renderTopBar();
+    fireEvent.click(screen.getByLabelText('Help'));
+    expect(screen.getByTestId('help-popover')).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(screen.queryByTestId('help-popover')).toBeNull();
+  });
+
+  it('never shows the help and notification panels at once', () => {
+    renderTopBar();
+
+    fireEvent.click(screen.getByLabelText('Notifications'));
+    expect(screen.getByTestId('notif-tabs')).toBeTruthy();
+
+    fireEvent.click(screen.getByLabelText('Help'));
+
+    expect(screen.getByTestId('help-popover')).toBeTruthy();
+    expect(screen.queryByTestId('notif-tabs')).toBeNull();
+  });
+});
+
+describe('RelayTopBar notification controls', () => {
+  const RELAY = 'wss://relay.test';
+
+  function renderTopBar() {
+    return render(
+      <LocaleProvider initialLocale="en">
+        <RelayTopBar relay={RELAY} />
+      </LocaleProvider>,
+    );
+  }
+
+  beforeEach(() => {
+    useNotificationsStore.setState({ ...NOTIFICATIONS_INITIAL });
+    useReadStateStore.setState({ ...READ_STATE_INITIAL });
+  });
+
+  it('renders mark-read and clear as pills when there is something to act on', () => {
+    useNotificationsStore.setState({
+      mentionsByRelay: {
+        [RELAY]: [{
+          id: 'm1',
+          relay: RELAY,
+          channelId: 'ch1',
+          senderPubkey: 'b'.repeat(64),
+          preview: 'hey @me',
+          createdAt: Date.now(),
+        }],
+      },
+    });
+
+    renderTopBar();
+    fireEvent.click(screen.getByLabelText('Notifications'));
+
+    expect(screen.getByTestId('notif-mark-read').className).toContain('rounded-full');
+    expect(screen.getByTestId('notif-clear').className).toContain('rounded-full');
+  });
+
+  it('hides both controls when the visible stream is empty', () => {
+    renderTopBar();
+    fireEvent.click(screen.getByLabelText('Notifications'));
+
+    expect(screen.queryByTestId('notif-mark-read')).toBeNull();
+    expect(screen.queryByTestId('notif-clear')).toBeNull();
   });
 });

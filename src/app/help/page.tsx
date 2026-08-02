@@ -4,6 +4,7 @@ import Link from 'next/link';
 import Footer from '@/components/Footer';
 import Navbar from '@/components/Navbar';
 import { guidesHref } from '@/lib/guide-urls';
+import { HELP_TOPICS } from '@/lib/help-topics';
 import { useTranslation } from '@/i18n/context';
 
 const COPY = {
@@ -12,24 +13,12 @@ const COPY = {
     subtitle: 'Start with the basics or jump straight to the topic you need.',
     back: '← Back to Obelisk',
     all: 'Browse all guides →',
-    topics: [
-      ['Getting started', 'Learn what Obelisk is and how your Nostr identity works.', 'what-is-obelisk'],
-      ['How Obelisk works', 'Understand groups, relays, messages, and privacy.', 'how-obelisk-works'],
-      ['Run a community', 'Create and manage a group from the admin CLI.', 'admin-cli'],
-      ['Payments and zaps', 'Send Lightning payments without leaving the conversation.', 'bitcoin-zaps'],
-    ],
   },
   es: {
     title: '¿Cómo podemos ayudarte?',
     subtitle: 'Empezá por lo básico o andá directo al tema que necesitás.',
     back: '← Volver a Obelisk',
     all: 'Ver todas las guías →',
-    topics: [
-      ['Primeros pasos', 'Conocé qué es Obelisk y cómo funciona tu identidad Nostr.', 'what-is-obelisk'],
-      ['Cómo funciona Obelisk', 'Entendé los grupos, relays, mensajes y privacidad.', 'how-obelisk-works'],
-      ['Administrar una comunidad', 'Creá y administrá un grupo desde la CLI.', 'admin-cli'],
-      ['Pagos y zaps', 'Enviá pagos Lightning sin salir de la conversación.', 'bitcoin-zaps'],
-    ],
   },
 } as const;
 
@@ -50,15 +39,15 @@ export default function HelpPage() {
         <p className="mt-3 max-w-2xl text-lg text-lc-muted">{copy.subtitle}</p>
 
         <div className="mt-10 grid gap-4 md:grid-cols-2">
-          {copy.topics.map(([title, description, slug]) => (
+          {HELP_TOPICS[locale].map((topic) => (
             <Link
-              key={slug}
-              href={guidesHref(locale, slug)}
-              data-testid={`help-topic-${slug}`}
+              key={topic.slug}
+              href={guidesHref(locale, topic.slug)}
+              data-testid={`help-topic-${topic.slug}`}
               className="lc-card group p-6 transition-colors hover:border-lc-green/50"
             >
-              <h2 className="text-lg font-bold text-lc-white group-hover:text-lc-green">{title}</h2>
-              <p className="mt-2 text-sm leading-6 text-lc-muted">{description}</p>
+              <h2 className="text-lg font-bold text-lc-white group-hover:text-lc-green">{topic.title}</h2>
+              <p className="mt-2 text-sm leading-6 text-lc-muted">{topic.description}</p>
             </Link>
           ))}
         </div>

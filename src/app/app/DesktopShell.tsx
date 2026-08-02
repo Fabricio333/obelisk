@@ -78,6 +78,8 @@ import {
   useUnreadMentionCount,
 } from '@/lib/notifications/selectors';
 import { useChannelHighlights, useCachedChannelHighlights } from '@/lib/read-state/selectors';
+import { guidesHref } from '@/lib/guide-urls';
+import { HELP_TOPICS, HELP_VIEW_MORE } from '@/lib/help-topics';
 import { subscribeVoiceJump } from '@/lib/voice/jump-to-voice';
 import { useVoiceChatPane } from '@/hooks/chat/useVoiceChatPane';
 import { useChatStore } from '@/store/chat';
@@ -470,7 +472,7 @@ function FloatingUserPanel({ sidebarWidth }: { sidebarWidth: number }) {
   );
 }
 
-function RelayTopBar({
+export function RelayTopBar({
   relay,
   onOpenSidebar,
   onJumpToChannel,
@@ -481,10 +483,11 @@ function RelayTopBar({
   onJumpToChannel?: (channelId: string) => void;
   onJumpToDm?: (peer: string) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [info, setInfo] = useState<{ name?: string; icon?: string } | null>(null);
   const [iconFailed, setIconFailed] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   // Two independent streams — see `src/store/notifications.ts`. Mentions are
   // scoped to the relay this top bar represents; DMs are account-wide.
   const [notifTab, setNotifTab] = useState<'mentions' | 'dms'>('mentions');
@@ -552,6 +555,28 @@ function RelayTopBar({
     };
   }, [notifOpen]);
 
+  // Same dismissal contract for the help popover.
+  useEffect(() => {
+    if (!helpOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.closest('[data-help-popover]') || t.closest('[data-help-trigger]')) return;
+      setHelpOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setHelpOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [helpOpen]);
+
+  // The two panels are mutually exclusive — opening one closes the other so
+  // they can't overlap in the same top-right corner.
+  useEffect(() => { if (notifOpen) setHelpOpen(false); }, [notifOpen]);
+  useEffect(() => { if (helpOpen) setNotifOpen(false); }, [helpOpen]);
+
   const handleMentionClick = (m: MentionNotification) => {
     onJumpToChannel?.(m.channelId);
     setNotifOpen(false);
@@ -598,8 +623,9 @@ function RelayTopBar({
             </span>
           )}
         </button>
-        <a
-          href="/help"
+        <button
+          data-help-trigger
+          onClick={() => setHelpOpen((v) => !v)}
           className="p-2.5 md:p-1.5 rounded-lg text-lc-muted hover:text-lc-white hover:bg-lc-border/40 transition-colors inline-flex"
           title={t('common.help')}
           aria-label={t('common.help')}
@@ -609,7 +635,7 @@ function RelayTopBar({
             <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
             <line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
-        </a>
+        </button>
       </div>
       {notifOpen && typeof document !== 'undefined' && createPortal(
         <div
@@ -618,11 +644,17 @@ function RelayTopBar({
         >
           <div className="flex items-center justify-between px-4 py-3 border-b border-lc-border">
             <span className="text-sm font-semibold text-lc-white">{t('common.notifications')}</span>
-            <div className="flex gap-2">
+            {/* Pill affordances, per the La Crypta 9999px-radius convention.
+                "Mark read" is an outlined accent pill so it stays secondary
+                to the solid green unread badges in the tab strip below;
+                "Clear" is neutral because it is destructive-ish and should
+                not invite a reflexive click. */}
+            <div className="flex items-center gap-1.5">
               {tabItems.length > 0 && tabUnread > 0 && (
                 <button
                   onClick={handleMarkRead}
-                  className="text-xs text-lc-green hover:underline"
+                  data-testid="notif-mark-read"
+                  className="rounded-full border border-lc-green/40 bg-lc-green/10 px-2.5 py-1 text-[11px] font-semibold leading-none text-lc-green transition-colors hover:border-lc-green/70 hover:bg-lc-green/20"
                   title={notifTab === 'mentions'
                     ? t('desktop.inbox.markReadMentionsTitle')
                     : t('desktop.inbox.markReadDmsTitle')}
@@ -633,7 +665,8 @@ function RelayTopBar({
               {tabItems.length > 0 && (
                 <button
                   onClick={handleClear}
-                  className="text-xs text-lc-muted hover:text-lc-white"
+                  data-testid="notif-clear"
+                  className="rounded-full border border-lc-border bg-lc-card px-2.5 py-1 text-[11px] font-medium leading-none text-lc-muted transition-colors hover:border-lc-muted/50 hover:text-lc-white"
                   title={t('common.clear')}
                 >
                   {t('common.clear')}
@@ -730,6 +763,54 @@ function RelayTopBar({
                 })}
               </ul>
             )}
+          </div>
+        </div>,
+        document.body,
+      )}
+      {/* Help panel — deliberately the same shell as the notification
+          popover above (width, radius, border, shadow) so the top-right
+          corner reads as one family of panels. Replaces the old hard link
+          to /help, which threw the user out of the chat to read four
+          cards; the full page still exists behind "view more". */}
+      {helpOpen && typeof document !== 'undefined' && createPortal(
+        <div
+          data-help-popover
+          data-testid="help-popover"
+          className="fixed right-2 md:right-3 top-[3.75rem] md:top-11 z-[60] w-[min(380px,calc(100vw-1rem))] max-h-[70vh] overflow-hidden rounded-xl border border-lc-border bg-lc-dark shadow-2xl flex flex-col"
+        >
+          <div className="flex items-center justify-between px-4 py-3 border-b border-lc-border">
+            <span className="text-sm font-semibold text-lc-white">{t('common.help')}</span>
+          </div>
+          <div className="overflow-y-auto flex-1">
+            <ul className="flex flex-col">
+              {HELP_TOPICS[locale].map((topic) => (
+                <li key={topic.slug}>
+                  <a
+                    href={guidesHref(locale, topic.slug)}
+                    data-testid={`help-popover-topic-${topic.slug}`}
+                    onClick={() => setHelpOpen(false)}
+                    className="group block px-4 py-3 hover:bg-lc-card/60 transition-colors"
+                  >
+                    <div className="text-sm font-semibold text-lc-white group-hover:text-lc-green">
+                      {topic.title}
+                    </div>
+                    <div className="mt-0.5 text-xs leading-5 text-lc-muted">
+                      {topic.description}
+                    </div>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="border-t border-lc-border px-4 py-3">
+            <a
+              href={guidesHref(locale)}
+              data-testid="help-popover-view-more"
+              onClick={() => setHelpOpen(false)}
+              className="inline-flex w-full items-center justify-center rounded-full border border-lc-green/40 bg-lc-green/10 px-4 py-2 text-xs font-semibold text-lc-green transition-colors hover:border-lc-green/70 hover:bg-lc-green/20"
+            >
+              {HELP_VIEW_MORE[locale]}
+            </a>
           </div>
         </div>,
         document.body,

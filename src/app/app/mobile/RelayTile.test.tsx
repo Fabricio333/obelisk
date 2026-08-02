@@ -33,6 +33,23 @@ describe('mobile swipe target guard', () => {
 
     expect(shouldIgnoreMobileSwipeTarget(row)).toBe(false);
   });
+
+  it('ignores the mention autocomplete so tapping a name cannot seed a swipe', () => {
+    // Regression: a thumb tap on a mention row drifts a few px, crossing the
+    // 8px horizontal threshold in onTouchMove. The carousel would start
+    // dragging and the user landed on a neighbouring screen with the mention
+    // never inserted.
+    const popup = document.createElement('div');
+    popup.className = 'composer-mention-popup';
+    const row = document.createElement('button');
+    row.className = 'composer-mention-row';
+    const name = document.createElement('span');
+    row.append(name);
+    popup.append(row);
+
+    expect(shouldIgnoreMobileSwipeTarget(row)).toBe(true);
+    expect(shouldIgnoreMobileSwipeTarget(name)).toBe(true);
+  });
 });
 
 describe('RelayTile long-press', () => {

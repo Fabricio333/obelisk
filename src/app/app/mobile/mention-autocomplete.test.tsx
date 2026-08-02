@@ -122,7 +122,11 @@ describe('MobileMentionAutocomplete', () => {
     expect(rows[1].className).toContain('active');
   });
 
-  it('fires onSelect with the tapped member on mousedown (touch-emulated tap)', () => {
+  it('fires onSelect with the tapped member on click', () => {
+    // Selection deliberately hangs off `click`, not `mousedown`: on touch the
+    // synthesized mousedown is unreliable and never arrives at all when the
+    // gesture gets claimed elsewhere, whereas click fires for mouse and tap
+    // alike and is suppressed after a real scroll.
     const onSelect = vi.fn();
     render(
       <MobileMentionAutocomplete
@@ -133,9 +137,28 @@ describe('MobileMentionAutocomplete', () => {
       />,
     );
     const rows = screen.getAllByTestId('mobile-mention-option');
-    fireEvent.mouseDown(rows[1]);
+    fireEvent.click(rows[1]);
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith(BOB);
+  });
+
+  it('preventDefaults mousedown without selecting, so focus and the soft keyboard survive', () => {
+    const onSelect = vi.fn();
+    render(
+      <MobileMentionAutocomplete
+        members={[ALICE, BOB]}
+        selectedIndex={0}
+        onSelect={onSelect}
+        onHover={() => {}}
+      />,
+    );
+    const rows = screen.getAllByTestId('mobile-mention-option');
+    const ev = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    rows[1].dispatchEvent(ev);
+
+    expect(ev.defaultPrevented).toBe(true);
+    // Must NOT select here — otherwise a mouse tap fires onSelect twice.
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
   it('uses the picture when present and falls back to an initial otherwise', () => {
