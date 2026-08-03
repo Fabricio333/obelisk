@@ -93,3 +93,9 @@ tmp/
 
 # Local issue reference screenshots (never ship)
 /issues-with-pictures-and-description/
+
+# Local working notes + promo source art. Both predate the tracked tree and
+# are deliberately local-only: the backlog is raw notes, and the contact
+# sheet is 214K of source art the app never loads.
+/issues.md
+/obelisk-promo-contact-sheet.jpg
