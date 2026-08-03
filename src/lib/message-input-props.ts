@@ -23,6 +23,17 @@ export const MESSAGE_INPUT_PROPS = {
   name: 'message',
   autoComplete: 'off',
   enterKeyHint: 'send',
+  // `autocomplete="off"` on its own is read by several Android IMEs
+  // (Gboard, SwiftKey) as "sensitive field": they drop suggestions, the
+  // emoji key, and personalised learning — which is precisely what a
+  // password field looks like from the user's side. Asserting the prose
+  // behaviours positively cancels that inference. These are the defaults
+  // for a text input, but stating them beats leaving the keyboard to
+  // guess from a field we have just told to skip autofill.
+  inputMode: 'text',
+  autoCorrect: 'on',
+  autoCapitalize: 'sentences',
+  spellCheck: true,
   'data-1p-ignore': '',        // 1Password
   'data-lpignore': 'true',     // LastPass
   'data-bwignore': 'true',     // Bitwarden

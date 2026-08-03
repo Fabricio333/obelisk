@@ -27,4 +27,14 @@ describe('MESSAGE_INPUT_PROPS', () => {
   it('asks the mobile keyboard for a Send key', () => {
     expect(MESSAGE_INPUT_PROPS.enterKeyHint).toBe('send');
   });
+
+  it('asserts prose typing behaviour so the IME does not infer a secret', () => {
+    // autocomplete="off" alone reads as "sensitive" to several Android
+    // keyboards, which then drop suggestions and personalised learning —
+    // indistinguishable from a password field to the person typing.
+    expect(MESSAGE_INPUT_PROPS.inputMode).toBe('text');
+    expect(MESSAGE_INPUT_PROPS.autoCorrect).toBe('on');
+    expect(MESSAGE_INPUT_PROPS.autoCapitalize).toBe('sentences');
+    expect(MESSAGE_INPUT_PROPS.spellCheck).toBe(true);
+  });
 });

@@ -1813,6 +1813,9 @@
   width: 38px;
   height: 38px;
   min-width: 38px;
+  /* Same 44px tap-target floor as .composer-send — without min-height these
+     render 38x44 and the rounded square reads as a lozenge. */
+  min-height: 38px;
   border-radius: 10px;
   display: flex;
   align-items: center;
@@ -1836,6 +1839,12 @@
   width: 38px;
   height: 38px;
   min-width: 38px;
+  /* The global `.obelisk-mobile button { min-width: 44px; min-height: 44px }`
+     tap-target floor applies here too. Overriding only min-width left the
+     button 38px wide and 44px tall — a vertical oval, not a circle. The
+     surrounding composer row is already a 44px+ target, so relaxing the
+     floor on this one control does not shrink the real touch area. */
+  min-height: 38px;
   border-radius: 50%;
   display: flex;
   align-items: center;
