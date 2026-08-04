@@ -81,9 +81,23 @@ default plan:
 | **P0** | Read-state relay-sync, **groups scope** (kind 1059 `#p:[me]`, ACTIVE relay only) | As soon as `myPubkey` + `activeRelay` + first group are known — fires before messages paint so unread badges don't flash | 5000ms / ∞ | no | yes |
 | **P2** | Read-state relay-sync, **DM scope** (kind 1059 `#p:[me]`, NIP-65 read+write union) | After NIP-65 list resolves (cross-relay; the only background fanout we tolerate) | 5000ms / ∞ | no | yes |
 | **P3** | Per-group `subscribeAdminMember(id)` | On first `useAdmins`/`useMembers` mount | 5000ms / 4 | no | yes |
-| **P3** | Per-pubkey kind 0 | On first `ensureUserMetadata` | 3000ms / 2 | no | yes |
+| **P3** | Batched kind 0 (up to 100 `authors` per REQ) | ~16ms after the first `ensureUserMetadata` in a burst | 3000ms / 2 | no | yes |
 
 Implementation notes:
+- **Kind 0 lookups are batched, and only the open channel is prefetched.**
+  Profile demand scales with relay size rather than with what's on screen:
+  the relay-wide 39001/39002 REQ delivers a membership list for *every*
+  group hosted on the relay, so a public directory relay names thousands
+  of pubkeys the user will never see. `ensureUserMetadata` therefore
+  queues rather than subscribes — `flushKind0Queue` folds the burst into
+  one multi-author REQ per 100 pubkeys (plus one query per profile-lookup
+  relay covering the same batch), and `ingestAdminMember` only warms
+  profiles for `activeGroupId`. Members of unopened channels resolve
+  lazily, when a row renders and calls `subscribeUserMetadata`. Before
+  this, opening `groups.0xchat.com` (1265 groups / 2861 distinct member
+  pubkeys) put ~26k REQ frames on the wire in two minutes, tripped the
+  relay's per-connection sub limit, and blocked the main thread long
+  enough for the browser to kill the tab.
 - P0 actions are dispatched synchronously inside `connect()` (in the same
   microtask). P2 actions are dispatched on `queueMicrotask`, so their
   WebSocket frames go out strictly after P0 frames.

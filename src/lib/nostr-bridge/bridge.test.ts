@@ -20,6 +20,13 @@ const fake = vi.hoisted(() => {
       onclose?: (reasons: string[]) => void;
       poolId?: number;
     }>,
+    /**
+     * Append-only record of every REQ the bridge opened. `subscriptions`
+     * drops entries on close, which hides short-lived one-shots (batched
+     * kind:0 lookups close on their own EOSE) from assertions that run
+     * after the microtask queue has drained.
+     */
+    subscriptionLog: [] as Array<{ filter: Record<string, unknown>; relays?: string[] }>,
     ensureRelayCalls: [] as string[],
     ensureRelayImpl: null as null | ((url: string, opts?: { connectionTimeout?: number }) => Promise<{ connected: boolean; onclose?: () => void }>),
     publishImpl: null as null | ((relays: string[], event: NostrEvent) => Promise<string>[]),
@@ -53,7 +60,10 @@ const fake = vi.hoisted(() => {
     subscribe(relays: string[], filter: Record<string, unknown>, opts: { onevent: (ev: any) => void; oneose?: () => void; onclose?: (reasons: string[]) => void; onauth?: unknown; maxWait?: number; label?: string }) {
       if (opts.label === 'obelisk-query') state.querySyncCalls.push({ relays, filter, opts: { maxWait: opts.maxWait } });
       const sub = { filter, sink: opts.onevent, relays, onclose: opts.onclose, poolId: this.id };
-      if (opts.label !== 'obelisk-query') state.subscriptions.push(sub);
+      if (opts.label !== 'obelisk-query') {
+        state.subscriptions.push(sub);
+        state.subscriptionLog.push({ filter, relays });
+      }
       for (const ev of state.published) if (matchesInternal(filter, ev as any)) opts.onevent(ev);
       // Fire EOSE so subscribeWatched's watchdog marks the sub as alive and
       // doesn't queue retries during tests.
@@ -134,6 +144,27 @@ async function flush(times = 4) {
   for (let i = 0; i < times; i++) await Promise.resolve();
 }
 
+/**
+ * Wait out the kind:0 batch window so queued profile lookups reach the wire.
+ * Comfortably longer than the bridge's batch delay.
+ */
+async function settleKind0Batch(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  await flush();
+}
+
+function kind0SubsIn(subs: ReadonlyArray<{ filter: Record<string, unknown>; relays?: string[] }>) {
+  return subs.filter((s) => (s.filter.kinds as number[] | undefined)?.includes(0));
+}
+
+/** True when some kind:0 REQ in `subs` carried `pubkey` in its authors. */
+function kind0Requested(
+  subs: ReadonlyArray<{ filter: Record<string, unknown>; relays?: string[] }>,
+  pubkey: string,
+): boolean {
+  return kind0SubsIn(subs).some((s) => (s.filter.authors as string[] | undefined)?.includes(pubkey));
+}
+
 function setOnline(value: boolean): void {
   Object.defineProperty(window.navigator, 'onLine', { configurable: true, value });
 }
@@ -143,7 +174,7 @@ function setVisibility(value: DocumentVisibilityState): void {
 }
 
 beforeEach(() => {
-  (() => { fake.state.published = []; fake.state.subscriptions = []; fake.state.ensureRelayCalls = []; fake.state.ensureRelayImpl = null; fake.state.publishImpl = null; fake.state.querySyncCalls = []; fake.state.suppressNextEose = false; fake.state.poolSeq = 0; fake.state.poolOptions = []; fake.state.closeCalls = []; fake.state.closeOpenSubscriptionCounts = []; })();
+  (() => { fake.state.published = []; fake.state.subscriptions = []; fake.state.subscriptionLog = []; fake.state.ensureRelayCalls = []; fake.state.ensureRelayImpl = null; fake.state.publishImpl = null; fake.state.querySyncCalls = []; fake.state.suppressNextEose = false; fake.state.poolSeq = 0; fake.state.poolOptions = []; fake.state.closeCalls = []; fake.state.closeOpenSubscriptionCounts = []; })();
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
     ok: false,
     json: vi.fn().mockResolvedValue({}),
@@ -160,7 +191,7 @@ beforeEach(() => {
 afterEach(async () => {
   const { getBridgeImpl } = await import('./client');
   getBridgeImpl()?.dispose();
-  (() => { fake.state.published = []; fake.state.subscriptions = []; fake.state.ensureRelayCalls = []; fake.state.ensureRelayImpl = null; fake.state.querySyncCalls = []; fake.state.suppressNextEose = false; fake.state.poolSeq = 0; fake.state.poolOptions = []; fake.state.closeCalls = []; fake.state.closeOpenSubscriptionCounts = []; })();
+  (() => { fake.state.published = []; fake.state.subscriptions = []; fake.state.subscriptionLog = []; fake.state.ensureRelayCalls = []; fake.state.ensureRelayImpl = null; fake.state.querySyncCalls = []; fake.state.suppressNextEose = false; fake.state.poolSeq = 0; fake.state.poolOptions = []; fake.state.closeCalls = []; fake.state.closeOpenSubscriptionCounts = []; })();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -1824,12 +1855,21 @@ describe('nostr-bridge', () => {
     const other = makeKeypair().pkHex;
     const bridge = await getBridge();
     await bridge.loginWithNsec(skHex, pkHex);
+    // Let the login-time lookup for our own pubkey drain before measuring.
+    await settleKind0Batch();
     fake.state.subscriptions = [];
+    fake.state.subscriptionLog = [];
     fake.state.querySyncCalls = [];
 
     bridge.ensureUserMetadata(other);
-    const initialKind0Subs = fake.state.subscriptions.filter((s) => (s.filter.kinds as number[] | undefined)?.includes(0));
+    // Batched: the REQ waits for the batch window rather than going out
+    // one-per-pubkey as the calls arrive.
+    expect(kind0SubsIn(fake.state.subscriptionLog)).toHaveLength(0);
+    await settleKind0Batch();
+
+    const initialKind0Subs = kind0SubsIn(fake.state.subscriptionLog);
     expect(initialKind0Subs).toHaveLength(1);
+    expect(initialKind0Subs[0].filter.authors).toEqual([other]);
     expect(initialKind0Subs[0].relays).toEqual(['wss://public.obelisk.ar']);
 
     await flush(8);
@@ -1850,6 +1890,63 @@ describe('nostr-bridge', () => {
       'wss://public.obelisk.ar',
       'wss://purplepag.es',
     ]);
+  });
+
+  it('folds a burst of profile lookups into one multi-author kind:0 REQ', async () => {
+    const { getBridge } = await import('./client');
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+    const crowd = Array.from({ length: 12 }, () => makeKeypair().pkHex);
+    // Drain the login-time lookup for our own pubkey first so it can't
+    // ride along in the batch under test.
+    await settleKind0Batch();
+    fake.state.subscriptionLog = [];
+    fake.state.querySyncCalls = [];
+
+    crowd.forEach((pk) => bridge.ensureUserMetadata(pk));
+    await settleKind0Batch();
+
+    const kind0 = kind0SubsIn(fake.state.subscriptionLog);
+    expect(kind0).toHaveLength(1);
+    expect(kind0[0].filter.authors).toEqual(crowd);
+
+    // The external fan-out is one query per lookup relay — each covering
+    // the whole batch — not one per pubkey per relay.
+    const lookups = fake.state.querySyncCalls.filter((c) => (c.filter.kinds as number[] | undefined)?.includes(0));
+    expect(lookups).toHaveLength(3);
+    for (const lookup of lookups) expect(lookup.filter.authors).toEqual(crowd);
+  });
+
+  it('does not prefetch member profiles for channels the user has not opened', async () => {
+    const { getBridge } = await import('./client');
+    const { skHex, pkHex } = makeKeypair();
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(skHex, pkHex);
+    const strangers = Array.from({ length: 3 }, () => makeKeypair().pkHex);
+    const neighbours = Array.from({ length: 3 }, () => makeKeypair().pkHex);
+    await settleKind0Batch();
+    fake.state.subscriptionLog = [];
+
+    // The relay-wide 39001/39002 REQ delivers a membership list for every
+    // group on the relay. On a public directory relay that is thousands of
+    // pubkeys the user will never see — warming them all is what made
+    // opening someone else's relay flood the socket and kill the tab.
+    deliver(await fakeRelayList({ groupId: 'channel-nobody-opened', kind: 39002, pubkeys: strangers }));
+    await flush();
+    await settleKind0Batch();
+    for (const stranger of strangers) {
+      expect(kind0Requested(fake.state.subscriptionLog, stranger)).toBe(false);
+    }
+
+    // The channel actually in view still warms its members up front.
+    bridge.setActiveGroup('channel-in-view');
+    deliver(await fakeRelayList({ groupId: 'channel-in-view', kind: 39002, pubkeys: neighbours }));
+    await flush();
+    await settleKind0Batch();
+    for (const neighbour of neighbours) {
+      expect(kind0Requested(fake.state.subscriptionLog, neighbour)).toBe(true);
+    }
   });
 
   it('editUserMetadata publishes kind:0 to the active relay plus quiet lookup relays', async () => {

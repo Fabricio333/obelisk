@@ -1095,6 +1095,39 @@ export class BridgeImpl {
 
   // Pubkeys we've already requested kind:0 for, to avoid duplicate subscriptions.
   private metadataRequested = new Set<string>();
+  /**
+   * Pubkeys waiting to be folded into a batched kind 0 REQ.
+   *
+   * A Nostr filter takes an array of `authors`, so N profile lookups cost
+   * one REQ, not N. That matters because profile demand arrives in bursts
+   * that scale with relay size, not with what's on screen: a single kind
+   * 39002 member list can name hundreds of pubkeys, and a directory relay
+   * delivers a thousand such lists. One REQ per pubkey (plus a fan-out
+   * across every profile-lookup relay) put tens of thousands of frames on
+   * the wire, blew past the relay's per-connection subscription limit, and
+   * kept the main thread busy enough that the tab was killed before the
+   * channel list finished painting. Batching keeps it to a handful.
+   */
+  private pendingKind0Queue: string[] = [];
+  private pendingKind0Timer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Authors per batched kind 0 REQ. Large enough that a big member list is
+   * a few REQs, small enough that the filter stays well inside the frame
+   * sizes relays accept.
+   */
+  private static readonly KIND0_BATCH_SIZE = 100;
+  /**
+   * How long a pubkey waits for batch-mates before the REQ goes out. One
+   * frame's worth — long enough to coalesce a member list arriving as a
+   * single ingest, short enough that avatars still paint immediately.
+   */
+  private static readonly KIND0_BATCH_DELAY_MS = 16;
+  /**
+   * Revisions to allow per author in a batched profile query. Mirrors the
+   * `limit: 5` the single-author lookup used, so a relay that keeps old
+   * kind 0 revisions can't let one chatty author starve the batch.
+   */
+  private static readonly KIND0_REVISIONS_PER_AUTHOR = 5;
   // Group ids we already have a message subscription for.
   private messageSubscribedGroups = new Set<string>();
   /**
@@ -1820,6 +1853,7 @@ export class BridgeImpl {
     // will repopulate it.
     this.pendingMessageQueue = [];
     this.pendingMessageSet.clear();
+    this.clearPendingKind0Queue();
     if (this.pendingMessageTimer) {
       clearTimeout(this.pendingMessageTimer);
       this.pendingMessageTimer = null;
@@ -2114,6 +2148,7 @@ export class BridgeImpl {
     // is scoped to the previous session's authored REQs.
     this.pendingMessageQueue = [];
     this.pendingMessageSet.clear();
+    this.clearPendingKind0Queue();
     if (this.pendingMessageTimer) {
       clearTimeout(this.pendingMessageTimer);
       this.pendingMessageTimer = null;
@@ -2405,6 +2440,7 @@ export class BridgeImpl {
     // the old pool. The new relay's kind 39000 fan-out will repopulate.
     this.pendingMessageQueue = [];
     this.pendingMessageSet.clear();
+    this.clearPendingKind0Queue();
     if (this.pendingMessageTimer) {
       clearTimeout(this.pendingMessageTimer);
       this.pendingMessageTimer = null;
@@ -2771,7 +2807,48 @@ export class BridgeImpl {
     // still get a REQ — they may resolve to allow later.
     if (wotEngine.isResolvedDeny(pubkey)) return;
     this.metadataRequested.add(pubkey);
-    this.subscribeKind0(pubkey);
+    this.queueKind0(pubkey);
+  }
+
+  /**
+   * Add `pubkey` to the next batched kind 0 REQ. Flushes immediately once a
+   * full batch has accumulated so a large burst doesn't sit behind the
+   * timer — see {@link pendingKind0Queue}.
+   */
+  private queueKind0(pubkey: string): void {
+    this.pendingKind0Queue.push(pubkey);
+    if (this.pendingKind0Queue.length >= BridgeImpl.KIND0_BATCH_SIZE) {
+      this.flushKind0Queue();
+      return;
+    }
+    if (this.pendingKind0Timer) return;
+    this.pendingKind0Timer = setTimeout(() => {
+      this.pendingKind0Timer = null;
+      this.flushKind0Queue();
+    }, BridgeImpl.KIND0_BATCH_DELAY_MS);
+  }
+
+  private flushKind0Queue(): void {
+    if (this.pendingKind0Timer) {
+      clearTimeout(this.pendingKind0Timer);
+      this.pendingKind0Timer = null;
+    }
+    while (this.pendingKind0Queue.length > 0) {
+      this.subscribeKind0(this.pendingKind0Queue.splice(0, BridgeImpl.KIND0_BATCH_SIZE));
+    }
+  }
+
+  /**
+   * Drop queued profile lookups. Used by the reset paths — the pubkeys are
+   * re-queued from `metadataRequested` once the new pool is up, and firing
+   * the old batch would open REQs against a dead socket.
+   */
+  private clearPendingKind0Queue(): void {
+    this.pendingKind0Queue = [];
+    if (this.pendingKind0Timer) {
+      clearTimeout(this.pendingKind0Timer);
+      this.pendingKind0Timer = null;
+    }
   }
 
   // -- Group operations --------------------------------------------------
@@ -4983,8 +5060,11 @@ export class BridgeImpl {
     this.internalRestartMessageSub(groupId);
   }
 
-  private subscribeKind0(pubkey: string): void {
-    const filter: Filter = { kinds: [KIND_USER_METADATA], authors: [pubkey] };
+  /** One REQ covering every pubkey in `batch` — see {@link pendingKind0Queue}. */
+  private subscribeKind0(batch: readonly string[]): void {
+    const authors = Array.from(new Set(batch));
+    if (authors.length === 0) return;
+    const filter: Filter = { kinds: [KIND_USER_METADATA], authors };
     // Active-relay profile REQs are bounded one-shots. External profile
     // relays are queried separately as querySync one-shots below.
     let sub: { close: () => void; markClosed?: () => void } | undefined;
@@ -4998,9 +5078,11 @@ export class BridgeImpl {
       { watchdogMs: 3000, maxAttempts: 2, affectsRelayAccess: false },
     );
     this.subs.push(sub);
-    const cached = getCachedKind0(pubkey);
-    if (cached) this.ingestUserMetadata(cachedKind0ToEvent(cached), { cacheRelayScoped: false });
-    void this.lookupExternalUserMetadata(pubkey);
+    for (const pubkey of authors) {
+      const cached = getCachedKind0(pubkey);
+      if (cached) this.ingestUserMetadata(cachedKind0ToEvent(cached), { cacheRelayScoped: false });
+    }
+    void this.lookupExternalUserMetadata(authors);
   }
 
   private getProfileLookupRelays(): string[] {
@@ -5070,40 +5152,67 @@ export class BridgeImpl {
     }
   }
 
-  private async lookupExternalUserMetadata(pubkey: string): Promise<void> {
+  /**
+   * Resolve kind 0 for `batch` against the profile-lookup relays, as one
+   * multi-author query per relay rather than one per pubkey.
+   *
+   * The TTL and in-flight guards stay per-pubkey — batching is a transport
+   * detail, so a pubkey already covered by a recent lookup is dropped from
+   * the filter instead of dragging the whole batch back onto the wire.
+   */
+  private async lookupExternalUserMetadata(batch: readonly string[]): Promise<void> {
     const now = Date.now();
-    const state = this.session?.pubKeyHex === pubkey ? loadProfileSyncState() : null;
-    const last = state?.ownProfileLookupAt[pubkey] ?? this.profileLookupAt.get(pubkey) ?? 0;
-    const ttl = this.session?.pubKeyHex === pubkey ? OWN_PROFILE_LOOKUP_TTL_MS : OTHER_PROFILE_LOOKUP_TTL_MS;
-    if (now - last < ttl) return;
-    const inFlight = this.profileLookupInFlight.get(pubkey);
-    if (inFlight) return inFlight;
+    const me = this.session?.pubKeyHex;
+    const ownState = me && batch.includes(me) ? loadProfileSyncState() : null;
+    const targets = batch.filter((pubkey) => {
+      const isMe = pubkey === me;
+      const last = (isMe ? ownState?.ownProfileLookupAt[pubkey] : undefined)
+        ?? this.profileLookupAt.get(pubkey)
+        ?? 0;
+      if (now - last < (isMe ? OWN_PROFILE_LOOKUP_TTL_MS : OTHER_PROFILE_LOOKUP_TTL_MS)) return false;
+      return !this.profileLookupInFlight.has(pubkey);
+    });
+    if (targets.length === 0) return;
     const p = (async () => {
       try {
         const result = await this.queryRelaysWithConfidence(
           this.getProfileLookupRelays(),
-          { kinds: [KIND_USER_METADATA], authors: [pubkey], limit: 5 },
+          {
+            kinds: [KIND_USER_METADATA],
+            authors: targets,
+            limit: targets.length * BridgeImpl.KIND0_REVISIONS_PER_AUTHOR,
+          },
           PROFILE_LOOKUP_MAX_WAIT_MS,
         );
-        const newest = newestEvent(result.events.filter((e) => e.kind === KIND_USER_METADATA && e.pubkey === pubkey));
-        if (newest || result.complete) {
-          this.profileLookupAt.set(pubkey, now);
-          if (state) {
-            const next = loadProfileSyncState();
-            next.ownProfileLookupAt[pubkey] = now;
-            saveProfileSyncState(next);
-          }
+        const byAuthor = new Map<string, NostrEvent[]>();
+        for (const ev of result.events) {
+          if (ev.kind !== KIND_USER_METADATA) continue;
+          const seen = byAuthor.get(ev.pubkey);
+          if (seen) seen.push(ev);
+          else byAuthor.set(ev.pubkey, [ev]);
         }
-        if (!newest) return;
-        setCachedKind0(newest);
-        this.ingestUserMetadata(newest, { cacheRelayScoped: false });
+        let nextOwnState: ReturnType<typeof loadProfileSyncState> | null = null;
+        for (const pubkey of targets) {
+          const newest = newestEvent(byAuthor.get(pubkey) ?? []);
+          if (newest || result.complete) {
+            this.profileLookupAt.set(pubkey, now);
+            if (pubkey === me) {
+              nextOwnState = nextOwnState ?? loadProfileSyncState();
+              nextOwnState.ownProfileLookupAt[pubkey] = now;
+            }
+          }
+          if (!newest) continue;
+          setCachedKind0(newest);
+          this.ingestUserMetadata(newest, { cacheRelayScoped: false });
+        }
+        if (nextOwnState) saveProfileSyncState(nextOwnState);
       } catch {
         // best-effort only; do not cache a timeout as a profile miss
       } finally {
-        this.profileLookupInFlight.delete(pubkey);
+        for (const pubkey of targets) this.profileLookupInFlight.delete(pubkey);
       }
     })();
-    this.profileLookupInFlight.set(pubkey, p);
+    for (const pubkey of targets) this.profileLookupInFlight.set(pubkey, p);
     return p;
   }
 
@@ -5288,7 +5397,18 @@ export class BridgeImpl {
     this.membershipReadyByGroup.update((prev) =>
       prev[groupId] ? prev : { ...prev, [groupId]: true },
     );
-    pubkeys.forEach((pk) => this.ensureUserMetadata(pk));
+    // Warm profiles only for the channel the user is actually in. This
+    // ingest also runs for the relay-wide 39001/39002 REQ
+    // ({@link subscribeAllAdminMember}), which on a public directory relay
+    // delivers a membership list for every group hosted there — thousands
+    // of distinct pubkeys, none of them on screen. Prefetching all of them
+    // is what made opening someone else's relay kill the tab. Members of
+    // channels the user hasn't opened resolve lazily instead: rendering a
+    // row goes through {@link subscribeUserMetadata}, which calls
+    // {@link ensureUserMetadata} itself.
+    if (groupId === this.activeGroupId) {
+      pubkeys.forEach((pk) => this.ensureUserMetadata(pk));
+    }
   }
 
   private seedMyContactListCache(pubkey: string): void {
