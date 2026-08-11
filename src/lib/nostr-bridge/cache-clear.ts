@@ -23,6 +23,7 @@
  *   - `obelisk-dex/mobile-setup-seen/*` — per-account "tutorial seen" flag.
  *   - `obelisk-dex/just-generated/*`   — per-account "fresh nsec" flag.
  *   - `obelisk:voice-chat-width`       — sidebar panel width.
+ *   - `obelisk/profile-sync-cache/v1`, `obelisk/profile-sync-state/v1` — kind-0 profile-sync blobs.
  *
  * The function never throws — localStorage can be unavailable (SSR) or
  * quota-limited (private mode); silent degradation matches the rest of the
@@ -56,6 +57,11 @@ const WIPED_EXACT = new Set<string>([
   'obelisk:relay-info-v3',
   'obelisk:relay-info-v2',
   'obelisk:voice-chat-width',
+  // Profile-sync blobs (see client.ts PROFILE_SYNC_*_KEY). The kind-0
+  // cache is one of the largest keys on the origin — leaving it out of
+  // the sweep made "Clear cache" useless against quota exhaustion.
+  'obelisk/profile-sync-cache/v1',
+  'obelisk/profile-sync-state/v1',
 ]);
 
 function isAvailable(): boolean {

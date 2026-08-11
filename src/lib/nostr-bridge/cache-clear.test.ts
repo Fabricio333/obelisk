@@ -16,6 +16,8 @@ const wiped = [
   "obelisk:relay-info-v3",
   "obelisk:relay-info-v2",
   "obelisk:voice-chat-width",
+  "obelisk/profile-sync-cache/v1",
+  "obelisk/profile-sync-state/v1",
 ];
 
 const preserved = [

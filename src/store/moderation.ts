@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { quotaSafeLocalStorage } from '@/lib/quota-safe-storage';
 import { createEnsureForAccount } from './multi-account';
 
 interface ModerationState {
@@ -33,7 +34,7 @@ export const useModerationStore = create<ModerationState>()(
     }),
     {
       name: 'obelisk:moderation',
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => quotaSafeLocalStorage),
     },
   ),
 );

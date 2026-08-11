@@ -6,7 +6,7 @@
  * the cache key format tolerates them without encoding.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { cacheGet, cacheSet, cacheDelete, cacheClearAll, cacheListIds, cacheListIdsByKind } from './cache';
+import { cacheGet, cacheSet, cacheDelete, cacheClearAll, cacheListIds, cacheListIdsByKind, cacheFreeSpaceForQuota } from './cache';
 
 const RELAY = 'wss://relay.example.com';
 const KIND = 39001;
@@ -147,6 +147,72 @@ describe('cache', () => {
     cacheSet(RELAY, KIND, groupId, ['pk']);
     expect(cacheGet<string[]>(RELAY, KIND, groupId)!.value).toEqual(['pk']);
     expect(cacheListIds(RELAY, KIND)).toContain(groupId);
+  });
+
+  describe('quota recovery', () => {
+    it('cacheFreeSpaceForQuota evicts the oldest half of entries by write time', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(1_000);
+      cacheSet(RELAY, KIND, 'oldest', ['a']);
+      vi.setSystemTime(2_000);
+      cacheSet(RELAY, KIND, 'older', ['b']);
+      vi.setSystemTime(3_000);
+      cacheSet(RELAY, KIND, 'newer', ['c']);
+      vi.setSystemTime(4_000);
+      cacheSet(RELAY, KIND, 'newest', ['d']);
+
+      expect(cacheFreeSpaceForQuota()).toBe(true);
+
+      expect(cacheGet(RELAY, KIND, 'oldest')).toBeNull();
+      expect(cacheGet(RELAY, KIND, 'older')).toBeNull();
+      expect(cacheGet<string[]>(RELAY, KIND, 'newer')!.value).toEqual(['c']);
+      expect(cacheGet<string[]>(RELAY, KIND, 'newest')!.value).toEqual(['d']);
+    });
+
+    it('cacheFreeSpaceForQuota leaves non-cache keys alone', () => {
+      cacheSet(RELAY, KIND, 'g', ['x']);
+      window.localStorage.setItem('obelisk-read-state:abc', '{"cursors":{}}');
+      cacheFreeSpaceForQuota();
+      expect(window.localStorage.getItem('obelisk-read-state:abc')).toBe('{"cursors":{}}');
+    });
+
+    it('cacheFreeSpaceForQuota returns false when there is nothing to evict', () => {
+      window.localStorage.setItem('unrelated-key', 'keep');
+      expect(cacheFreeSpaceForQuota()).toBe(false);
+      expect(window.localStorage.getItem('unrelated-key')).toBe('keep');
+    });
+
+    it('cacheSet evicts oldest entries and retries when localStorage is full', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(1_000);
+      cacheSet(RELAY, KIND, 'oldest', ['a']);
+      vi.setSystemTime(2_000);
+      cacheSet(RELAY, KIND, 'kept', ['b']);
+
+      vi.setSystemTime(3_000);
+      const spy = vi.spyOn(Storage.prototype, 'setItem');
+      spy.mockImplementationOnce(() => {
+        throw new DOMException('quota', 'QuotaExceededError');
+      });
+      cacheSet(RELAY, KIND, 'incoming', ['c']);
+      spy.mockRestore();
+
+      // First write threw; the oldest half (1 of 2 entries) was evicted
+      // and the retry landed.
+      expect(cacheGet(RELAY, KIND, 'oldest')).toBeNull();
+      expect(cacheGet<string[]>(RELAY, KIND, 'kept')!.value).toEqual(['b']);
+      expect(cacheGet<string[]>(RELAY, KIND, 'incoming')!.value).toEqual(['c']);
+    });
+
+    it('cacheSet stays silent when even the retry fails', () => {
+      cacheSet(RELAY, KIND, 'existing', ['a']);
+      const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('quota', 'QuotaExceededError');
+      });
+      expect(() => cacheSet(RELAY, KIND, 'incoming', ['b'])).not.toThrow();
+      spy.mockRestore();
+      expect(cacheGet(RELAY, KIND, 'incoming')).toBeNull();
+    });
   });
 
   it('round-trips a kind 0 user-metadata entry in the shape ingestUserMetadata writes', () => {

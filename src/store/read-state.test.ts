@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   useReadStateStore,
   ensureReadStateStoreForAccount,
@@ -8,6 +8,33 @@ import {
 describe('useReadStateStore', () => {
   beforeEach(() => {
     useReadStateStore.setState({ ...READ_STATE_INITIAL });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  describe('quota resilience', () => {
+    // Regression: cursors advance on nearly every click (auto-mark-read),
+    // and each advance persists the store. With localStorage at the origin
+    // quota this used to throw "Failed to execute 'setItem' on 'Storage'"
+    // on every interaction. The quota-safe storage adapter must absorb it.
+    it('cursor writes do not throw when localStorage is full', () => {
+      const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('quota', 'QuotaExceededError');
+      });
+
+      expect(() => {
+        useReadStateStore.getState().setGroupCursor('g1', 1000);
+        useReadStateStore.getState().setDmCursor('alice', 2000);
+        useReadStateStore.getState().markAllAsRead(['alice'], ['g1']);
+      }).not.toThrow();
+
+      spy.mockRestore();
+      // In-memory state still advanced even though persistence was lost.
+      expect(useReadStateStore.getState().groupCursors['g1']).toBeGreaterThanOrEqual(1000);
+      expect(useReadStateStore.getState().dmCursors['alice']).toBeGreaterThanOrEqual(2000);
+    });
   });
 
   it('starts empty', () => {

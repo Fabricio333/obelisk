@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { quotaSafeLocalStorage } from '@/lib/quota-safe-storage';
 import { createEnsureForAccount } from './multi-account';
 
 export type DMProtocol = 'nip04' | 'nip17';
@@ -121,18 +122,7 @@ export const useDMStore = create<DMState>()(
     }),
     {
       name: 'obelisk-dm-store',
-      storage: createJSONStorage(() => {
-        if (typeof localStorage === 'undefined') {
-          // SSR / node-env fallback: ephemeral in-memory storage.
-          const mem = new Map<string, string>();
-          return {
-            getItem: (k) => mem.get(k) ?? null,
-            setItem: (k, v) => void mem.set(k, v),
-            removeItem: (k) => void mem.delete(k),
-          };
-        }
-        return localStorage;
-      }),
+      storage: createJSONStorage(() => quotaSafeLocalStorage),
       // The DM store now persists *only* the user's per-peer protocol
       // override choices (NIP-04 vs NIP-17). Read state lives in
       // `useReadStateStore` (`obelisk-read-state:{pubkey}`); thread + message

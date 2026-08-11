@@ -12,7 +12,7 @@ import { v2 as nip44 } from 'nostr-tools/nip44';
 import type { NipSigner } from '@/lib/nip-59';
 import { parseRelayList, parseInboxRelayList } from '@nostr-wot/data';
 import { TextCoercingWebSocket } from '@nostr-wot/data';
-import { cacheGet, cacheSet, cacheDelete, cacheClearAll, cacheListIdsByKind } from './cache';
+import { cacheGet, cacheSet, cacheDelete, cacheClearAll, cacheListIdsByKind, cacheFreeSpaceForQuota } from './cache';
 import { normalizeRelayUrl } from './relay-url';
 import { wotEngine } from '@/lib/wot/engine';
 import { useModerationStore } from '@/store/moderation';
@@ -411,6 +411,36 @@ export interface CachedKind0Event {
 
 interface ProfileSyncCache {
   byPubkey: Record<string, CachedKind0Event>;
+  /**
+   * Wall-clock ms of the last accepted write per pubkey — the LRU order
+   * for {@link PROFILE_SYNC_CACHE_LIMIT} eviction. Optional because
+   * entries written before the cap existed have no stamp; they sort as 0
+   * and are evicted first.
+   */
+  savedAt?: Record<string, number>;
+}
+
+/**
+ * Hard cap on cached kind-0 events. `lookupExternalUserMetadata` funnels
+ * EVERY profile the UI ever renders (message authors, member lists,
+ * popovers, DM peers) through {@link setCachedKind0}, and full signed
+ * events are ~0.5–2KB each — unbounded, this single key grew to megabytes
+ * and pushed the origin's localStorage over quota. 300 entries keeps the
+ * blob under ~500KB while still covering every profile a heavy account
+ * sees in a session. Evicting the own profile is self-healing:
+ * `syncOwnProfileToActiveRelay` re-fetches on a cache miss.
+ */
+export const PROFILE_SYNC_CACHE_LIMIT = 300;
+
+function pruneProfileSyncCache(cache: ProfileSyncCache): void {
+  const pubkeys = Object.keys(cache.byPubkey);
+  if (pubkeys.length <= PROFILE_SYNC_CACHE_LIMIT) return;
+  const savedAt = cache.savedAt ?? {};
+  pubkeys.sort((a, b) => (savedAt[a] ?? 0) - (savedAt[b] ?? 0));
+  for (const pk of pubkeys.slice(0, pubkeys.length - PROFILE_SYNC_CACHE_LIMIT)) {
+    delete cache.byPubkey[pk];
+    delete savedAt[pk];
+  }
 }
 
 interface ProfileSyncState {
@@ -444,7 +474,15 @@ function loadProfileSyncCache(): ProfileSyncCache {
 
 function saveProfileSyncCache(cache: ProfileSyncCache): void {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(PROFILE_SYNC_CACHE_KEY, JSON.stringify(cache));
+  const json = JSON.stringify(cache);
+  try {
+    window.localStorage.setItem(PROFILE_SYNC_CACHE_KEY, json);
+  } catch {
+    // Quota — evict disposable bridgeCache entries and retry once.
+    try {
+      if (cacheFreeSpaceForQuota()) window.localStorage.setItem(PROFILE_SYNC_CACHE_KEY, json);
+    } catch { /* degrade silently — in-memory state is unaffected */ }
+  }
 }
 
 function loadProfileSyncState(): ProfileSyncState {
@@ -464,7 +502,14 @@ function loadProfileSyncState(): ProfileSyncState {
 
 function saveProfileSyncState(state: ProfileSyncState): void {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(PROFILE_SYNC_STATE_KEY, JSON.stringify(state));
+  const json = JSON.stringify(state);
+  try {
+    window.localStorage.setItem(PROFILE_SYNC_STATE_KEY, json);
+  } catch {
+    try {
+      if (cacheFreeSpaceForQuota()) window.localStorage.setItem(PROFILE_SYNC_STATE_KEY, json);
+    } catch { /* degrade silently */ }
+  }
 }
 
 export function getCachedKind0(pubkey: string): CachedKind0Event | null {
@@ -506,6 +551,10 @@ export function setCachedKind0(ev: NostrEvent | CachedKind0Event): boolean {
     tags: ev.tags.map((t) => [...t]),
     sig: ev.sig,
   };
+  const savedAt = cache.savedAt ?? {};
+  savedAt[ev.pubkey] = Date.now();
+  cache.savedAt = savedAt;
+  pruneProfileSyncCache(cache);
   saveProfileSyncCache(cache);
   return true;
 }
@@ -6632,7 +6681,16 @@ export class BridgeImpl {
 
   private persist(): void {
     if (typeof window === 'undefined' || !this.session) return;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(this.session));
+    const json = JSON.stringify(this.session);
+    try {
+      window.localStorage.setItem(STORAGE_KEY, json);
+    } catch {
+      // Quota — a lost session write logs the user out on the next
+      // reload. Sacrifice bridgeCache entries and retry once.
+      try {
+        if (cacheFreeSpaceForQuota()) window.localStorage.setItem(STORAGE_KEY, json);
+      } catch { /* degrade silently */ }
+    }
   }
 }
 

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { quotaSafeLocalStorage } from '@/lib/quota-safe-storage';
 import { defaultLocale, t, type Locale } from '@/lib/i18n';
 
 interface LocaleState {
@@ -15,7 +16,7 @@ export const useLocaleStore = create<LocaleState>()(
     }),
     {
       name: 'obelisk:locale',
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => quotaSafeLocalStorage),
     }
   )
 );

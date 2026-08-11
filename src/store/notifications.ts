@@ -28,6 +28,7 @@
  */
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { quotaSafeLocalStorage } from '@/lib/quota-safe-storage';
 import { createEnsureForAccount } from './multi-account';
 import { useReadStateStore } from './read-state';
 
@@ -174,17 +175,7 @@ export const useNotificationsStore = create<NotificationsStore>()(
     }),
     {
       name: 'obelisk-notifications',
-      storage: createJSONStorage(() => {
-        if (typeof localStorage === 'undefined') {
-          const mem = new Map<string, string>();
-          return {
-            getItem: (k) => mem.get(k) ?? null,
-            setItem: (k, v) => void mem.set(k, v),
-            removeItem: (k) => void mem.delete(k),
-          };
-        }
-        return localStorage;
-      }),
+      storage: createJSONStorage(() => quotaSafeLocalStorage),
       partialize: (state) =>
         ({
           mentionsByRelay: state.mentionsByRelay,

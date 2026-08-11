@@ -7,6 +7,7 @@
  */
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { quotaSafeLocalStorage } from '@/lib/quota-safe-storage';
 import { wotEngine } from './engine';
 import { wotProbe, type WotStatus } from './extension';
 
@@ -55,7 +56,7 @@ export const useWotStore = create<WotState>()(
     }),
     {
       name: 'obelisk:wot',
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => quotaSafeLocalStorage),
       partialize: (s) => ({ enabled: s.enabled, maxHops: s.maxHops, minPaths: s.minPaths }),
     },
   ),

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { quotaSafeLocalStorage } from '@/lib/quota-safe-storage';
 import type { VideoQuality } from '@/lib/voice/quality';
 import type { QualitySample } from '@/lib/voice/stats';
 
@@ -157,7 +158,7 @@ export const useVoiceStore = create<VoiceState>()(
     }),
     {
       name: 'obelisk:voice:quality',
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => quotaSafeLocalStorage),
       // Only persist user-set quality preferences; runtime state (current
       // channel, mic/camera, peer samples) must reset on reload.
       partialize: (state) => ({
