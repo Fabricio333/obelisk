@@ -175,8 +175,10 @@ Create `src/lib/pq/attestations.test.ts`:
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const querySync = vi.fn();
-vi.mock('@/lib/nostr-bridge/client', () => ({
-  getBridgeSync: () => ({ pool: { querySync }, relays: ['wss://r.example'] }),
+vi.mock('@nostr-wot/data', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@nostr-wot/data')>(),
+  getPool: () => ({ querySync }),
+  getDefaultRelays: () => ['wss://r.example'],
 }));
 
 import { getAttestation, hasUsableKeys, clearAttestationCache } from './attestations';
@@ -263,7 +265,7 @@ Create `src/lib/pq/attestations.ts`:
 'use client';
 
 import { attestationFilter, parseAttestation, type PqAttestation } from '@nostr-wot/pq';
-import { getBridgeSync } from '@/lib/nostr-bridge/client';
+import { getPool, getDefaultRelays } from '@nostr-wot/data';
 
 /** How long a looked-up attestation stays fresh. Attestations are replaceable
  *  events that change rarely, so this is generous on purpose. */
@@ -283,10 +285,11 @@ export function clearAttestationCache(): void {
 }
 
 async function fetchAttestation(pubkey: string): Promise<PqAttestation | null> {
-  const bridge = getBridgeSync();
-  if (!bridge) return null;
   try {
-    const events = await bridge.pool.querySync(bridge.relays, attestationFilter([pubkey]));
+    // The bridge's SimplePool is private, so lib modules go through
+    // @nostr-wot/data's shared pool — the same one the profile and follow
+    // fetchers use, so attestation lookups share its connections.
+    const events = await getPool().querySync(getDefaultRelays(), attestationFilter([pubkey]));
     if (!events?.length) return null;
     // Replaceable kind: the newest wins.
     const newest = events.reduce((a, b) => (b.created_at > a.created_at ? b : a));
@@ -929,7 +932,7 @@ Create `src/components/chat/PqConversationNotice.tsx`:
 'use client';
 
 import Link from 'next/link';
-import { useTranslations } from '@/i18n';
+import { useTranslation } from '@/i18n/context';
 import type { PqConversationStatus } from '@/lib/pq/status';
 
 export default function PqConversationNotice({
@@ -939,7 +942,7 @@ export default function PqConversationNotice({
   status: PqConversationStatus;
   guideHref: string;
 }) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   const secured = status === 'secured';
 
   return (
@@ -970,11 +973,11 @@ Create `src/components/chat/PqMessageMark.tsx`:
 ```tsx
 'use client';
 
-import { useTranslations } from '@/i18n';
+import { useTranslation } from '@/i18n/context';
 import type { PqMessageMark as Mark } from '@/lib/pq/status';
 
 export default function PqMessageMark({ mark }: { mark: Mark }) {
-  const t = useTranslations();
+  const { t } = useTranslation();
   if (mark === null) return null;
 
   return (
@@ -985,7 +988,7 @@ export default function PqMessageMark({ mark }: { mark: Mark }) {
 }
 ```
 
-Use the project's existing translation hook. If `useTranslations` is not the correct import for this codebase, match whatever `src/components/chat/MessageContent.tsx` already uses.
+Both components must be rendered inside the app's `LocaleProvider` — `useTranslation` throws outside it. The test above renders them bare, so wrap the render in the same provider the other chat component tests use (grep `LocaleProvider` under `src/components/chat/__tests__/` or `src/test/` for the existing helper).
 
 - [ ] **Step 5: Run the test and confirm it passes**
 
