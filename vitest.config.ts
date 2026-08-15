@@ -10,6 +10,17 @@ export default defineConfig({
     globals: true,
     css: false,
     include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts'],
+    server: {
+      deps: {
+        // Inline the SDK packages so `vi.mock` reaches the modules *they*
+        // import. These used to be `file:` deps, which Vitest processed as
+        // source, so mocking `nostr-tools/nip46` also intercepted the copy
+        // Nip46Signer imports. Published packages are externalized by
+        // default, which silently bypasses the mock and lets the NIP-46
+        // handshake open a real WebSocket.
+        inline: [/@nostr-wot\//],
+      },
+    },
   },
   resolve: {
     alias: {
