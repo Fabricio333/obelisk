@@ -35,16 +35,16 @@ La contrapartida: esta clave **no se puede recuperar con tu frase de recuperaci�
 
 ## Cómo configurarlo
 
-Ambos caminos pasan por la [extensión Nostr WoT](https://nostr-wot.com), que es la que posee tus claves. Obelisk nunca las ve; solo lee la atestación pública que indica que tu cuenta tiene claves post-cuánticas, y por eso el aviso puede decirte si una conversación está protegida.
+Ambos caminos pasan por la [extensión Nostr WoT](https://nostr-wot.com), que es la que posee tus claves. Obelisk nunca las ve; solo lee la atestación pública que indica que tu cuenta tiene claves post-cuánticas.
 
-Una vez publicada tu atestación, Obelisk puede ver que la otra persona también tiene claves post-cuánticas y marca la conversación en consecuencia. El envío de mensajes con esa protección más fuerte todavía se está integrando en Obelisk; publicar tu atestación ahora es lo que te permite beneficiarte en cuanto esté disponible, sin que tengas que hacer nada más de tu parte.
+Publicar tu atestación es lo que te hace alcanzable para mensajes post-cuánticos: no hay nada más que hacer de tu parte. Obelisk mostrará un indicador por conversación, construido a partir de esta misma atestación, en cuanto esa función esté disponible.
 
 ## Cómo leer las marcas
 
-Una conversación que llevas teniendo un tiempo va a contener mensajes de distintos tipos, porque ambos pueden haber usado varios clientes a lo largo de los años. Cada mensaje se marca según lo que realmente tenía:
+En cuanto esto llegue a Obelisk, una conversación que llevas teniendo un tiempo va a contener mensajes de distintos tipos, porque ambos pueden haber usado varios clientes a lo largo de los años. Cada mensaje llevará una marca según lo que realmente tenía:
 
 - **Sin gift wrap** — un mensaje NIP-04 más antiguo. El contenido está cifrado, pero los relays pueden ver con quién hablabas.
 - **Sin protección cuántica** — un mensaje moderno con gift wrap, pero sin protección post-cuántica. Seguro hoy, cosechable para después.
 - **Sin marca** — con gift wrap y post-cuántico. No hay nada que señalar.
 
-Solo se marcan los mensajes a los que les falta algo, así que una conversación sana se mantiene silenciosa.
+Solo se marcarán los mensajes a los que les falta algo, así que una conversación sana se mantendrá silenciosa.

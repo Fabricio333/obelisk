@@ -35,16 +35,16 @@ The trade-off: this key **cannot be recovered from your recovery phrase**, becau
 
 ## How to set it up
 
-Both paths run through the [Nostr WoT extension](https://nostr-wot.com), which owns your keys. Obelisk never sees them — it only reads the public attestation that says your account has post-quantum keys, which is why the notice can tell you whether a conversation is protected.
+Both paths run through the [Nostr WoT extension](https://nostr-wot.com), which owns your keys. Obelisk never sees them — it only reads the public attestation that says your account has post-quantum keys.
 
-Once your attestation is published, Obelisk can see that the other person also has post-quantum keys and marks the conversation accordingly. Sending messages with that stronger protection applied is being rolled out in Obelisk next — publishing your attestation now is what lets you benefit as soon as it ships, without anything else to do on your end.
+Publishing your attestation is what makes you reachable for post-quantum messages — there is nothing else to do on your end. Obelisk will show a per-conversation indicator, built from this same attestation, once that support ships.
 
 ## Reading the marks
 
-A conversation you have had for a while will contain messages of different kinds, because both of you may have used several clients over the years. Each message is marked for what it actually had:
+Once this lands in Obelisk, a conversation you have had for a while will contain messages of different kinds, because both of you may have used several clients over the years. Each message will carry a mark for what it actually had:
 
 - **Not gift-wrapped** — an older NIP-04 message. The contents are encrypted, but relays can see who you were talking to.
 - **Not quantum-safe** — a modern gift-wrapped message, but without post-quantum protection. Safe today, harvestable for later.
 - **No mark** — gift-wrapped and post-quantum. Nothing to flag.
 
-Only the messages that lack something are marked, so a healthy conversation stays quiet.
+Only the messages that lack something will be marked, so a healthy conversation will stay quiet.
