@@ -35,7 +35,7 @@
   "faq.q5.question": "How are groups implemented?",
   "faq.q5.answer": "Obelisk uses NIP-29: relay-managed groups. Channels, members, admins, kicks and bans are all standard NIP-29 events that the relay enforces. Any NIP-29-compatible relay works. You can host your own relay, run a private one for your community, or use a public one.",
   "faq.q6.question": "Are my messages encrypted?",
-  "faq.q6.answer": "Direct messages are end-to-end encrypted using Nostr DMs — NIP-04 today, with NIP-17 gift-wrapped messages and post-quantum keys in development. Group messages are signed but public on the relay — anyone the relay lets in can read them, just like a Discord channel. Run a private relay if you need a closed group.",
+  "faq.q6.answer": "Direct messages are end-to-end encrypted using Nostr DMs: NIP-04 today, with NIP-17 gift-wrapped messages and post-quantum keys in development. Group messages are signed but public on the relay: anyone the relay lets in can read them, just like a Discord channel. Run a private relay if you need a closed group.",
   "faq.q7.question": "Can I self-host Obelisk?",
   "faq.q7.answer": "Yes — Obelisk is a Next.js app and 'hosting' it just means serving static-style HTML/JS. There's no database to manage and no backend service to run. Run it locally with `npm run dev`, ship it to any Node host, or expose it through a tunnel. We're working on a static-export build for one-click deployment to GitHub Pages, S3, or any static CDN.",
   "faq.q8.question": "How do I get a Nostr key?",
