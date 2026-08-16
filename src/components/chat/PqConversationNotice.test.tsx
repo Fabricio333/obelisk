@@ -10,7 +10,7 @@ describe('PqConversationNotice', () => {
         <PqConversationNotice status="secured" guideHref="/guides/en/quantum-safe-dms" />
       </LocaleProvider>,
     );
-    expect(screen.getByText(/Quantum-secured/i)).toBeInTheDocument();
+    expect(screen.getByText('Quantum-secured')).toBeInTheDocument();
     expect(screen.queryByRole('link')).toBeNull();
   });
 

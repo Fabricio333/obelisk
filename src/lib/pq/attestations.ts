@@ -15,7 +15,6 @@ const FAILURE_TTL_MS = 30 * 1000;
 interface Entry {
   attestation: PqAttestation | null;
   fetchedAt: number;
-  isFailure: boolean;
 }
 
 const cache = new Map<string, Entry>();
@@ -26,27 +25,29 @@ export function clearAttestationCache(): void {
   inflight.clear();
 }
 
-async function fetchAttestation(pubkey: string): Promise<{ attestation: PqAttestation | null; isFailure: boolean }> {
+async function fetchAttestation(pubkey: string): Promise<PqAttestation | null> {
   try {
     // The bridge's SimplePool is private, so lib modules go through
     // @nostr-wot/data's shared pool — the same one the profile and follow
     // fetchers use, so attestation lookups share its connections.
     const events = await getPool().querySync(getDefaultRelays(), attestationFilter([pubkey]));
-    if (!events?.length) return { attestation: null, isFailure: false };
+    if (!events?.length) return null;
     // Replaceable kind: the newest wins.
     const newest = events.reduce((a, b) => (b.created_at > a.created_at ? b : a));
-    return { attestation: parseAttestation(newest), isFailure: false };
+    return parseAttestation(newest);
   } catch {
-    // A relay failure is not evidence of absence, but the caller needs an
-    // answer now. Cache it briefly and let the TTL retry.
-    return { attestation: null, isFailure: true };
+    // A relay failure looks identical to "no attestation" to the caller —
+    // querySync resolves with [] rather than rejecting when every relay
+    // fails, so this catch only ever fires on a thrown query. Either way
+    // it's a negative result, not evidence of absence, and gets the short TTL.
+    return null;
   }
 }
 
 export async function getAttestation(pubkey: string): Promise<PqAttestation | null> {
   const hit = cache.get(pubkey);
   if (hit) {
-    const ttl = hit.isFailure ? FAILURE_TTL_MS : TTL_MS;
+    const ttl = hit.attestation === null ? FAILURE_TTL_MS : TTL_MS;
     if (Date.now() - hit.fetchedAt < ttl) return hit.attestation;
   }
 
@@ -54,8 +55,8 @@ export async function getAttestation(pubkey: string): Promise<PqAttestation | nu
   if (existing) return existing;
 
   const promise = fetchAttestation(pubkey)
-    .then(({ attestation, isFailure }) => {
-      cache.set(pubkey, { attestation, fetchedAt: Date.now(), isFailure });
+    .then((attestation) => {
+      cache.set(pubkey, { attestation, fetchedAt: Date.now() });
       return attestation;
     })
     .finally(() => {

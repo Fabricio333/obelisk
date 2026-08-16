@@ -35,7 +35,7 @@ The trade-off: this key **cannot be recovered from your recovery phrase**, becau
 
 ## How to set it up
 
-Both paths run through the [Nostr WoT extension](https://nostr-wot.com), which owns your keys. Obelisk never sees them — it only reads the public attestation that says your account has post-quantum keys.
+Both paths run through the [Nostr WoT extension](https://nostr-wot.com), which owns your keys. Obelisk never sees them — it will only read the public attestation that says your account has post-quantum keys, once that support ships.
 
 Publishing your attestation is what makes you reachable for post-quantum messages — there is nothing else to do on your end. Obelisk will show a per-conversation indicator, built from this same attestation, once that support ships.
 

@@ -17,6 +17,7 @@ export default function PqMessageMark({ mark }: { mark: Mark }) {
     <span
       className="inline-flex items-center rounded-full border border-lc-border px-1.5 py-0 text-[10px] uppercase tracking-wide text-lc-muted"
       data-testid="pq-mark"
+      title={mark === 'no-giftwrap' ? t('pq.markNoGiftwrapDetail') : undefined}
     >
       {mark === 'no-giftwrap' ? t('pq.markNoGiftwrap') : t('pq.markNoPq')}
     </span>

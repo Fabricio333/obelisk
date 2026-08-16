@@ -112,21 +112,21 @@ describe('preferences store', () => {
   });
 
   describe('postQuantumEnabled', () => {
-    it('defaults to true', async () => {
+    it('defaults to false', async () => {
       const { getPreferences } = await import('./preferences');
-      expect(getPreferences().postQuantumEnabled).toBe(true);
+      expect(getPreferences().postQuantumEnabled).toBe(false);
     });
 
     it('round-trips through setPreference', async () => {
       const { getPreferences, setPreference } = await import('./preferences');
-      setPreference('postQuantumEnabled', false);
-      expect(getPreferences().postQuantumEnabled).toBe(false);
+      setPreference('postQuantumEnabled', true);
+      expect(getPreferences().postQuantumEnabled).toBe(true);
     });
 
     it('falls back to the default when storage holds a non-boolean', async () => {
       localStorage.setItem('obelisk:preferences', JSON.stringify({ postQuantumEnabled: 'yes' }));
       const { getPreferences } = await import('./preferences');
-      expect(getPreferences().postQuantumEnabled).toBe(true);
+      expect(getPreferences().postQuantumEnabled).toBe(false);
     });
   });
 });

@@ -911,6 +911,14 @@ export default function LandingPage() {
               <span className="block text-sm text-lc-muted">{t('pqc.quantakrypto.desc')}</span>
             </a>
           </div>
+          <div className="mt-10">
+            <Link
+              href={guidesHref(locale, 'quantum-safe-dms')}
+              className="lc-pill lc-pill-secondary text-sm inline-flex items-center gap-2"
+            >
+              {t('pqc.guide')} <span aria-hidden="true">→</span>
+            </Link>
+          </div>
         </div>
       </section>
 

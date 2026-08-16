@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const querySync = vi.fn();
 vi.mock('@nostr-wot/data', async (importOriginal) => ({
@@ -30,6 +30,10 @@ function attestationEvent(pubkey = PUBKEY) {
 beforeEach(() => {
   clearAttestationCache();
   querySync.mockReset();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('getAttestation', () => {
@@ -96,8 +100,28 @@ describe('getAttestation', () => {
     querySync.mockResolvedValueOnce([attestationEvent(PUBKEY2)]);
     await getAttestation(PUBKEY2);
     expect(querySync).toHaveBeenCalledTimes(3);
+  });
 
-    vi.useRealTimers();
+  it('applies the short failure TTL when querySync resolves empty (relay outage, no throw)', async () => {
+    // nostr-tools' querySync resolves with [] when every relay fails — it
+    // does not reject. This must be treated as a negative result and cached
+    // at the short TTL, not the 6h success TTL.
+    querySync.mockResolvedValue([]);
+    const result1 = await getAttestation(PUBKEY);
+    expect(result1).toBeNull();
+    expect(querySync).toHaveBeenCalledTimes(1);
+
+    // Immediately call again: cached at the short TTL, no new query yet.
+    const result2 = await getAttestation(PUBKEY);
+    expect(result2).toBeNull();
+    expect(querySync).toHaveBeenCalledTimes(1);
+
+    vi.useFakeTimers();
+    vi.advanceTimersByTime(31 * 1000);
+
+    // Past the short TTL: re-queries.
+    await getAttestation(PUBKEY);
+    expect(querySync).toHaveBeenCalledTimes(2);
   });
 });
 

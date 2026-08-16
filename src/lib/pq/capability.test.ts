@@ -12,7 +12,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // @ts-expect-error test cleanup
   delete globalThis.window.nostr;
 });
 
@@ -62,6 +61,17 @@ describe('selfPqState', () => {
     hasUsableKeys.mockResolvedValue(true);
     expect(await selfPqState(PUBKEY, 'nip07')).toEqual({
       canSend: true, hasKeys: true, attestationPublished: true,
+    });
+  });
+
+  it('cannot send on nip07 when the marker is present but declares no pq support, even with published keys', async () => {
+    // The extension positively declares its supported schemes and 'pq' is
+    // not among them — that marker must be trusted over the attestation.
+    // @ts-expect-error partial extension shape is enough here
+    globalThis.window.nostr = { nip44: { schemes: ['nip44'] } };
+    hasUsableKeys.mockResolvedValue(true);
+    expect(await selfPqState(PUBKEY, 'nip07')).toEqual({
+      canSend: false, hasKeys: true, attestationPublished: true,
     });
   });
 

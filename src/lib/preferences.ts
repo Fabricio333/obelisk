@@ -23,7 +23,7 @@ const DEFAULTS: Preferences = {
   showActivityIndicator: true,
   developerRelayDebug: false,
   directMessagesEnabled: false,
-  postQuantumEnabled: true,
+  postQuantumEnabled: false,
   profileFeedRelays: [...DEFAULT_PROFILE_FEED_RELAYS],
   accentColor: '#b4f953',
   backgroundColor: '#0a0a0a',
