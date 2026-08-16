@@ -1,0 +1,50 @@
+---
+title: Cómo proteger tus mensajes contra la computación cuántica
+description: Los mensajes cifrados que envías hoy se pueden grabar ahora y leer dentro de unos años, cuando una computadora cuántica rompa el intercambio de claves que usa Nostr. Esta es la única parte del problema que puedes resolver por adelantado, y hay dos formas de hacerlo.
+heroComponent: quantum-safe
+publishedAt: '2026-08-15'
+updatedAt: '2026-08-15'
+tags: [seguridad, post-cuantico, mensajes-directos, cifrado]
+---
+
+## Por qué esto importa ahora
+
+Los mensajes cifrados de Nostr derivan su clave de secp256k1, la misma curva elíptica que protege tu identidad. Cualquiera puede copiar hoy un mensaje cifrado de un relay público y simplemente guardarlo. El día en que una computadora cuántica logre romper esa curva, todo lo que guardaron se vuelve legible.
+
+Esto se llama **cosechar ahora, descifrar después** (harvest now, decrypt later), y es la única mitad del problema cuántico que puedes resolver por adelantado. Un mensaje protegido hoy queda protegido permanentemente, sin importar cuándo llegue la ruptura. La falsificación es distinta: nadie puede falsificar tu firma hasta que ocurra la ruptura, así que eso se soluciona cuando toda la red migre.
+
+Las claves post-cuánticas cierran la mitad de la confidencialidad. La protección es **híbrida**: el secreto post-cuántico se combina con tu clave clásica de hoy, así que nunca es más débil que lo que ya tienes.
+
+## Dos formas de obtener claves post-cuánticas
+
+### Una cuenta nueva a partir de una frase de 24 palabras
+
+La opción más limpia si estás empezando de cero. Tus claves post-cuánticas se derivan de la misma frase de recuperación que tu clave de Nostr, como *hermanas* en vez de hijas. Eso tiene una consecuencia concreta que vale la pena entender: si alguien rompe tu clave de Nostr, igual no puede llegar a tus claves post-cuánticas, porque la derivación solo funciona en un sentido. Una sola frase restaura ambas.
+
+Tiene que ser de **24 palabras**. Una frase de 12 palabras tiene 128 bits de entropía, lo que convertiría a la frase misma en el eslabón más débil del sistema, en vez de la criptografía.
+
+No hay nada extra que respaldar: tu frase actual ya lo cubre.
+
+### Adjuntar una identidad independiente al npub que ya tienes
+
+Si ya tienes un npub que no quieres abandonar, o lo importaste desde un `nsec` y no tienes una frase de la que derivar, puedes generar un par de claves post-cuánticas localmente y adjuntarlo a tu cuenta existente.
+
+Tu npub no cambia. Tus follows, tu historial, tu identidad, todo sigue exactamente igual. La extensión genera el par de claves fuera de línea y publica una atestación firmada con tu clave existente, que es lo que le indica a los demás que tu cuenta puede recibir mensajes post-cuánticos.
+
+La contrapartida: esta clave **no se puede recuperar con tu frase de recuperación**, porque nunca se derivó de ella. Necesita su propio respaldo independiente. Guárdala de la misma forma en que guardas la frase.
+
+## Cómo configurarlo
+
+Ambos caminos pasan por la [extensión Nostr WoT](https://nostr-wot.com), que es la que posee tus claves. Obelisk nunca las ve; solo lee la atestación pública que indica que tu cuenta tiene claves post-cuánticas, y por eso el aviso puede decirte si una conversación está protegida.
+
+Una vez publicada tu atestación, Obelisk puede ver que la otra persona también tiene claves post-cuánticas y marca la conversación en consecuencia. El envío de mensajes con esa protección más fuerte todavía se está integrando en Obelisk; publicar tu atestación ahora es lo que te permite beneficiarte en cuanto esté disponible, sin que tengas que hacer nada más de tu parte.
+
+## Cómo leer las marcas
+
+Una conversación que llevas teniendo un tiempo va a contener mensajes de distintos tipos, porque ambos pueden haber usado varios clientes a lo largo de los años. Cada mensaje se marca según lo que realmente tenía:
+
+- **Sin gift wrap** — un mensaje NIP-04 más antiguo. El contenido está cifrado, pero los relays pueden ver con quién hablabas.
+- **Sin protección cuántica** — un mensaje moderno con gift wrap, pero sin protección post-cuántica. Seguro hoy, cosechable para después.
+- **Sin marca** — con gift wrap y post-cuántico. No hay nada que señalar.
+
+Solo se marcan los mensajes a los que les falta algo, así que una conversación sana se mantiene silenciosa.

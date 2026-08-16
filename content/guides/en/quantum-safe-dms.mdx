@@ -1,0 +1,50 @@
+---
+title: Making your DMs quantum-safe
+description: Encrypted messages you send today can be recorded now and read years from now, once a quantum computer breaks the key exchange Nostr uses. This is the one part of the problem you can fix in advance, and there are two ways to do it.
+heroComponent: quantum-safe
+publishedAt: '2026-08-15'
+updatedAt: '2026-08-15'
+tags: [security, post-quantum, direct-messages, encryption]
+---
+
+## Why this matters now
+
+Nostr's encrypted messages derive their key from secp256k1, the same elliptic curve that secures your identity. Anyone can copy an encrypted message off a public relay today and simply keep it. The day a quantum computer can break that curve, everything they kept becomes readable.
+
+This is called **harvest now, decrypt later**, and it is the only half of the quantum problem you can fix ahead of time. A message protected today stays protected permanently, whenever the break arrives. Forgery is different — nobody can forge your signature until the break happens, so that gets fixed when the whole network moves.
+
+Post-quantum keys close the confidentiality half. The protection is **hybrid**: the post-quantum secret is combined with today's ordinary key, so it is never weaker than what you already have.
+
+## Two ways to get post-quantum keys
+
+### A new account from a 24-word phrase
+
+The cleanest option if you are starting fresh. Your post-quantum keys are derived from the same recovery phrase as your Nostr key, as *siblings* rather than children. That has a specific consequence worth understanding: if someone breaks your Nostr key, they still cannot reach your post-quantum keys, because the derivation only runs one way. One phrase restores both.
+
+It has to be **24 words**. A 12-word phrase carries 128 bits of entropy, which would make the phrase itself the weakest part of the system rather than the cryptography.
+
+Nothing extra to back up: your existing phrase already covers it.
+
+### Attach an independent identity to the npub you already have
+
+If you already have an npub you do not want to abandon — or you imported it from an `nsec` and have no phrase to derive from — you can generate a post-quantum key pair locally and attach it to your existing account.
+
+Your npub does not change. Your follows, your history, your identity all stay exactly as they are. The extension generates the key pair offline and publishes an attestation signed by your existing key, which is what tells other people your account can receive post-quantum messages.
+
+The trade-off: this key **cannot be recovered from your recovery phrase**, because it was never derived from it. It needs its own separate backup. Store it the way you store the phrase itself.
+
+## How to set it up
+
+Both paths run through the [Nostr WoT extension](https://nostr-wot.com), which owns your keys. Obelisk never sees them — it only reads the public attestation that says your account has post-quantum keys, which is why the notice can tell you whether a conversation is protected.
+
+Once your attestation is published, Obelisk can see that the other person also has post-quantum keys and marks the conversation accordingly. Sending messages with that stronger protection applied is being rolled out in Obelisk next — publishing your attestation now is what lets you benefit as soon as it ships, without anything else to do on your end.
+
+## Reading the marks
+
+A conversation you have had for a while will contain messages of different kinds, because both of you may have used several clients over the years. Each message is marked for what it actually had:
+
+- **Not gift-wrapped** — an older NIP-04 message. The contents are encrypted, but relays can see who you were talking to.
+- **Not quantum-safe** — a modern gift-wrapped message, but without post-quantum protection. Safe today, harvestable for later.
+- **No mark** — gift-wrapped and post-quantum. Nothing to flag.
+
+Only the messages that lack something are marked, so a healthy conversation stays quiet.
