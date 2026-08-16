@@ -1,6 +1,6 @@
 ---
-title: Cómo proteger tus mensajes contra la computación cuántica
-description: Los mensajes cifrados que envías hoy se pueden grabar ahora y leer dentro de unos años, cuando una computadora cuántica rompa el intercambio de claves que usa Nostr. Esta es la única parte del problema que puedes resolver por adelantado, y hay dos formas de hacerlo.
+title: Cómo proteger tus mensajes directos contra la computación cuántica
+description: Los mensajes cifrados que enviás hoy se pueden grabar ahora y leer más adelante, el día que una computadora cuántica rompa el intercambio de claves que usa Nostr. Esta es la única parte del problema que podés resolver por adelantado, y hay dos formas de hacerlo.
 heroComponent: quantum-safe
 publishedAt: '2026-08-15'
 updatedAt: '2026-08-15'
@@ -11,9 +11,9 @@ tags: [seguridad, post-cuantico, mensajes-directos, cifrado]
 
 Los mensajes cifrados de Nostr derivan su clave de secp256k1, la misma curva elíptica que protege tu identidad. Cualquiera puede copiar hoy un mensaje cifrado de un relay público y simplemente guardarlo. El día en que una computadora cuántica logre romper esa curva, todo lo que guardaron se vuelve legible.
 
-Esto se llama **cosechar ahora, descifrar después** (harvest now, decrypt later), y es la única mitad del problema cuántico que puedes resolver por adelantado. Un mensaje protegido hoy queda protegido permanentemente, sin importar cuándo llegue la ruptura. La falsificación es distinta: nadie puede falsificar tu firma hasta que ocurra la ruptura, así que eso se soluciona cuando toda la red migre.
+Esto se llama **cosechar ahora, descifrar después** (harvest now, decrypt later), y es la única mitad del problema cuántico que podés resolver por adelantado. Un mensaje protegido hoy sigue protegido después de esa ruptura, llegue cuando llegue. La falsificación es distinta: nadie puede falsificar tu firma hasta que ocurra la ruptura, así que eso se soluciona cuando toda la red migre.
 
-Las claves post-cuánticas cierran la mitad de la confidencialidad. La protección es **híbrida**: el secreto post-cuántico se combina con tu clave clásica de hoy, así que nunca es más débil que lo que ya tienes.
+Las claves post-cuánticas cierran la mitad de la confidencialidad. La protección es **híbrida**: el secreto post-cuántico se combina con tu clave clásica de hoy, así que nunca es más débil que lo que ya tenés.
 
 ## Dos formas de obtener claves post-cuánticas
 
@@ -21,30 +21,30 @@ Las claves post-cuánticas cierran la mitad de la confidencialidad. La protecci�
 
 La opción más limpia si estás empezando de cero. Tus claves post-cuánticas se derivan de la misma frase de recuperación que tu clave de Nostr, como *hermanas* en vez de hijas. Eso tiene una consecuencia concreta que vale la pena entender: si alguien rompe tu clave de Nostr, igual no puede llegar a tus claves post-cuánticas, porque la derivación solo funciona en un sentido. Una sola frase restaura ambas.
 
-Tiene que ser de **24 palabras**. Una frase de 12 palabras tiene 128 bits de entropía, lo que convertiría a la frase misma en el eslabón más débil del sistema, en vez de la criptografía.
+Tiene que ser de **24 palabras**. Una frase de 12 palabras tiene 128 bits de entropía, lo que convertiría a la frase misma en el eslabón más débil del sistema, en vez de la criptografía. Veinticuatro palabras dan 256 bits, el mismo nivel de seguridad al que apuntan las claves post-cuánticas.
 
 No hay nada extra que respaldar: tu frase actual ya lo cubre.
 
-### Adjuntar una identidad independiente al npub que ya tienes
+### Adjuntar una identidad independiente al npub que ya tenés
 
-Si ya tienes un npub que no quieres abandonar, o lo importaste desde un `nsec` y no tienes una frase de la que derivar, puedes generar un par de claves post-cuánticas localmente y adjuntarlo a tu cuenta existente.
+Si ya tenés un npub que no querés abandonar, o lo importaste desde un `nsec` y no tenés una frase de la que derivar, podés generar un par de claves post-cuánticas localmente y adjuntarlo a tu cuenta existente.
 
-Tu npub no cambia. Tus follows, tu historial, tu identidad, todo sigue exactamente igual. La extensión genera el par de claves fuera de línea y publica una atestación firmada con tu clave existente, que es lo que le indica a los demás que tu cuenta puede recibir mensajes post-cuánticos.
+Tu npub no cambia. Tus follows, tu historial, tu identidad, todo sigue exactamente igual. La extensión genera el par de claves fuera de línea y publica una atestación firmada con tu clave existente, que es lo que les indica a los demás que tu cuenta puede recibir mensajes post-cuánticos.
 
-La contrapartida: esta clave **no se puede recuperar con tu frase de recuperación**, porque nunca se derivó de ella. Necesita su propio respaldo independiente. Guárdala de la misma forma en que guardas la frase.
+La contrapartida: esta clave **no se puede recuperar con tu frase de recuperación**, porque nunca se derivó de ella. Necesita su propio respaldo independiente. Guárdala de la misma forma en que guardás la frase.
 
 ## Cómo configurarlo
 
 Ambos caminos pasan por la [extensión Nostr WoT](https://nostr-wot.com), que es la que posee tus claves. Obelisk nunca las ve; en cuanto esa función esté disponible, solo leerá la atestación pública que indica que tu cuenta tiene claves post-cuánticas.
 
-Publicar tu atestación es lo que te hace alcanzable para mensajes post-cuánticos: no hay nada más que hacer de tu parte. Obelisk mostrará un indicador por conversación, construido a partir de esta misma atestación, en cuanto esa función esté disponible.
+Publicar tu atestación es lo que te va a hacer alcanzable para mensajes post-cuánticos una vez que los clientes empiecen a enviarlos; no hay nada más que hacer de tu parte. Obelisk mostrará un indicador por conversación, construido a partir de esta misma atestación, en cuanto esa función esté disponible.
 
 ## Cómo leer las marcas
 
-En cuanto esto llegue a Obelisk, una conversación que llevas teniendo un tiempo va a contener mensajes de distintos tipos, porque ambos pueden haber usado varios clientes a lo largo de los años. Cada mensaje llevará una marca según lo que realmente tenía:
+Obelisk envía mensajes NIP-04 hoy, así que todos los mensajes que ya tenés en el historial van a llevar la marca "Sin gift wrap" en cuanto esto llegue a Obelisk, no solo los antiguos. Es exactamente por eso que existe este trabajo: cerrar esa brecha es lo que va apagando la marca, mensaje por mensaje. En una conversación con historial vas a ver marcas de distintos tipos mientras tanto, porque ambos pueden haber usado varios clientes a lo largo de los años.
 
-- **Sin gift wrap** — un mensaje NIP-04 más antiguo. El contenido está cifrado, pero los relays pueden ver con quién hablabas.
-- **Sin protección cuántica** — un mensaje moderno con gift wrap, pero sin protección post-cuántica. Seguro hoy, cosechable para después.
-- **Sin marca** — con gift wrap y post-cuántico. No hay nada que señalar.
+- **Sin gift wrap**: un mensaje NIP-04. El contenido está cifrado, pero los relays pueden ver con quién hablabas. Esto incluye todos los mensajes que Obelisk envía hoy.
+- **Sin protección cuántica**: un mensaje con gift wrap pero sin protección post-cuántica. Seguro hoy, cosechable para después.
+- **Sin marca**: con gift wrap y post-cuántico. No hay nada que señalar.
 
-Solo se marcarán los mensajes a los que les falta algo, así que una conversación sana se mantendrá silenciosa.
+Una conversación se va a quedar silenciosa a medida que el gift wrap y el soporte post-cuántico se activen, no antes.

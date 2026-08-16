@@ -346,6 +346,7 @@ export default function LandingPage() {
   const [learnRef, learnVisible] = useScrollReveal<HTMLElement>();
   const [ctaRef, ctaVisible] = useScrollReveal<HTMLElement>();
   const [faqRef, faqVisible] = useScrollReveal<HTMLElement>();
+  const [pqRef, pqVisible] = useScrollReveal<HTMLElement>();
 
   const FAQ_IDS = ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9', 'q10'] as const;
   const faqItems = FAQ_IDS.map((id) => ({
@@ -880,7 +881,11 @@ export default function LandingPage() {
           Deliberately worded as in-development: Obelisk's DMs are still
           NIP-04, so claiming shipped post-quantum messaging here would be
           false. Promote the copy when the NIP-17 + PQ path actually lands. */}
-      <section id="post-quantum" className="py-24 px-6 border-t border-lc-border">
+      <section
+        id="post-quantum"
+        ref={pqRef}
+        className={`py-24 px-6 border-t border-lc-border ${pqVisible ? 'animate-fade-in-up' : 'opacity-0'}`}
+      >
         <div className="max-w-4xl mx-auto text-center">
           <h2 className="text-3xl md:text-4xl font-bold mb-4">
             {t('pqc.heading')}<span className="text-lc-green">.</span>

@@ -11,7 +11,7 @@ tags: [security, post-quantum, direct-messages, encryption]
 
 Nostr's encrypted messages derive their key from secp256k1, the same elliptic curve that secures your identity. Anyone can copy an encrypted message off a public relay today and simply keep it. The day a quantum computer can break that curve, everything they kept becomes readable.
 
-This is called **harvest now, decrypt later**, and it is the only half of the quantum problem you can fix ahead of time. A message protected today stays protected permanently, whenever the break arrives. Forgery is different — nobody can forge your signature until the break happens, so that gets fixed when the whole network moves.
+This is called **harvest now, decrypt later**, and it is the only half of the quantum problem you can fix ahead of time. A message protected today stays protected through that break, whenever it arrives. Forgery is different: nobody can forge your signature until the break happens, so that gets fixed when the whole network moves.
 
 Post-quantum keys close the confidentiality half. The protection is **hybrid**: the post-quantum secret is combined with today's ordinary key, so it is never weaker than what you already have.
 
@@ -21,13 +21,13 @@ Post-quantum keys close the confidentiality half. The protection is **hybrid**: 
 
 The cleanest option if you are starting fresh. Your post-quantum keys are derived from the same recovery phrase as your Nostr key, as *siblings* rather than children. That has a specific consequence worth understanding: if someone breaks your Nostr key, they still cannot reach your post-quantum keys, because the derivation only runs one way. One phrase restores both.
 
-It has to be **24 words**. A 12-word phrase carries 128 bits of entropy, which would make the phrase itself the weakest part of the system rather than the cryptography.
+It has to be **24 words**. A 12-word phrase carries 128 bits of entropy, which would make the phrase itself the weakest part of the system rather than the cryptography. Twenty-four words gives 256 bits, matching the security level the post-quantum keys target.
 
 Nothing extra to back up: your existing phrase already covers it.
 
 ### Attach an independent identity to the npub you already have
 
-If you already have an npub you do not want to abandon — or you imported it from an `nsec` and have no phrase to derive from — you can generate a post-quantum key pair locally and attach it to your existing account.
+If you already have an npub you do not want to abandon (or you imported it from an `nsec` and have no phrase to derive from), you can generate a post-quantum key pair locally and attach it to your existing account.
 
 Your npub does not change. Your follows, your history, your identity all stay exactly as they are. The extension generates the key pair offline and publishes an attestation signed by your existing key, which is what tells other people your account can receive post-quantum messages.
 
@@ -35,16 +35,16 @@ The trade-off: this key **cannot be recovered from your recovery phrase**, becau
 
 ## How to set it up
 
-Both paths run through the [Nostr WoT extension](https://nostr-wot.com), which owns your keys. Obelisk never sees them — it will only read the public attestation that says your account has post-quantum keys, once that support ships.
+Both paths run through the [Nostr WoT extension](https://nostr-wot.com), which owns your keys. Obelisk never sees them: it will only read the public attestation that says your account has post-quantum keys, once that support ships.
 
-Publishing your attestation is what makes you reachable for post-quantum messages — there is nothing else to do on your end. Obelisk will show a per-conversation indicator, built from this same attestation, once that support ships.
+Publishing your attestation is what will make you reachable for post-quantum messages once clients start sending them; there is nothing else to do on your end. Obelisk will show a per-conversation indicator, built from this same attestation, once that support ships.
 
 ## Reading the marks
 
-Once this lands in Obelisk, a conversation you have had for a while will contain messages of different kinds, because both of you may have used several clients over the years. Each message will carry a mark for what it actually had:
+Obelisk sends NIP-04 messages today, so every message already in your history will carry the "Not gift-wrapped" mark once this lands, not just the old ones. That is exactly why this work exists: closing that gap is what turns the mark off, one exchange at a time.
 
-- **Not gift-wrapped** — an older NIP-04 message. The contents are encrypted, but relays can see who you were talking to.
-- **Not quantum-safe** — a modern gift-wrapped message, but without post-quantum protection. Safe today, harvestable for later.
-- **No mark** — gift-wrapped and post-quantum. Nothing to flag.
+- **Not gift-wrapped**: a NIP-04 message. The contents are encrypted, but relays can see who you were talking to. This includes every message Obelisk sends today.
+- **Not quantum-safe**: a gift-wrapped message without post-quantum protection. Safe today, harvestable for later.
+- **No mark**: gift-wrapped and post-quantum. Nothing to flag.
 
-Only the messages that lack something will be marked, so a healthy conversation will stay quiet.
+A conversation will go quiet as gift wrap and post-quantum support roll out, not before.

@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import Link from 'next/link';
 import { hexToNpub } from '@nostr-wot/data';
-import { nostrActions, useSignerReady, useUserMetadata as useProfile } from '@/lib/nostr-bridge';
+import { nostrActions, useMyLoginMethod, useMyPubkey, useSignerReady, useUserMetadata as useProfile } from '@/lib/nostr-bridge';
 import BlossomImageInput from '@/components/BlossomImageInput';
 import { usePreferences, setPreference } from '@/lib/preferences';
 import { setDmOptInEnabled } from '@/lib/dm/opt-in';
@@ -17,6 +18,8 @@ import UserAvatar from '@/components/UserAvatar';
 import ModalShell from '@/components/ModalShell';
 import MediaLibraryModal from '@/components/media/MediaLibraryModal';
 import { clearAllClientCacheExceptSession } from '@/lib/nostr-bridge/cache-clear';
+import { selfPqState, type SelfPqState } from '@/lib/pq/capability';
+import { guidesHref } from '@/lib/guide-urls';
 import { useTranslation } from '@/i18n/context';
 
 interface UserPanelProps {
@@ -481,12 +484,15 @@ export function PreferencesPanel() {
         checked={prefs.directMessagesEnabled}
         onChange={setDmOptInEnabled}
       />
-      <ToggleRow
-        label={t('settings.postQuantum')}
-        description={t('settings.postQuantumHint')}
-        checked={prefs.postQuantumEnabled}
-        onChange={(v) => setPreference('postQuantumEnabled', v)}
-      />
+      <div>
+        <ToggleRow
+          label={t('settings.postQuantum')}
+          description={t('settings.postQuantumHint')}
+          checked={prefs.postQuantumEnabled}
+          onChange={(v) => setPreference('postQuantumEnabled', v)}
+        />
+        <PostQuantumStatusRow />
+      </div>
       <WotSettings />
       <LocalDataSection />
       <section className="space-y-3 border-t border-lc-border pt-4" data-testid="desktop-developer-settings">
@@ -500,6 +506,55 @@ export function PreferencesPanel() {
         <DeveloperSignatureTest />
       </section>
     </div>
+  );
+}
+
+/**
+ * Read-only status line beneath the post-quantum toggle. The toggle alone
+ * controls nothing observable — this is the one place that actually reads
+ * `selfPqState()` (already computed and tested, previously called by
+ * nothing) and tells the user whether the extension they installed and the
+ * attestation they published actually took. It does not claim sending
+ * works: Obelisk still sends NIP-04 today.
+ */
+function PostQuantumStatusRow() {
+  const { t, locale } = useTranslation();
+  const myPubkey = useMyPubkey();
+  const loginMethod = useMyLoginMethod();
+  const [state, setState] = useState<SelfPqState | null>(null);
+
+  useEffect(() => {
+    setState(null);
+    if (!myPubkey) return;
+    let cancelled = false;
+    selfPqState(myPubkey, loginMethod).then((next) => {
+      if (!cancelled) setState(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [myPubkey, loginMethod]);
+
+  if (!myPubkey) return null;
+
+  if (state === null) {
+    return <p className="mt-1 text-xs text-lc-muted">{t('settings.postQuantumChecking')}</p>;
+  }
+
+  if (state.hasKeys) {
+    return <p className="mt-1 text-xs text-lc-muted">{t('settings.postQuantumDetected')}</p>;
+  }
+
+  return (
+    <p className="mt-1 text-xs text-lc-muted">
+      {t('settings.postQuantumNotDetected')}{' '}
+      <Link
+        href={guidesHref(locale, 'quantum-safe-dms')}
+        className="text-lc-green underline underline-offset-2 hover:text-lc-green/80"
+      >
+        {t('settings.postQuantumSetupLink')}
+      </Link>
+    </p>
   );
 }
 
