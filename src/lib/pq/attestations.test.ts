@@ -81,6 +81,14 @@ describe('getAttestation', () => {
     expect(result3?.pubkey).toBe(PUBKEY2);
     expect(querySync).toHaveBeenCalledTimes(2);
 
+    // Advance time by ~1 minute past the success cache entry (far past failure TTL,
+    // but comfortably before the 6h success TTL). This proves success is cached at 6h,
+    // not 30s.
+    vi.advanceTimersByTime(60 * 1000);
+    const result4 = await getAttestation(PUBKEY2);
+    expect(result4?.pubkey).toBe(PUBKEY2);
+    expect(querySync).toHaveBeenCalledTimes(2); // Still 2: success entry not expired yet
+
     // Advance time past full success TTL (6h)
     vi.advanceTimersByTime(6 * 60 * 60 * 1000 + 1000);
 
