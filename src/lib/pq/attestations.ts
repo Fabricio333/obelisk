@@ -7,9 +7,15 @@ import { getPool, getDefaultRelays } from '@nostr-wot/data';
  *  events that change rarely, so this is generous on purpose. */
 const TTL_MS = 6 * 60 * 60 * 1000;
 
+/** A failed lookup is not evidence of absence, so it expires fast. Short
+ *  rather than uncached so a persistently unreachable relay cannot be
+ *  re-queried on every render. */
+const FAILURE_TTL_MS = 30 * 1000;
+
 interface Entry {
   attestation: PqAttestation | null;
   fetchedAt: number;
+  isFailure: boolean;
 }
 
 const cache = new Map<string, Entry>();
@@ -20,33 +26,36 @@ export function clearAttestationCache(): void {
   inflight.clear();
 }
 
-async function fetchAttestation(pubkey: string): Promise<PqAttestation | null> {
+async function fetchAttestation(pubkey: string): Promise<{ attestation: PqAttestation | null; isFailure: boolean }> {
   try {
     // The bridge's SimplePool is private, so lib modules go through
     // @nostr-wot/data's shared pool — the same one the profile and follow
     // fetchers use, so attestation lookups share its connections.
     const events = await getPool().querySync(getDefaultRelays(), attestationFilter([pubkey]));
-    if (!events?.length) return null;
+    if (!events?.length) return { attestation: null, isFailure: false };
     // Replaceable kind: the newest wins.
     const newest = events.reduce((a, b) => (b.created_at > a.created_at ? b : a));
-    return parseAttestation(newest);
+    return { attestation: parseAttestation(newest), isFailure: false };
   } catch {
     // A relay failure is not evidence of absence, but the caller needs an
     // answer now. Cache it briefly and let the TTL retry.
-    return null;
+    return { attestation: null, isFailure: true };
   }
 }
 
 export async function getAttestation(pubkey: string): Promise<PqAttestation | null> {
   const hit = cache.get(pubkey);
-  if (hit && Date.now() - hit.fetchedAt < TTL_MS) return hit.attestation;
+  if (hit) {
+    const ttl = hit.isFailure ? FAILURE_TTL_MS : TTL_MS;
+    if (Date.now() - hit.fetchedAt < ttl) return hit.attestation;
+  }
 
   const existing = inflight.get(pubkey);
   if (existing) return existing;
 
   const promise = fetchAttestation(pubkey)
-    .then((attestation) => {
-      cache.set(pubkey, { attestation, fetchedAt: Date.now() });
+    .then(({ attestation, isFailure }) => {
+      cache.set(pubkey, { attestation, fetchedAt: Date.now(), isFailure });
       return attestation;
     })
     .finally(() => {

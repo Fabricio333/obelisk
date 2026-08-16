@@ -1,21 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { querySync, mockParseAttestation } = vi.hoisted(() => {
-  return {
-    querySync: vi.fn(),
-    mockParseAttestation: vi.fn(),
-  };
-});
-
+const querySync = vi.fn();
 vi.mock('@nostr-wot/data', async (importOriginal) => ({
   ...await importOriginal<typeof import('@nostr-wot/data')>(),
   getPool: () => ({ querySync }),
   getDefaultRelays: () => ['wss://r.example'],
-}));
-
-vi.mock('@nostr-wot/pq', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@nostr-wot/pq')>(),
-  parseAttestation: mockParseAttestation,
 }));
 
 import { getAttestation, hasUsableKeys, clearAttestationCache } from './attestations';
@@ -31,8 +20,8 @@ function attestationEvent(pubkey = PUBKEY) {
     kind: 10203,
     created_at: 1_700_000_000,
     tags: [
-      ['profile', 'nip-pqc/v1'],
-      ['kem', 'ml-kem-1024', kem],
+      ['v', 'nip-pqc/v1'],
+      ['alg', 'ml-kem-1024', kem],
     ],
     content: '',
   };
@@ -41,19 +30,6 @@ function attestationEvent(pubkey = PUBKEY) {
 beforeEach(() => {
   clearAttestationCache();
   querySync.mockReset();
-  mockParseAttestation.mockReset();
-  // By default, parseAttestation returns a usable attestation
-  mockParseAttestation.mockImplementation((event: any) => ({
-    pubkey: event.pubkey,
-    kem: new Uint8Array(1568).fill(7),
-    dsa: new Uint8Array(2592).fill(8),
-    origin: 'derived',
-    seedStrength: '256',
-    profile: 'nip-pqc/v1',
-    popValid: true,
-    problems: [],
-    usable: true,
-  }));
 });
 
 describe('getAttestation', () => {
@@ -80,6 +56,41 @@ describe('getAttestation', () => {
     querySync.mockRejectedValue(new Error('relay down'));
     expect(await getAttestation(PUBKEY)).toBeNull();
   });
+
+  it('retries a failed lookup after the short TTL but caches success for the full TTL', async () => {
+    const PUBKEY2 = 'b'.repeat(64);
+
+    // First call: failure (30s TTL)
+    querySync.mockRejectedValueOnce(new Error('relay down'));
+    const result1 = await getAttestation(PUBKEY2);
+    expect(result1).toBeNull();
+    expect(querySync).toHaveBeenCalledTimes(1);
+
+    // Immediately call again: failure is cached, no new query
+    const result2 = await getAttestation(PUBKEY2);
+    expect(result2).toBeNull();
+    expect(querySync).toHaveBeenCalledTimes(1);
+
+    // Advance time past failure TTL (31s)
+    vi.useFakeTimers();
+    vi.advanceTimersByTime(31 * 1000);
+
+    // Now it should retry
+    querySync.mockResolvedValueOnce([attestationEvent(PUBKEY2)]);
+    const result3 = await getAttestation(PUBKEY2);
+    expect(result3?.pubkey).toBe(PUBKEY2);
+    expect(querySync).toHaveBeenCalledTimes(2);
+
+    // Advance time past full success TTL (6h)
+    vi.advanceTimersByTime(6 * 60 * 60 * 1000 + 1000);
+
+    // Should not be cached anymore
+    querySync.mockResolvedValueOnce([attestationEvent(PUBKEY2)]);
+    await getAttestation(PUBKEY2);
+    expect(querySync).toHaveBeenCalledTimes(3);
+
+    vi.useRealTimers();
+  });
 });
 
 describe('hasUsableKeys', () => {
@@ -95,20 +106,8 @@ describe('hasUsableKeys', () => {
 
   it('is false when the attestation carries no usable KEM key', async () => {
     const bad = attestationEvent();
-    bad.tags = [['profile', 'nip-pqc/v1']];
+    bad.tags = [['v', 'nip-pqc/v1']];
     querySync.mockResolvedValue([bad]);
-    // Mock parseAttestation to return an unusable attestation for this case
-    mockParseAttestation.mockImplementationOnce((event: any) => ({
-      pubkey: event.pubkey,
-      kem: null,
-      dsa: null,
-      origin: null,
-      seedStrength: null,
-      profile: 'nip-pqc/v1',
-      popValid: null,
-      problems: [{ code: 'noKem' }],
-      usable: false,
-    }));
     expect(await hasUsableKeys(PUBKEY)).toBe(false);
   });
 });
