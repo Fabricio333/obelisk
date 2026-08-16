@@ -876,6 +876,44 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* Post-quantum messages — joint work with Nostr WoT + QuantaKrypto.
+          Deliberately worded as in-development: Obelisk's DMs are still
+          NIP-04, so claiming shipped post-quantum messaging here would be
+          false. Promote the copy when the NIP-17 + PQ path actually lands. */}
+      <section id="post-quantum" className="py-24 px-6 border-t border-lc-border">
+        <div className="max-w-4xl mx-auto text-center">
+          <h2 className="text-3xl md:text-4xl font-bold mb-4">
+            {t('pqc.heading')}<span className="text-lc-green">.</span>
+          </h2>
+          <p className="text-lc-muted text-lg mb-4">{t('pqc.subtitle')}</p>
+          <p className="text-sm text-lc-muted/80 mb-12">{t('pqc.status')}</p>
+
+          <p className="text-xs uppercase tracking-widest text-lc-muted mb-6">
+            {t('pqc.collab')}
+          </p>
+          <div className="grid sm:grid-cols-2 gap-4 text-left">
+            <a
+              href="https://nostr-wot.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="lc-card p-6 hover:border-lc-green transition-colors"
+            >
+              <span className="block font-semibold mb-2">Nostr WoT</span>
+              <span className="block text-sm text-lc-muted">{t('pqc.nostrwot.desc')}</span>
+            </a>
+            <a
+              href="https://quantakrypto.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="lc-card p-6 hover:border-lc-green transition-colors"
+            >
+              <span className="block font-semibold mb-2">QuantaKrypto</span>
+              <span className="block text-sm text-lc-muted">{t('pqc.quantakrypto.desc')}</span>
+            </a>
+          </div>
+        </div>
+      </section>
+
       <Footer />
 
       {/* Login modal removed: bridge-backed login lives at /app. */}
