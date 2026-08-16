@@ -10,6 +10,7 @@ export interface Preferences {
   showActivityIndicator: boolean;
   developerRelayDebug: boolean;
   directMessagesEnabled: boolean;
+  postQuantumEnabled: boolean;
   profileFeedRelays: string[];
   accentColor: string;
   backgroundColor: string;
@@ -22,6 +23,7 @@ const DEFAULTS: Preferences = {
   showActivityIndicator: true,
   developerRelayDebug: false,
   directMessagesEnabled: false,
+  postQuantumEnabled: true,
   profileFeedRelays: [...DEFAULT_PROFILE_FEED_RELAYS],
   accentColor: '#b4f953',
   backgroundColor: '#0a0a0a',
@@ -123,6 +125,9 @@ function normalizePreferences(raw: Partial<Preferences>): Preferences {
     directMessagesEnabled: typeof raw.directMessagesEnabled === 'boolean'
       ? raw.directMessagesEnabled
       : DEFAULTS.directMessagesEnabled,
+    postQuantumEnabled: typeof raw.postQuantumEnabled === 'boolean'
+      ? raw.postQuantumEnabled
+      : DEFAULTS.postQuantumEnabled,
     profileFeedRelays: normalizeProfileFeedRelays(raw.profileFeedRelays),
     accentColor: sanitizeHexColor(raw.accentColor, DEFAULTS.accentColor),
     backgroundColor: sanitizeHexColor(raw.backgroundColor, DEFAULTS.backgroundColor),

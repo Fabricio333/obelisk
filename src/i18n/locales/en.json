@@ -244,6 +244,8 @@
   "settings.you": "You",
   "settings.profile": "Profile",
   "settings.preferences": "Preferences",
+  "settings.postQuantum": "Post-quantum protection",
+  "settings.postQuantumHint": "Use post-quantum encryption for direct messages when both people support it. Messages still send when they do not.",
   "preferences.relays.status.active": "active",
   "preferences.relays.status.switch": "switch",
   "preferences.activity.label": "Show activity indicator",

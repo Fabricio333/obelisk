@@ -481,6 +481,12 @@ export function PreferencesPanel() {
         checked={prefs.directMessagesEnabled}
         onChange={setDmOptInEnabled}
       />
+      <ToggleRow
+        label={t('settings.postQuantum')}
+        description={t('settings.postQuantumHint')}
+        checked={prefs.postQuantumEnabled}
+        onChange={(v) => setPreference('postQuantumEnabled', v)}
+      />
       <WotSettings />
       <LocalDataSection />
       <section className="space-y-3 border-t border-lc-border pt-4" data-testid="desktop-developer-settings">

@@ -244,6 +244,8 @@
   "settings.you": "Vos",
   "settings.profile": "Perfil",
   "settings.preferences": "Preferencias",
+  "settings.postQuantum": "Protección post-cuántica",
+  "settings.postQuantumHint": "Usa cifrado post-cuántico en los mensajes directos cuando ambas personas lo admitan. Los mensajes se envían igualmente cuando no.",
   "preferences.relays.status.active": "activo",
   "preferences.relays.status.switch": "cambiar",
   "preferences.activity.label": "Mostrar indicador de actividad",
