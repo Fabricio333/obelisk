@@ -541,5 +541,12 @@
   "pqc.status": "In development for Obelisk. The keys and the message envelope already ship in the Nostr WoT extension and the @nostr-wot/pq library.",
   "pqc.collab": "Built in collaboration with",
   "pqc.nostrwot.desc": "Identity, signer and post-quantum keys derived from the seed phrase you already have.",
-  "pqc.quantakrypto.desc": "Applied post-quantum cryptography — design, specification and cryptographic review."
+  "pqc.quantakrypto.desc": "Applied post-quantum cryptography — design, specification and cryptographic review.",
+  "pq.secured": "Quantum-secured",
+  "pq.securedDetail": "Both of you publish post-quantum keys, so messages sent from now on stay confidential even against a future quantum computer.",
+  "pq.notSecured": "Not quantum-safe",
+  "pq.notSecuredDetail": "This conversation can be recorded now and decrypted later, once a quantum computer breaks the classic key exchange.",
+  "pq.learnHow": "How to fix this",
+  "pq.markNoGiftwrap": "Not gift-wrapped — relays can see who you are talking to",
+  "pq.markNoPq": "Not quantum-safe"
 }

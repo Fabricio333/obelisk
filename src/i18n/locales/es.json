@@ -541,5 +541,12 @@
   "pqc.status": "En desarrollo para Obelisk. Las claves y el sobre de mensajes ya están disponibles en la extensión Nostr WoT y en la librería @nostr-wot/pq.",
   "pqc.collab": "Creado en colaboración con",
   "pqc.nostrwot.desc": "Identidad, firmante y claves post-cuánticas derivadas de la frase semilla que ya tienes.",
-  "pqc.quantakrypto.desc": "Criptografía post-cuántica aplicada: diseño, especificación y revisión criptográfica."
+  "pqc.quantakrypto.desc": "Criptografía post-cuántica aplicada: diseño, especificación y revisión criptográfica.",
+  "pq.secured": "Protegido contra cuántica",
+  "pq.securedDetail": "Ambos publican claves post-cuánticas, así que los mensajes que envíen a partir de ahora seguirán siendo confidenciales incluso frente a una futura computadora cuántica.",
+  "pq.notSecured": "Sin protección cuántica",
+  "pq.notSecuredDetail": "Esta conversación se puede grabar ahora y descifrar más adelante, cuando una computadora cuántica rompa el intercambio de claves clásico.",
+  "pq.learnHow": "Cómo solucionarlo",
+  "pq.markNoGiftwrap": "Sin gift wrap — los relays pueden ver con quién hablas",
+  "pq.markNoPq": "Sin protección cuántica"
 }
