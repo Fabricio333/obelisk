@@ -20,14 +20,13 @@ export type RelayInfo = {
   fetchedAt: number;
 };
 
-export const SUGGESTED_RELAYS: ReadonlyArray<{ url: string; fallbackName: string; fallbackDescription: string }> = [
-  { url: 'wss://lacrypta-relay.obelisk.ar', fallbackName: 'La Crypta relay', fallbackDescription: 'NIP-29 relay for La Crypta.' },
-  { url: 'wss://public.obelisk.ar', fallbackName: 'Obelisk public', fallbackDescription: 'Open NIP-29 relay run by Obelisk.' },
-  { url: 'wss://groups.0xchat.com', fallbackName: '0xchat Groups relay', fallbackDescription: 'NIP-29 relay powering 0xchat group messaging.' },
-  { url: 'wss://relay.groups.nip29.com', fallbackName: 'relay.groups.nip29.com', fallbackDescription: 'Public NIP-29 groups relay.' },
-  { url: 'wss://groups.hzrd149.com', fallbackName: "hzrd149's groups", fallbackDescription: 'A NIP-29 groups relay for hzrd149.' },
-  { url: 'wss://pyramid.fiatjaf.com', fallbackName: 'the fiatjaf pyramid', fallbackDescription: 'Invite-only NIP-29 relay run by fiatjaf.' },
-];
+export function suggestedRelaysFromEnv(value?: string): ReadonlyArray<{ url: string }> {
+  return [...new Set((value ?? '').split(',').map((url) => url.trim()).filter((url) => {
+    try { return new URL(url).protocol === 'wss:'; } catch { return false; }
+  }))].map((url) => ({ url }));
+}
+
+export const SUGGESTED_RELAYS = suggestedRelaysFromEnv(process.env.NEXT_PUBLIC_RECOMMENDED_RELAYS);
 
 import { createLocalStore } from './local-store';
 

@@ -2,6 +2,15 @@
   "name": "obelisk",
   "version": "0.1.0",
   "private": true,
+  "license": "AGPL-3.0-only",
+  "author": "Fabricio Acosta",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/obelisk-app/obelisk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/obelisk-app/obelisk/issues"
+  },
   "scripts": {
     "dev": "node --env-file-if-exists=.env.local scripts/dev.mjs",
     "dev:next": "next dev",
