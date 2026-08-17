@@ -324,6 +324,8 @@ const KIND_DIRECT_MESSAGE = 4;
 // same one `fetchMyDmRelays` and `fetchRecipientReadRelays` use), so DM
 // inbox-list I/O stays on that instead of standing up a second pool for it.
 const KIND_NIP17_INBOX_RELAYS = 10050;
+/** NIP-65 relay list metadata. The read+write union is the DM traffic scope. */
+const KIND_RELAY_LIST_METADATA = 10002;
 const KIND_GROUP_CREATE = 9007;
 const KIND_GROUP_EDIT_METADATA = 9002;
 const KIND_GROUP_PUT_USER = 9000;
@@ -7045,6 +7047,33 @@ export class BridgeImpl {
    * listens on) as the inbox. Obelisk is single-active-relay-per-session
    * today, so this is one relay in practice; if that changes, this call
    * site is the one place that needs to widen.
+   *
+   * ### Where it goes, and why not everywhere
+   *
+   * A kind-10050 is *meant* to be public — that is the whole point of an
+   * inbox list — so breadth is not objectionable in itself. What was
+   * objectionable was the AUTH: this publish used to target
+   * `this.relays ∪ PROFILE_RELAYS` with the default auth signer attached, so
+   * any of those relays could reply `auth-required:` and be handed the user's
+   * real pubkey on a socket they never chose to open. Two changes:
+   *
+   * - **Target set.** CLAUDE.md's relay table puts DM traffic on the NIP-65
+   *   read+write union, so that is what this publishes to (plus the active
+   *   relay, which is what the list advertises, plus whatever the previous
+   *   list named so a replaceable-event update actually overwrites the copy
+   *   senders will read). The union is derived from the same query that
+   *   checks for an existing list — kinds `[10002, 10050]` in one REQ — so
+   *   there is no extra round-trip and no race against `fetchMyDmRelays`.
+   * - **`authMode: 'never'`.** The event is self-signed and public; no relay
+   *   needs to know who opened the socket in order to store it. A relay that
+   *   insists on AUTH simply doesn't get a copy. The active relay is already
+   *   authenticated from ordinary browsing, so the list always lands
+   *   somewhere.
+   *
+   * The one case where breadth is re-added is a user with no NIP-65 list at
+   * all: the union collapses to the active relay, and a sender looking us up
+   * from elsewhere would have nowhere to find the list. There we fall back to
+   * the profile relays — still without AUTH, so the cost is zero.
    */
   private async ensureDmInboxRelaysPublished(): Promise<void> {
     // Same opt-in gate as `subscribeIncomingDMs` — don't advertise a NIP-17
@@ -7057,10 +7086,11 @@ export class BridgeImpl {
       const searchRelays = Array.from(new Set([...this.relays, ...PROFILE_RELAYS]));
       const { events } = await this.queryRelaysWithConfidence(
         searchRelays,
-        { kinds: [KIND_NIP17_INBOX_RELAYS], authors: [me], limit: 1 },
+        { kinds: [KIND_NIP17_INBOX_RELAYS, KIND_RELAY_LIST_METADATA], authors: [me] },
         4000,
       );
-      const newest = newestEvent(events);
+      const newest = newestEvent(events.filter((e) => e.kind === KIND_NIP17_INBOX_RELAYS));
+      const newestNip65 = newestEvent(events.filter((e) => e.kind === KIND_RELAY_LIST_METADATA));
       const desired = Array.from(new Set(this.relays));
       const current = newest ? parseInboxRelayList(newest, 'public') : [];
       const matches = current.length === desired.length && desired.every((r) => current.includes(r));
@@ -7076,7 +7106,21 @@ export class BridgeImpl {
         content: '',
         tags: desired.map((url) => ['relay', url]),
       });
-      await this.publishSignedEvent(event, searchRelays, { quiet: true });
+      // NIP-65 read+write union — the CLAUDE.md scope for DM-related traffic.
+      const nip65 = newestNip65 ? parseRelayList(newestNip65, 'public') : { read: [], write: [] };
+      const union = uniqueRelayUrls([
+        ...desired,
+        ...this.myDmRelays,
+        ...nip65.read.filter(isImportableRelayUrl),
+        ...nip65.write.filter(isImportableRelayUrl),
+        // Wherever the previous list claimed to live, so this replacement
+        // supersedes it instead of leaving a stale copy for senders to read.
+        ...current.filter(isImportableRelayUrl),
+      ]);
+      const targets = union.length > desired.length
+        ? union
+        : uniqueRelayUrls([...desired, ...PROFILE_RELAYS]);
+      await this.publishSignedEvent(event, targets, { quiet: true, authMode: 'never' });
     } catch {
       // best-effort — a missing/stale inbox list degrades NIP-17
       // reachability, it doesn't break anything else.

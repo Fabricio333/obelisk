@@ -801,3 +801,75 @@ describe('NIP-17 gift-wrap relay routing', () => {
   });
 });
 
+describe('kind-10050 inbox-list publish scope', () => {
+  const ACTIVE_RELAY = 'wss://public.obelisk.ar';
+  const PROFILE_RELAY = 'wss://purplepag.es';
+
+  async function loginAlice(alice: ReturnType<typeof makeKeypair>) {
+    const { getBridge } = await import('./client');
+    const { setPreference } = await import('@/lib/preferences');
+    setPreference('directMessagesEnabled', true);
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(alice.skHex, alice.pkHex);
+    await flush(40);
+    return bridge;
+  }
+
+  async function waitForInboxList(pubkey: string) {
+    return vi.waitFor(
+      () => {
+        const ev = fake.state.published.find((e) => e.kind === 10050 && e.pubkey === pubkey);
+        if (!ev) throw new Error('no inbox list published yet');
+        return ev;
+      },
+      { timeout: 5000, interval: 5 },
+    );
+  }
+
+  it('targets the NIP-65 read+write union, not a hardcoded profile-relay set', async () => {
+    const alice = makeKeypair();
+    fake.state.published.push(
+      finalizeEvent(
+        {
+          kind: 10002,
+          created_at: 1000,
+          content: '',
+          tags: [
+            ['r', 'wss://alice-read.example', 'read'],
+            ['r', 'wss://alice-write.example', 'write'],
+          ],
+        },
+        alice.sk,
+      ),
+    );
+
+    await loginAlice(alice);
+    const ev = await waitForInboxList(alice.pkHex);
+
+    expect(ev.relays).toEqual(
+      expect.arrayContaining([ACTIVE_RELAY, 'wss://alice-read.example', 'wss://alice-write.example']),
+    );
+    expect(ev.relays).not.toContain(PROFILE_RELAY);
+  });
+
+  it('never authenticates the user to publish a list that is public by design', async () => {
+    const alice = makeKeypair();
+    await loginAlice(alice);
+    await waitForInboxList(alice.pkHex);
+
+    const attempts = fake.state.publishAttempts.filter((a) => a.event.kind === 10050);
+    expect(attempts.length).toBeGreaterThan(0);
+    for (const attempt of attempts) expect(attempt.authed).toBe(false);
+  });
+
+  it('re-widens to the profile relays only when the user has no NIP-65 list to narrow to', async () => {
+    const alice = makeKeypair();
+    await loginAlice(alice);
+    const ev = await waitForInboxList(alice.pkHex);
+
+    // Nothing to narrow to — an inbox list nobody can find is worse than a
+    // broad publish, and with `authMode: 'never'` the breadth costs nothing.
+    expect(ev.relays).toContain(ACTIVE_RELAY);
+    expect(ev.relays).toContain(PROFILE_RELAY);
+  });
+});

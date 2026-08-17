@@ -182,6 +182,7 @@ Publishing has one extra rule that reads do not, because a publish rides an
 |---|---|
 | NIP-17 gift wrap, recipient copy (kind 1059) | **Recipient's kind-10050 inbox only.** Falls to their NIP-65 read set, then — last resort — the active relay. Never a union: see `resolveGiftWrapRelays` and [docs/direct-messages.md](docs/direct-messages.md). |
 | NIP-17 gift wrap, self copy (kind 1059) | **Our own inbox only** (`this.relays` ∪ `myDmRelays`), minus any relay that just took the recipient's copy. |
+| Own NIP-17 inbox list (kind 10050) | NIP-65 read+write union + active relay, with `authMode: 'never'`. |
 
 Gift wraps publish with `authMode: 'last-resort'` — never volunteer a NIP-42
 identity on the socket carrying an ephemeral-keyed envelope. A new

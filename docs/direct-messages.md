@@ -104,6 +104,10 @@ Gift-wrap publishes use `authMode: 'last-resort'`: no NIP-42 identity is volunte
 
 On login, `ensureDmInboxRelaysPublished` publishes our own kind-10050 advertising `this.relays`, unless a current one already exists. It republishes when the advertised set no longer matches or the existing event is older than seven days. Gated on the DM opt-in, and best-effort: a failure degrades reachability without breaking anything.
 
+It targets the **NIP-65 read+write union** (AGENTS.md's relay scope for DM traffic) plus the active relay plus whatever the previous list named, so a replacement actually supersedes the copy senders will read. The union is derived from the same REQ that checks for an existing list (`kinds: [10002, 10050]`), so there is no extra round-trip. When the user has no NIP-65 list at all the union collapses to the active relay and nobody could find the list, so the profile relays are added back.
+
+The publish uses `authMode: 'never'`. A kind-10050 is public by design and self-signed; no relay needs to know who opened the socket in order to store it, and authenticating the user to relays they never selected is not a price worth paying for discoverability. The active relay is already authenticated from ordinary browsing, so the list always lands somewhere.
+
 Without a published kind-10050, no NIP-17 client can reach you, however many wraps other people send.
 
 ## Post-quantum
