@@ -1,0 +1,6 @@
+Contact: mailto:security@obelisk.ar
+Contact: https://github.com/obelisk-app/obelisk/blob/main/SECURITY.md
+Expires: 2027-08-10T00:00:00.000Z
+Preferred-Languages: en, es
+Canonical: https://obelisk.ar/.well-known/security.txt
+Policy: https://github.com/obelisk-app/obelisk/blob/main/SECURITY.md
