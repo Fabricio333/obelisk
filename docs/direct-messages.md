@@ -49,7 +49,7 @@ DMs are the **one** thing in Obelisk that runs cross-relay. Everything group-rel
 
 Then `fetchMyDmRelays()` resolves our own kind-10050 (NIP-17 inbox) and kind-10002 (NIP-65 read/write) sets and duplicates all three filters onto any relay not already covered. Without this, DMs sent by clients that respect our published inbox would never arrive.
 
-There is no "gift wraps authored by me" filter, and there cannot be: the wrap is signed by a fresh ephemeral key, not by us. The sender's own view of an outgoing NIP-17 message comes from the optimistic placeholder, matching `@nostr-wot/dm`'s own `sendDM`.
+There is no "gift wraps authored by me" filter, and there cannot be: the wrap is signed by a fresh ephemeral key, not by us. That is why every NIP-17 send publishes a **second wrap addressed to ourselves** (below). The `{ kinds: [1059], '#p': [me] }` filter picks it up like any other inbound wrap, which is how the sender's own outgoing history survives a reload and reaches their other devices.
 
 ## Sending
 
@@ -59,15 +59,28 @@ There is no "gift wraps authored by me" filter, and there cannot be: the wrap is
 
 **NIP-17 path:**
 
-1. `buildChatMessage(me, peer, content)` builds the kind-14 rumor.
+1. `buildChatMessage(me, peer, content)` builds the kind-14 rumor, with its `created_at` pinned to the timestamp the optimistic placeholder already committed to.
 2. `resolvePqSend` decides whether the seal can be post-quantum (below).
 3. `sealAndGiftWrap` produces the kind-1059, post-quantum or classic.
 4. `fetchPartnerInboxRelays` resolves the recipient's kind-10050, falling back to our own relays plus their NIP-65 read relays.
 5. Publish, then replace the placeholder.
+6. `publishSelfGiftWrapCopy` seals the **same rumor** a second time, addressed to us, and publishes it to our own kind-10050.
 
-The placeholder is replaced using **our own pre-fuzz `created_at`**, not the wrap's. NIP-17 fuzzes the wrap timestamp backwards for privacy, so using it would make a message you just sent appear days old.
+The placeholder is replaced with the **rumor's id**, not the wrap's. A gift wrap's id belongs to its ephemeral envelope and differs between the two copies, so keying the thread on it would let our own self-copy render as a second message. The rumor id is identical in both wraps and on every device, which is what `ingestDM` dedupes on. Timestamps use **our own pre-fuzz `created_at`**, not the wrap's: NIP-17 fuzzes the wrap timestamp backwards for privacy, so using it would make a message you just sent appear days old.
 
 Failures mark the placeholder failed and surface a retry button; `retryDirectMessage` replays the same arguments, including the resolved protocol.
+
+### The self-copy
+
+NIP-17 delivers a sender-addressed copy alongside the recipient's. Three rules govern it:
+
+- **Same rumor object.** Rebuilding it would produce a different timestamp and a different id, and the copy would come back off the relay as a second message.
+- **Its own fresh ephemeral key.** `sealAndGiftWrap` generates one per call. Reusing one would let any relay link the two copies and undo the metadata protection NIP-17 exists to provide.
+- **It never fails the send.** The recipient's copy is the message; losing ours degrades history only. Every failure is swallowed and logged through the relay-debug channel, and the publish is `quiet` so the user does not see a second "Publishing" entry for one message.
+
+When the delivered copy went out post-quantum, the self-copy is sealed post-quantum too, encapsulated to **our own** ML-KEM key (`PqSendPlan.selfKemKey`), not the recipient's. Using the recipient's would need their ML-KEM secret to open, so we would have published a copy of our own message that we could never read again. When the delivered copy was classic, the self-copy stays classic: sealing ours post-quantum would make the message read as protected after a reload when it never was.
+
+NIP-04 threads publish no self-copy and need none. Those events are authored by us, so the `{ kinds: [4], authors: [me] }` filter already finds them.
 
 ## Inbox routing (kind 10050)
 
@@ -81,7 +94,7 @@ Full design: [`docs/superpowers/specs/2026-08-15-post-quantum-dms-design.md`](su
 
 The post-quantum envelope replaces the **seal's** ciphertext. Everything outside the seal is unchanged, so a relay or a client that has not implemented it still sees an ordinary kind-1059. `@nostr-wot/pq` owns the envelope; `@nostr-wot/dm` passes an opts bag through to the signer; the signer owns the key material. Obelisk holds no post-quantum secrets and cannot derive any: its logins are `nsec | nip07 | bunker` and it never sees a BIP-39 seed.
 
-**Sending.** `resolvePqSend` (`src/lib/pq/send.ts`) returns the peer's ML-KEM key, or `null` meaning "send classic". All three of these must hold:
+**Sending.** `resolvePqSend` (`src/lib/pq/send.ts`) returns the peer's ML-KEM key plus our own (for the self-copy), or `null` meaning "send classic". All three of these must hold:
 
 1. The `postQuantumEnabled` preference is on.
 2. `selfPqState().canSend` — the extension advertises `window.nostr.nip44.schemes` including `'pq'`.
@@ -91,11 +104,13 @@ Condition 2 requires the **explicit marker**, not merely a NIP-07 session with p
 
 `resolvePqSend` never throws, and a signer that refuses post-quantum after advertising it falls back to a classic seal. **A message that cannot be protected still sends.** That rule is in the spec and is non-negotiable.
 
+Condition 2 is checked **locally first**, before any relay round trip, because it is free (`loginMethod === 'nip07'` plus the `window.nostr.nip44.schemes` marker) and settles the answer for every session that cannot send post-quantum anyway. Without that short circuit, every DM send on every session would pay two attestation lookups to learn nothing, which matters now that the preference defaults on.
+
 **Receiving** needs no configuration: the envelope is self-describing, so `signer.nip44Decrypt` routes on its own.
 
 **Provenance.** Every message carries `protocol: 'nip04' | 'nip17'` and `pq?: boolean`. Inbound `pq` comes from `isPqEnvelope()` on the seal's ciphertext, recorded by the signer adapter's `pqTrack` because `unwrapGiftWrap` does not report its own routing decision. Outbound `pq` reflects what the seal actually did, never what was requested. `undefined` reads as classic everywhere, which is what any message stored before the field existed should mean.
 
-**Indicators.** `PqConversationNotice` sits under the thread header on both shells; `PqMessageMark` renders per message, aggregated by `threadMarks` so only protection-level *transitions* are marked. Marking every message would put a pill on every bubble of a Discord-style list, because all pre-NIP-17 history is NIP-04. Both surfaces are gated on the `postQuantumEnabled` preference.
+**Indicators.** `PqConversationNotice` sits under the thread header on both shells; `PqMessageMark` renders per message, aggregated by `threadMarks` so only protection-level *transitions* are marked. Marking every message would put a pill on every bubble of a Discord-style list, because all pre-NIP-17 history is NIP-04. Both surfaces are gated on the `postQuantumEnabled` preference, which **defaults on**: the indicators are the feature, and defaulting off meant nobody who never opened settings saw the notice, the marks or the guide link at all. Unlike `directMessagesEnabled` the preference grants nothing and reveals nothing, it only decides whether Obelisk tells you what a conversation rests on. Sending stays conservative independently (condition 2 above), so the default cannot produce a false claim of protection.
 
 ## Security
 
@@ -126,7 +141,7 @@ Incoming DMs push a card onto the DM notification stream (`useNotificationsStore
 ## Troubleshooting
 
 - **"Sent a message but they never got it."** Check whether the recipient has published a kind-10050. Without one, the wrap goes to our relays plus their NIP-65 read set, which may not overlap with what they actually read. They can fix it once, for everyone, with any modern client.
-- **"My own DMs are missing after a reload."** Expected on the NIP-17 side until the relay redelivers them. Nothing is cached, and outgoing wraps are not self-addressed, so an outgoing NIP-17 message is only in the store for the session that sent it. This is the sharpest edge in the current implementation.
+- **"My own DMs are missing after a reload."** Nothing is cached, so the whole thread rebuilds from relays on every load and takes a moment. If an outgoing NIP-17 message never comes back, its self-copy did not land: check whether we have a published kind-10050 (`ensureDmInboxRelaysPublished`) and whether the relay accepted the second wrap. Messages sent before the self-copy shipped are gone from the sender's side for good; the recipient still has them.
 - **"The post-quantum toggle is on but nothing is post-quantum."** Almost certainly `capabilityUnknown`: the extension does not advertise `nip44.schemes`. The settings status row says so explicitly.
 - **"Every old message shows a mark."** It should not: marks aggregate to transitions. If you see one per bubble, `threadMarks` is not being used.
 

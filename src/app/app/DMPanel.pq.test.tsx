@@ -74,7 +74,7 @@ describe('DMPanel — conversation notice', () => {
 
     const notice = await screen.findByRole('status');
     expect(notice).toHaveTextContent('Not quantum-safe');
-    expect(notice).toHaveTextContent('How to fix this');
+    expect(notice).toHaveTextContent('How to get quantum-safe');
   });
 
   it('confirms when both parties advertise post-quantum keys', async () => {

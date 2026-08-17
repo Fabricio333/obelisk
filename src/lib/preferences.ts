@@ -23,7 +23,14 @@ const DEFAULTS: Preferences = {
   showActivityIndicator: true,
   developerRelayDebug: false,
   directMessagesEnabled: false,
-  postQuantumEnabled: false,
+  // On by default. The toggle gates both post-quantum sending *and* the two
+  // provenance surfaces (the conversation notice and the per-message marks),
+  // and the indicators are the feature: defaulting off meant a user saw
+  // nothing at all — no notice, no marks, no guide link — so the detection
+  // work was invisible to everyone who never opened settings. Sending stays
+  // conservative on its own (`resolvePqSend` only seals post-quantum when the
+  // signer advertises it), so this default cannot cause a false claim.
+  postQuantumEnabled: true,
   profileFeedRelays: [...DEFAULT_PROFILE_FEED_RELAYS],
   accentColor: '#b4f953',
   backgroundColor: '#0a0a0a',

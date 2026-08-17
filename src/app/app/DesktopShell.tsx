@@ -4247,10 +4247,11 @@ export function DMPanel({ peer }: { peer: string | null; onPickPeer: (p: string)
   // conversation; the marks are per-message and aggregated to transitions
   // only (see `threadMarks` — every message in pre-NIP-17 history is NIP-04,
   // so a pill per bubble would be unreadable).
-  // Both surfaces are gated on the `postQuantumEnabled` preference: it is the
-  // opt-in for this whole feature, and warning a user about protection they
-  // deliberately turned off is nagging rather than teaching. Same convention
-  // as `directMessagesEnabled`, which also defaults off.
+  // Both surfaces are gated on the `postQuantumEnabled` preference: warning a
+  // user about protection they deliberately turned off is nagging rather than
+  // teaching. The preference defaults *on* — unlike `directMessagesEnabled`,
+  // it grants nothing and reveals nothing, it only decides whether Obelisk
+  // tells you what a conversation actually rests on.
   const pqEnabled = usePreferences().postQuantumEnabled;
   const pqStatus = usePqConversationStatus(peer);
   const marks = pqEnabled

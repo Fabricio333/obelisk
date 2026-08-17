@@ -112,21 +112,32 @@ describe('preferences store', () => {
   });
 
   describe('postQuantumEnabled', () => {
-    it('defaults to false', async () => {
+    // On by default: the toggle gates the conversation notice and the
+    // per-message marks as well as post-quantum sending, so defaulting off
+    // hid the entire feature from anyone who never opened settings.
+    it('defaults to true', async () => {
       const { getPreferences } = await import('./preferences');
-      expect(getPreferences().postQuantumEnabled).toBe(false);
+      expect(getPreferences().postQuantumEnabled).toBe(true);
     });
 
     it('round-trips through setPreference', async () => {
       const { getPreferences, setPreference } = await import('./preferences');
+      setPreference('postQuantumEnabled', false);
+      expect(getPreferences().postQuantumEnabled).toBe(false);
       setPreference('postQuantumEnabled', true);
       expect(getPreferences().postQuantumEnabled).toBe(true);
+    });
+
+    it('respects a persisted opt-out', async () => {
+      localStorage.setItem('obelisk:preferences', JSON.stringify({ postQuantumEnabled: false }));
+      const { getPreferences } = await import('./preferences');
+      expect(getPreferences().postQuantumEnabled).toBe(false);
     });
 
     it('falls back to the default when storage holds a non-boolean', async () => {
       localStorage.setItem('obelisk:preferences', JSON.stringify({ postQuantumEnabled: 'yes' }));
       const { getPreferences } = await import('./preferences');
-      expect(getPreferences().postQuantumEnabled).toBe(false);
+      expect(getPreferences().postQuantumEnabled).toBe(true);
     });
   });
 });
