@@ -21,6 +21,7 @@ import {
 } from '@nostr-wot/dm';
 import { isPqEnvelope } from '@nostr-wot/pq';
 import type { NostrSigner as DmNostrSigner } from '@nostr-wot/signers';
+import { resolvePqSend } from '@/lib/pq/send';
 import { useDMStore, type DMProtocol } from '@/store/dm';
 import { cacheGet, cacheSet, cacheDelete, cacheClearAll, cacheListIdsByKind, cacheFreeSpaceForQuota } from './cache';
 import { normalizeRelayUrl } from './relay-url';
@@ -3023,9 +3024,12 @@ export class BridgeImpl {
       pending: true,
       clientTag,
       protocol,
-      // Obelisk never sends with a post-quantum envelope yet (no ML-KEM key
-      // material wired through — see src/lib/pq/); this only ever reflects
-      // inbound messages until that lands.
+      // Whether this send ends up post-quantum isn't known yet: resolving it
+      // needs the peer's kind:10203 attestation off a relay (see
+      // `resolvePqSend`). `false` is the honest placeholder — never claim
+      // protection we haven't established — and `replacePendingDM` writes
+      // the real value once the seal is built. The UI suppresses provenance
+      // marks on in-flight messages so this never flickers a wrong claim.
       pq: false,
     };
     this.pendingDMSends.set(clientTag, { recipientPubkey, content, createdAt, protocol });
@@ -3076,7 +3080,32 @@ export class BridgeImpl {
       const signer = this.getDmSigner();
       if (!signer) throw new Error('Not logged in');
       const inner = buildChatMessage(me, recipientPubkey, content);
-      const wrap = await sealAndGiftWrap(signer, recipientPubkey, inner);
+      // Post-quantum when the conversation qualifies, classic otherwise.
+      // `resolvePqSend` never throws and returns null for every negative
+      // case, so this cannot block a send.
+      const pqPlan = await resolvePqSend({
+        myPubkey: me,
+        loginMethod: this.session?.loginMethod ?? null,
+        recipientPubkey,
+      });
+      let wrap: NostrEvent;
+      let pq = false;
+      if (pqPlan) {
+        try {
+          wrap = await sealAndGiftWrap(signer, recipientPubkey, inner, {
+            pq: { scheme: 'pq', recipientKemKey: pqPlan.recipientKemKey },
+          });
+          pq = true;
+        } catch {
+          // The signer refused post-quantum after advertising it (a stale
+          // `nip44.schemes` marker, a locked extension, a rejected prompt).
+          // Never block a send: fall back to classic NIP-17 and record it
+          // honestly as `pq: false`.
+          wrap = await sealAndGiftWrap(signer, recipientPubkey, inner);
+        }
+      } else {
+        wrap = await sealAndGiftWrap(signer, recipientPubkey, inner);
+      }
       // Route to the recipient's NIP-17 inbox (kind 10050), falling back to
       // our own relays + their NIP-65 read relays if they haven't published
       // one yet.
@@ -3093,7 +3122,7 @@ export class BridgeImpl {
         // fuzzes both the seal's and the wrap's timestamps up to 2 days into
         // the past for privacy, so the wrap's own timestamp would make the
         // just-sent message appear to have been sent days ago.
-        { id: wrap.id, createdAt, protocol: 'nip17', pq: false },
+        { id: wrap.id, createdAt, protocol: 'nip17', pq },
         content,
       );
     } catch {

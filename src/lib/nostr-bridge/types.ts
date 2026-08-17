@@ -137,11 +137,13 @@ export interface JsDirectMessage {
   /**
    * Whether this specific message was sealed with `@nostr-wot/pq`'s hybrid
    * post-quantum envelope. Only meaningful when `protocol === 'nip17'`.
-   * `undefined`/`false` both read as classic (non-post-quantum). Obelisk
-   * does not send with a `pq` envelope yet (no ML-KEM key material wired
-   * through — see `src/lib/pq/`); inbound detection is live regardless, so
-   * a post-quantum sender is still recognized even before Obelisk can reply
-   * in kind.
+   * `undefined`/`false` both read as classic (non-post-quantum) — including
+   * for any message stored before this field existed.
+   *
+   * Set on both directions: inbound from `isPqEnvelope()` on the seal's
+   * ciphertext (see `getDmSigner`'s `pqTrack`), outbound from whether
+   * `resolvePqSend` produced a plan and the seal actually took it. Never
+   * optimistic: a send that falls back to classic records `false`.
    */
   readonly pq?: boolean;
   /**

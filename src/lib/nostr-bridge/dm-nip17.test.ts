@@ -143,6 +143,22 @@ async function flush(times = 20) {
   for (let i = 0; i < times; i++) await Promise.resolve();
 }
 
+/**
+ * The send path awaits a variable number of async hops before it publishes
+ * (the post-quantum send-plan check, then whichever signer the login method
+ * uses), so counting microtasks is not a reliable way to wait for the wrap.
+ */
+async function waitForWrap(): Promise<NostrEvent & { relays?: string[] }> {
+  return vi.waitFor(
+    () => {
+      const wrap = fake.state.published.find((e) => e.kind === 1059);
+      if (!wrap) throw new Error('no gift wrap published yet');
+      return wrap;
+    },
+    { timeout: 5000, interval: 5 },
+  );
+}
+
 beforeEach(() => {
   fake.state.published = [];
   fake.state.subscriptions = [];
@@ -182,7 +198,7 @@ describe('NIP-17 send/receive', () => {
     bridge.subscribeDirectMessages(() => {});
 
     await bridge.sendDirectMessage(bob.pkHex, 'meet me at the obelisk');
-    await flush();
+    await waitForWrap();
 
     const wraps = fake.state.published.filter((e) => e.kind === 1059);
     expect(wraps).toHaveLength(1);
@@ -268,12 +284,10 @@ describe('NIP-17 signer adapter — all three login methods', () => {
     await bridge.loginWithNsec(alice.skHex, alice.pkHex);
     setPreference('directMessagesEnabled', true);
     await bridge.sendDirectMessage(bob.pkHex, 'from nsec');
-    await flush();
+    const wrap = await waitForWrap();
 
-    const wrap = fake.state.published.find((e) => e.kind === 1059);
-    expect(wrap).toBeTruthy();
     const bobSigner = new PrivateKeySigner(bob.sk);
-    const { message, senderPubkey } = await unwrapGiftWrap(bobSigner, wrap!);
+    const { message, senderPubkey } = await unwrapGiftWrap(bobSigner, wrap);
     expect(senderPubkey).toBe(alice.pkHex);
     expect(message.content).toBe('from nsec');
   });
@@ -310,12 +324,10 @@ describe('NIP-17 signer adapter — all three login methods', () => {
     await bridge.loginWithNip07(alice.pkHex);
     setPreference('directMessagesEnabled', true);
     await bridge.sendDirectMessage(bob.pkHex, 'from nip07');
-    await flush();
+    const wrap = await waitForWrap();
 
-    const wrap = fake.state.published.find((e) => e.kind === 1059);
-    expect(wrap).toBeTruthy();
     const bobSigner = new PrivateKeySigner(bob.sk);
-    const { message, senderPubkey } = await unwrapGiftWrap(bobSigner, wrap!);
+    const { message, senderPubkey } = await unwrapGiftWrap(bobSigner, wrap);
     expect(senderPubkey).toBe(alice.pkHex);
     expect(message.content).toBe('from nip07');
   });
@@ -333,12 +345,10 @@ describe('NIP-17 signer adapter — all three login methods', () => {
     await bridge.loginWithBunker(`bunker://${alice.pkHex}?relay=wss://relay.nsec.app`);
     setPreference('directMessagesEnabled', true);
     await bridge.sendDirectMessage(bob.pkHex, 'from bunker');
-    await flush();
+    const wrap = await waitForWrap();
 
-    const wrap = fake.state.published.find((e) => e.kind === 1059);
-    expect(wrap).toBeTruthy();
     const bobSigner = new PrivateKeySigner(bob.sk);
-    const { message, senderPubkey } = await unwrapGiftWrap(bobSigner, wrap!);
+    const { message, senderPubkey } = await unwrapGiftWrap(bobSigner, wrap);
     expect(senderPubkey).toBe(alice.pkHex);
     expect(message.content).toBe('from bunker');
   });
