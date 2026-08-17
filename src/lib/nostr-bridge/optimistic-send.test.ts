@@ -402,7 +402,12 @@ describe('optimistic direct messages', () => {
       last = out;
     });
 
-    fake.state.nextOutcomes.push({ reject: 'auth-required' });
+    // Deliberately NOT an `auth-required` rejection: a gift wrap refused for
+    // want of NIP-42 now escalates to one authenticated retry rather than
+    // failing the send (see `publishSignedEvent`'s `authMode: 'last-resort'`,
+    // covered in `dm-nip17.test.ts`). A flat refusal is the case that must
+    // still surface as a failed message the user can retry by hand.
+    fake.state.nextOutcomes.push({ reject: 'blocked: relay is not accepting events right now' });
     await bridge.sendDirectMessage(peer.pkHex, 'will fail');
     await flush();
 

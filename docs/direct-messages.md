@@ -62,9 +62,9 @@ There is no "gift wraps authored by me" filter, and there cannot be: the wrap is
 1. `buildChatMessage(me, peer, content)` builds the kind-14 rumor, with its `created_at` pinned to the timestamp the optimistic placeholder already committed to.
 2. `resolvePqSend` decides whether the seal can be post-quantum (below).
 3. `sealAndGiftWrap` produces the kind-1059, post-quantum or classic.
-4. `fetchPartnerInboxRelays` resolves the recipient's kind-10050, falling back to our own relays plus their NIP-65 read relays.
+4. `resolveGiftWrapRelays` decides where the wrap goes — see [Inbox routing](#inbox-routing-kind-10050).
 5. Publish, then replace the placeholder.
-6. `publishSelfGiftWrapCopy` seals the **same rumor** a second time, addressed to us, and publishes it to our own kind-10050.
+6. `publishSelfGiftWrapCopy` seals the **same rumor** a second time, addressed to us, and publishes it to our own inbox only.
 
 The placeholder is replaced with the **rumor's id**, not the wrap's. A gift wrap's id belongs to its ephemeral envelope and differs between the two copies, so keying the thread on it would let our own self-copy render as a second message. The rumor id is identical in both wraps and on every device, which is what `ingestDM` dedupes on. Timestamps use **our own pre-fuzz `created_at`**, not the wrap's: NIP-17 fuzzes the wrap timestamp backwards for privacy, so using it would make a message you just sent appear days old.
 
@@ -83,6 +83,24 @@ When the delivered copy went out post-quantum, the self-copy is sealed post-quan
 NIP-04 threads publish no self-copy and need none. Those events are authored by us, so the `{ kinds: [4], authors: [me] }` filter already finds them.
 
 ## Inbox routing (kind 10050)
+
+### Where a wrap goes
+
+Relay selection is a privacy control, not a delivery convenience. A kind-1059 is signed by a throwaway key so a relay learns only "some ephemeral key dropped a wrap for someone". Publishing that wrap to the relay the user is browsing destroys the guarantee: that socket is NIP-42-authenticated as the real sender, so the relay gets the true identity, the true send time, and — if the recipient reads there too — the sender-to-recipient edge.
+
+`resolveGiftWrapRelays` therefore walks a strictly ordered ladder and uses each rung **alone**, never unioned:
+
+| Rung | Target | Why |
+|---|---|---|
+| 1 | Recipient's kind-10050 inbox | The answer NIP-17 defines. Nothing of ours is added. |
+| 2 | Recipient's NIP-65 read relays | Still relays *they* chose, so the wrap stays on the recipient's infrastructure. |
+| 3 | Our active relay | Last resort, and the only rung with a real cost: this relay sees an authenticated publish from us. Taken anyway, because the spec forbids letting a missing inbox list block a send. |
+
+The self-copy goes to **our own inbox only** — the relays `subscribeIncomingDMs` already holds authenticated REQs on (`this.relays` ∪ `myDmRelays`). It never rides along to the recipient's relays, and any relay that just took the recipient's copy is subtracted from its target set so no single relay can pair the two same-sized wraps. If that subtraction would empty the set (both parties on one relay), durability wins and it is logged as `dm-self-copy-shares-relay`.
+
+Gift-wrap publishes use `authMode: 'last-resort'`: no NIP-42 identity is volunteered up front, since AUTH would staple our real pubkey to an envelope built not to carry it. Only if *every* target refused, and at least one refusal was auth-shaped, do we re-publish authenticated rather than drop the message.
+
+### Publishing our own list
 
 On login, `ensureDmInboxRelaysPublished` publishes our own kind-10050 advertising `this.relays`, unless a current one already exists. It republishes when the advertised set no longer matches or the existing event is older than seven days. Gated on the DM opt-in, and best-effort: a failure degrades reachability without breaking anything.
 
@@ -140,7 +158,7 @@ Incoming DMs push a card onto the DM notification stream (`useNotificationsStore
 
 ## Troubleshooting
 
-- **"Sent a message but they never got it."** Check whether the recipient has published a kind-10050. Without one, the wrap goes to our relays plus their NIP-65 read set, which may not overlap with what they actually read. They can fix it once, for everyone, with any modern client.
+- **"Sent a message but they never got it."** Check whether the recipient has published a kind-10050. Without one the wrap falls to their NIP-65 read set, and without that to our own active relay — neither of which is guaranteed to overlap with what they actually read. They can fix it once, for everyone, with any modern client.
 - **"My own DMs are missing after a reload."** Nothing is cached, so the whole thread rebuilds from relays on every load and takes a moment. If an outgoing NIP-17 message never comes back, its self-copy did not land: check whether we have a published kind-10050 (`ensureDmInboxRelaysPublished`) and whether the relay accepted the second wrap. Messages sent before the self-copy shipped are gone from the sender's side for good; the recipient still has them.
 - **"The post-quantum toggle is on but nothing is post-quantum."** Almost certainly `capabilityUnknown`: the extension does not advertise `nip44.schemes`. The settings status row says so explicitly.
 - **"Every old message shows a mark."** It should not: marks aggregate to transitions. If you see one per bubble, `threadMarks` is not being used.

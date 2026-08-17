@@ -11,6 +11,9 @@
  *     dispatches correctly for all three login methods — exercised
  *     indirectly by sending a NIP-17 DM under each and confirming the
  *     wire event is well-formed and independently decryptable.
+ *   - Relay routing as a *privacy* control: which relays each of the two
+ *     wraps reaches, that neither carries a volunteered NIP-42 identity,
+ *     and that none of that is allowed to cost a delivery.
  *
  * Mirrors `bridge.test.ts`'s FakePool (must implement subscribe, publish,
  * close, ensureRelay — see AGENTS.md's testing conventions) plus a local
@@ -24,14 +27,23 @@ import { v2 as nip44 } from 'nostr-tools/nip44';
 
 const fake = vi.hoisted(() => {
   const state = {
-    published: [] as Array<NostrEvent & { relays?: string[] }>,
+    published: [] as Array<NostrEvent & { relays?: string[]; authed?: boolean }>,
     subscriptions: [] as Array<{ filter: Record<string, unknown>; sink: (ev: NostrEvent) => void }>,
+    /**
+     * Every publish attempt, accepted or not, in order — including the
+     * `authed` flag (whether the bridge offered a NIP-42 auth signer). The
+     * relay-privacy tests assert on this rather than on `published`, because
+     * a refused attempt still tells the relay something.
+     */
+    publishAttempts: [] as Array<{ event: NostrEvent; relays: string[]; authed: boolean }>,
     /**
      * Per-event publish veto. Returning a string rejects that publish with it
      * as the relay's reason, so a test can fail exactly one of the two gift
-     * wraps a NIP-17 send produces.
+     * wraps a NIP-17 send produces. The second argument carries the publish
+     * options, so a test can reject specifically the *unauthenticated*
+     * attempt the way an `auth-required` relay does.
      */
-    rejectPublish: null as null | ((ev: NostrEvent) => string | null),
+    rejectPublish: null as null | ((ev: NostrEvent, opts: { authed: boolean }) => string | null),
   };
 
   function matches(f: Record<string, unknown>, ev: { kind: number; pubkey: string; tags: string[][] }): boolean {
@@ -59,10 +71,12 @@ const fake = vi.hoisted(() => {
       queueMicrotask(() => opts.oneose?.());
       return { close: () => { state.subscriptions = state.subscriptions.filter((s) => s !== sub); } };
     }
-    publish(relays: string[], event: NostrEvent): Promise<string>[] {
-      const reason = state.rejectPublish?.(event);
+    publish(relays: string[], event: NostrEvent, opts?: { onauth?: unknown }): Promise<string>[] {
+      const authed = Boolean(opts?.onauth);
+      state.publishAttempts.push({ event, relays, authed });
+      const reason = state.rejectPublish?.(event, { authed });
       if (reason) return [Promise.reject(new Error(reason))];
-      state.published.push({ ...event, relays });
+      state.published.push({ ...event, relays, authed });
       queueMicrotask(() => {
         for (const sub of state.subscriptions) if (matches(sub.filter, event)) sub.sink(event);
       });
@@ -169,6 +183,7 @@ async function waitForWrap(): Promise<NostrEvent & { relays?: string[] }> {
 
 beforeEach(() => {
   fake.state.published = [];
+  fake.state.publishAttempts = [];
   fake.state.subscriptions = [];
   fake.state.rejectPublish = null;
   bunkerFake.remoteSk = null;
@@ -181,6 +196,7 @@ afterEach(async () => {
   const { getBridgeImpl } = await import('./client');
   getBridgeImpl()?.dispose();
   fake.state.published = [];
+  fake.state.publishAttempts = [];
   fake.state.subscriptions = [];
   fake.state.rejectPublish = null;
 });
@@ -592,3 +608,196 @@ describe('kind-10050 inbox-list publish on login', () => {
     expect(fake.state.published.some((e) => e.kind === 10050)).toBe(false);
   });
 });
+
+/**
+ * Relay routing is a privacy control, not a delivery detail.
+ *
+ * A kind-1059 is signed by a throwaway key precisely so a relay cannot tell
+ * who sent it. Obelisk used to union the recipient's inbox relays with
+ * `this.relays` — the relay the user is browsing, whose socket is
+ * NIP-42-authenticated as the real sender — so that relay received both
+ * wraps of every DM, over an authenticated connection, with true timestamps.
+ * These tests pin the routing ladder that replaced the union, and the
+ * delivery guarantees that ladder must not break.
+ */
+describe('NIP-17 gift-wrap relay routing', () => {
+  const ACTIVE_RELAY = 'wss://public.obelisk.ar';
+
+  async function loginAlice(alice: ReturnType<typeof makeKeypair>) {
+    const { getBridge } = await import('./client');
+    const { setPreference } = await import('@/lib/preferences');
+    setPreference('directMessagesEnabled', true);
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(alice.skHex, alice.pkHex);
+    return bridge;
+  }
+
+  function inboxList(sk: Uint8Array, relays: string[], createdAt = 1000) {
+    return finalizeEvent(
+      { kind: 10050, created_at: createdAt, content: '', tags: relays.map((r) => ['relay', r]) },
+      sk,
+    );
+  }
+
+  function nip65List(sk: Uint8Array, read: string[], write: string[] = [], createdAt = 1000) {
+    return finalizeEvent(
+      {
+        kind: 10002,
+        created_at: createdAt,
+        content: '',
+        tags: [
+          ...read.map((r) => ['r', r, 'read']),
+          ...write.map((r) => ['r', r, 'write']),
+        ],
+      },
+      sk,
+    );
+  }
+
+  /** The wrap addressed to `pubkey`, once it exists. */
+  async function waitForWrapTo(pubkey: string) {
+    return vi.waitFor(
+      () => {
+        const w = fake.state.published.find(
+          (e) => e.kind === 1059 && e.tags.some((t) => t[0] === 'p' && t[1] === pubkey),
+        );
+        if (!w) throw new Error(`no wrap addressed to ${pubkey.slice(0, 8)} yet`);
+        return w;
+      },
+      { timeout: 5000, interval: 5 },
+    );
+  }
+
+  it('routes to the partner inbox ONLY — the active relay never sees the wrap', async () => {
+    const alice = makeKeypair();
+    const bob = makeKeypair();
+    const bobInbox = ['wss://bob-inbox.example', 'wss://bob-inbox-2.example'];
+    fake.state.published.push(inboxList(bob.sk, bobInbox));
+
+    const bridge = await loginAlice(alice);
+    await bridge.sendDirectMessage(bob.pkHex, 'inbox only');
+    const toBob = await waitForWrapTo(bob.pkHex);
+
+    expect(toBob.relays).toEqual(expect.arrayContaining(bobInbox));
+    // The union is the bug: nothing of ours may ride along.
+    expect(toBob.relays).not.toContain(ACTIVE_RELAY);
+    expect(toBob.relays).toHaveLength(bobInbox.length);
+  });
+
+  it('falls back to the partner NIP-65 read relays when they have no kind-10050', async () => {
+    const alice = makeKeypair();
+    const bob = makeKeypair();
+    fake.state.published.push(nip65List(bob.sk, ['wss://bob-reads-here.example']));
+
+    const bridge = await loginAlice(alice);
+    await bridge.sendDirectMessage(bob.pkHex, 'nip65 fallback');
+    const toBob = await waitForWrapTo(bob.pkHex);
+
+    // Still relays *bob* chose, so the leak profile matches rung 1.
+    expect(toBob.relays).toEqual(['wss://bob-reads-here.example']);
+    expect(toBob.relays).not.toContain(ACTIVE_RELAY);
+  });
+
+  it('still delivers for a partner with no relay lists at all (delivery is never sacrificed)', async () => {
+    const alice = makeKeypair();
+    const bob = makeKeypair();
+
+    const bridge = await loginAlice(alice);
+    let last: Readonly<Record<string, ReadonlyArray<{ content: string; failed?: boolean; pending?: boolean }>>> = {};
+    bridge.subscribeDirectMessages((byPeer) => {
+      const out: Record<string, ReadonlyArray<{ content: string; failed?: boolean; pending?: boolean }>> = {};
+      for (const [k, v] of Object.entries(byPeer)) {
+        out[k] = v.map((m) => ({ content: m.content, failed: m.failed, pending: m.pending }));
+      }
+      last = out;
+    });
+
+    await bridge.sendDirectMessage(bob.pkHex, 'last resort');
+    const toBob = await waitForWrapTo(bob.pkHex);
+    await flush(40);
+
+    // Rung 3: our own relay, with its documented privacy cost — but the
+    // message reaches somewhere rather than nowhere.
+    expect(toBob.relays).toEqual([ACTIVE_RELAY]);
+    const thread = last[bob.pkHex] ?? [];
+    expect(thread).toHaveLength(1);
+    expect(thread[0].failed).toBeFalsy();
+    expect(thread[0].pending).toBeFalsy();
+  });
+
+  it('keeps the two copies off any shared relay when both parties have inbox lists', async () => {
+    const alice = makeKeypair();
+    const bob = makeKeypair();
+    fake.state.published.push(inboxList(bob.sk, ['wss://bob-inbox.example']));
+    fake.state.published.push(inboxList(alice.sk, ['wss://alice-inbox.example']));
+
+    const bridge = await loginAlice(alice);
+    await bridge.sendDirectMessage(bob.pkHex, 'unlinkable');
+    const toBob = await waitForWrapTo(bob.pkHex);
+    const toSelf = await waitForWrapTo(alice.pkHex);
+
+    expect(toBob.relays).toEqual(['wss://bob-inbox.example']);
+    // Our copy stays on relays we own — the active relay we advertise as our
+    // own kind-10050, plus whatever `subscribeIncomingDMs` widened onto — and
+    // never touches bob's infrastructure.
+    expect(toSelf.relays!.length).toBeGreaterThan(0);
+    for (const r of toSelf.relays!) {
+      expect([ACTIVE_RELAY, 'wss://alice-inbox.example']).toContain(r);
+    }
+    // No relay is in a position to pair the two same-sized wraps.
+    const shared = (toBob.relays ?? []).filter((r) => (toSelf.relays ?? []).includes(r));
+    expect(shared).toEqual([]);
+  });
+
+  it('publishes gift wraps without volunteering a NIP-42 identity', async () => {
+    const alice = makeKeypair();
+    const bob = makeKeypair();
+    fake.state.published.push(inboxList(bob.sk, ['wss://bob-inbox.example']));
+
+    const bridge = await loginAlice(alice);
+    await bridge.sendDirectMessage(bob.pkHex, 'anonymous publish');
+    await waitForWrapTo(bob.pkHex);
+    await flush(40);
+
+    const wrapAttempts = fake.state.publishAttempts.filter((a) => a.event.kind === 1059);
+    expect(wrapAttempts.length).toBeGreaterThan(0);
+    // AUTH would staple alice's real pubkey to an envelope built not to
+    // carry it. Nothing here may offer one up front.
+    for (const attempt of wrapAttempts) expect(attempt.authed).toBe(false);
+  });
+
+  it('escalates to an authenticated retry rather than dropping the message', async () => {
+    const alice = makeKeypair();
+    const bob = makeKeypair();
+    fake.state.published.push(inboxList(bob.sk, ['wss://bob-inbox.example']));
+
+    const bridge = await loginAlice(alice);
+    let last: Readonly<Record<string, ReadonlyArray<{ content: string; failed?: boolean }>>> = {};
+    bridge.subscribeDirectMessages((byPeer) => {
+      const out: Record<string, ReadonlyArray<{ content: string; failed?: boolean }>> = {};
+      for (const [k, v] of Object.entries(byPeer)) out[k] = v.map((m) => ({ content: m.content, failed: m.failed }));
+      last = out;
+    });
+
+    // Bob's inbox relay is one of the ones that will not take a gift wrap
+    // from a stranger. Privacy yields to the "never block a send" rule.
+    fake.state.rejectPublish = (ev, opts) =>
+      ev.kind === 1059 && !opts.authed ? 'auth-required: we only accept events from authenticated clients' : null;
+
+    await bridge.sendDirectMessage(bob.pkHex, 'delivered the hard way');
+    const toBob = await waitForWrapTo(bob.pkHex);
+    await flush(40);
+
+    expect(toBob.relays).toEqual(['wss://bob-inbox.example']);
+    const wrapAttempts = fake.state.publishAttempts.filter(
+      (a) => a.event.kind === 1059 && a.event.tags.some((t) => t[0] === 'p' && t[1] === bob.pkHex),
+    );
+    // Anonymous first, authenticated only after the relay refused.
+    expect(wrapAttempts[0].authed).toBe(false);
+    expect(wrapAttempts.some((a) => a.authed)).toBe(true);
+    const thread = last[bob.pkHex] ?? [];
+    expect(thread).toHaveLength(1);
+    expect(thread[0].failed).toBeFalsy();
+  });
+});
+

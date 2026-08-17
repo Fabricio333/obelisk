@@ -175,6 +175,19 @@ predictable:
 | DM read-state cursors + `inboxLastReadAt` (NIP-59 wraps) | **NIP-65 read+write union** |
 | Voice signaling / SFU RPC (kinds 25050, 31313, 31314) | Per-channel relay set (mesh: active relay; SFU: pinned trust set) |
 
+Publishing has one extra rule that reads do not, because a publish rides an
+**authenticated** socket:
+
+| Publish | Scope |
+|---|---|
+| NIP-17 gift wrap, recipient copy (kind 1059) | **Recipient's kind-10050 inbox only.** Falls to their NIP-65 read set, then — last resort — the active relay. Never a union: see `resolveGiftWrapRelays` and [docs/direct-messages.md](docs/direct-messages.md). |
+| NIP-17 gift wrap, self copy (kind 1059) | **Our own inbox only** (`this.relays` ∪ `myDmRelays`), minus any relay that just took the recipient's copy. |
+
+Gift wraps publish with `authMode: 'last-resort'` — never volunteer a NIP-42
+identity on the socket carrying an ephemeral-keyed envelope. A new
+DM-adjacent publish must pick an `authMode` deliberately, not inherit the
+default.
+
 When you add a new background subscription, decide upfront which row it
 belongs to. If it's not DMs, it goes on the active relay only — never on
 `useConfiguredRelays()`. Fanning out across configured relays opens
