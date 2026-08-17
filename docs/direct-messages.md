@@ -86,6 +86,10 @@ NIP-04 threads publish no self-copy and need none. Those events are authored by 
 
 ### Where a wrap goes
 
+> Full reasoning, the threat model, what this cannot fix, and the rules for
+> anyone changing DM routing: **[docs/dm-metadata-privacy.md](dm-metadata-privacy.md)**.
+> Read it before adding a relay to any publish target.
+
 Relay selection is a privacy control, not a delivery convenience. A kind-1059 is signed by a throwaway key so a relay learns only "some ephemeral key dropped a wrap for someone". Publishing that wrap to the relay the user is browsing destroys the guarantee: that socket is NIP-42-authenticated as the real sender, so the relay gets the true identity, the true send time, and — if the recipient reads there too — the sender-to-recipient edge.
 
 `resolveGiftWrapRelays` therefore walks a strictly ordered ladder and uses each rung **alone**, never unioned:

@@ -345,6 +345,7 @@ for where this sits relative to the bridgeCache.
 - SFU test peers — moved to obelisk-sfu repo (`scripts/test-peers/` there); spawn from the SFU admin UI
 - [docs/relay-layout-and-branding.md](docs/relay-layout-and-branding.md) — shared NIP-78 layout & branding; multi-author latest-wins, gated on group-admin union
 - [docs/relay-roles.md](docs/relay-roles.md) — operator-defined tiered roles (NIP-78 kind 30078); highest tier held is the badge shown in chat and the member list
+- [docs/dm-metadata-privacy.md](docs/dm-metadata-privacy.md) — why gift-wrapped DMs can still leak the social graph, the ordered relay ladder, AUTH modes, what cannot be fixed client-side, and the rules for changing DM routing
 - [docs/uploads.md](docs/uploads.md) — Blossom storage + URL format
 - [docs/cloudflare-tunnel.md](docs/cloudflare-tunnel.md) — `npm run dev:tunnel` exposes localhost:3000 at https://obelisk.fabri.lat
 - [docs/known-bugs.md](docs/known-bugs.md) — open bugs & tech debt
