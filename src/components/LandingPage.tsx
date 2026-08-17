@@ -425,7 +425,7 @@ export default function LandingPage() {
                 {t('hero.launchApp')}
               </button>
               <a
-                href="https://github.com/Fabricio333/obelisk"
+                href="https://github.com/obelisk-app/obelisk"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="lc-pill lc-pill-secondary text-base px-8 py-3 flex items-center justify-center gap-2"

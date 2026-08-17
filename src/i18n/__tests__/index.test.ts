@@ -31,6 +31,11 @@ describe('getTranslation', () => {
     const t = getTranslation('fr' as unknown as Locale);
     expect(t('hero.title')).toBe('Tus comunidades,');
   });
+
+  it('identifies Obelisk as the operator of its public relays', () => {
+    expect(getTranslation('en')('faq.q2.answer')).toContain('Obelisk operates two public relays');
+    expect(getTranslation('es')('faq.q2.answer')).toContain('Obelisk opera dos relays públicos');
+  });
 });
 
 describe('countryToLocale', () => {

@@ -3,7 +3,7 @@ title: What is Obelisk?
 description: Obelisk is a Discord-style group chat client with no backend. There's no database, no Obelisk server — your account is a Nostr keypair, your groups live on Nostr relays, and the app is just a frontend that signs and reads events.
 heroComponent: what-is-obelisk
 publishedAt: '2026-04-16'
-updatedAt: '2026-04-28'
+updatedAt: '2026-08-17'
 tags: [intro, nostr, identity, nip-29]
 ---
 
@@ -14,7 +14,7 @@ Obelisk is a chat client that looks and feels like Discord — servers in a left
 ## What that actually means
 
 - **No signup.** You log in with a Nostr key (NIP-07 extension or nsec). There is no email, no password, no Obelisk account to create or recover.
-- **No central server.** We don't run anything. You point the app at any NIP-29 relay you like — `wss://groups.fiatjaf.com` is the default, but you can add or replace it.
+- **No application server.** The client talks directly to NIP-29 relays. New installs include two public relays operated by Obelisk, and you can remove or replace either one.
 - **No database.** Channels, members, admins, kicks and bans aren't rows in our database — they're standard NIP-29 events the relay enforces.
 - **Your data is portable.** Switch relays, run your own, mirror your group across many. The app doesn't own anything.
 
@@ -23,7 +23,7 @@ Obelisk is a chat client that looks and feels like Discord — servers in a left
 Crypto communities, privacy nerds, open-source teams, hackathons, and anyone allergic to "verify your email / confirm your phone" forms. If you already use Nostr, Obelisk is a familiar Discord-style face for groups you may already be part of. If you don't, the login screen will make you a key in two clicks.
 
 <Callout type="info" title="No backend means">
-We can't ban you. We can't read your DMs. We can't lose your messages — because we never had them. The relay you choose is what holds the data, and you can always pick a different relay.
+The client has no account backend or message database. Relay operators can moderate public group content on their own relays, but they cannot read encrypted DMs without your keys. The relay you choose holds the group data, and you can always pick a different one.
 </Callout>
 
 ## What's working today

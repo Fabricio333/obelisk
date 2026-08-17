@@ -3,7 +3,7 @@ title: Traé tu propio relay
 description: Obelisk no tiene servidor central — en su lugar, te conectás a cualquier relay Nostr NIP-29 en el que confíes. Cada relay aparece como su propio servidor en la barra. Así funciona la UX multi-relay y por qué importa.
 heroComponent: wot
 publishedAt: '2026-04-16'
-updatedAt: '2026-04-28'
+updatedAt: '2026-08-17'
 tags: [relays, nip-29, sovereignty]
 ---
 
@@ -16,12 +16,12 @@ Cuando abrís la app vas a ver una barra lateral izquierda con uno o más ícono
 ## Por qué importa esto
 
 - **Sin vendor lock-in.** Mové tu comunidad a un relay distinto si no te gustan las políticas del actual. Tu clave, tus membresías de grupo, tus follows — todo portable.
-- **Sin deplatforming de plataforma.** No corremos ningún relay. No hay un "equipo de Obelisk" que te pueda banear de la red.
+- **Sin deplatforming en toda la red.** Obelisk opera dos relays públicos y solo puede moderar esos. Cualquier operador puede banearte de su relay, pero no de Nostr ni de un relay ajeno.
 - **Sin plataforma decidiendo quién puede hablar.** El operador del relay pone las reglas para ese relay. Si no te gustan, corré el tuyo (`strfry`, `nostr-rs-relay`, y otros soportan NIP-29).
 
 ## Cómo elegir un relay
 
-El default en la app es `wss://groups.fiatjaf.com` — un relay NIP-29 público corrido por el autor del protocolo. Funciona out of the box y está bien para probar.
+Las instalaciones nuevas actualmente incluyen `wss://public.obelisk.ar` y `wss://lacrypta-relay.obelisk.ar`, ambos operados por Obelisk. Podés quitar o reemplazar cualquiera, agregar cualquier relay NIP-29 o correr el tuyo.
 
 Para una comunidad real probablemente quieras una de estas opciones:
 
