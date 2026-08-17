@@ -175,6 +175,21 @@ async function waitForWrap(): Promise<NostrEvent> {
   );
 }
 
+/** Wait until `n` gift wraps have landed (the send publishes two: see below). */
+async function waitForWraps(n: number): Promise<NostrEvent[]> {
+  return vi.waitFor(
+    () => {
+      const wraps = fake.state.published.filter((e) => e.kind === 1059);
+      if (wraps.length < n) throw new Error(`only ${wraps.length} of ${n} gift wraps published`);
+      return wraps;
+    },
+    { timeout: 5000, interval: 5 },
+  );
+}
+
+const addressedTo = (pubkey: string) => (ev: NostrEvent) =>
+  ev.tags.some((t) => t[0] === 'p' && t[1] === pubkey);
+
 /** Peel the gift wrap with the recipient's classic key to inspect the seal. */
 function openWrap(wrap: NostrEvent, recipientSk: Uint8Array): NostrEvent {
   const key = nip44.utils.getConversationKey(recipientSk, wrap.pubkey);
@@ -378,6 +393,116 @@ describe('post-quantum DM sending', () => {
     // Recorded honestly as classic, not as the protection we asked for.
     expect(settled[0].pq).toBe(false);
     expect(settled[0].failed).toBeFalsy();
+  });
+});
+
+/**
+ * NIP-17 publishes a second gift wrap addressed to the sender. Its seal is
+ * encrypted *to us*, so its post-quantum envelope has to be encapsulated to
+ * our own ML-KEM key: built with the recipient's, it would need the peer's
+ * secret to open and we would have published a copy of our own message that
+ * we can never read again.
+ */
+describe('post-quantum DM self-copy', () => {
+  it('encapsulates the self-copy to our own KEM key, so we can still read it', async () => {
+    const { getBridge } = await import('./client');
+    const { setPreference } = await import('@/lib/preferences');
+    const { PrivateKeySigner } = await import('@nostr-wot/signers');
+    const { unwrapGiftWrap } = await import('@nostr-wot/dm');
+
+    const alice = makeKeypair();
+    const bob = makeKeypair();
+    const alicePq = makePqKeys(16);
+    const bobPq = makePqKeys(17);
+    publishAttestation(alice.pkHex, alice.sk, alicePq);
+    publishAttestation(bob.pkHex, bob.sk, bobPq);
+    await installExtension({ sk: alice.sk, pkHex: alice.pkHex, pqKem: alicePq.kem, schemes: ['nip44', 'pq'] });
+
+    setPreference('directMessagesEnabled', true);
+    setPreference('postQuantumEnabled', true);
+    const bridge = await getBridge();
+    await bridge.loginWithNip07(alice.pkHex);
+    bridge.subscribeDirectMessages(() => {});
+    await bridge.sendDirectMessage(bob.pkHex, 'both copies protected');
+    const wraps = await waitForWraps(2);
+
+    const toSelf = wraps.find(addressedTo(alice.pkHex))!;
+    const toBob = wraps.find(addressedTo(bob.pkHex))!;
+    expect(toSelf).toBeDefined();
+    expect(toBob).toBeDefined();
+    // Both seals are hybrid envelopes.
+    expect(isPqEnvelope(openWrap(toSelf, alice.sk).content)).toBe(true);
+    expect(isPqEnvelope(openWrap(toBob, bob.sk).content)).toBe(true);
+
+    // The load-bearing assertion: alice's own ML-KEM secret opens her copy.
+    // Had it been encapsulated to bob's key this would throw.
+    const aliceSigner = new PrivateKeySigner(alice.sk, { pqKem: alicePq.kem });
+    const { message, senderPubkey } = await unwrapGiftWrap(aliceSigner, toSelf);
+    expect(senderPubkey).toBe(alice.pkHex);
+    expect(message.content).toBe('both copies protected');
+    expect(message.tags).toContainEqual(['p', bob.pkHex]);
+
+    // Bob's ML-KEM secret must NOT open it — the two copies are separately
+    // encapsulated, they are not one envelope with two labels.
+    const bobSigner = new PrivateKeySigner(bob.sk, { pqKem: bobPq.kem });
+    await expect(unwrapGiftWrap(bobSigner, toSelf)).rejects.toThrow();
+  });
+
+  it('keeps the self-copy classic when the delivered copy was classic', async () => {
+    // Sealing our own copy post-quantum while the message actually travelled
+    // classic would make it read as protected after a reload, when it never
+    // was. Understating is the only safe direction here.
+    const { getBridge } = await import('./client');
+    const { setPreference } = await import('@/lib/preferences');
+
+    const alice = makeKeypair();
+    const bob = makeKeypair();
+    const alicePq = makePqKeys(18);
+    publishAttestation(alice.pkHex, alice.sk, alicePq);
+    // Bob publishes no attestation, so the delivered copy is classic.
+    await installExtension({ sk: alice.sk, pkHex: alice.pkHex, pqKem: alicePq.kem, schemes: ['nip44', 'pq'] });
+
+    setPreference('directMessagesEnabled', true);
+    setPreference('postQuantumEnabled', true);
+    const bridge = await getBridge();
+    await bridge.loginWithNip07(alice.pkHex);
+    bridge.subscribeDirectMessages(() => {});
+    await bridge.sendDirectMessage(bob.pkHex, 'classic both ways');
+    const wraps = await waitForWraps(2);
+
+    const toSelf = wraps.find(addressedTo(alice.pkHex))!;
+    expect(isPqEnvelope(openWrap(toSelf, alice.sk).content)).toBe(false);
+  });
+
+  it('still reports pq: true after the self-copy is ingested', async () => {
+    // The mark a user sees must be the same before and after a reload.
+    const { getBridge } = await import('./client');
+    const { setPreference } = await import('@/lib/preferences');
+
+    const alice = makeKeypair();
+    const bob = makeKeypair();
+    const alicePq = makePqKeys(19);
+    publishAttestation(alice.pkHex, alice.sk, alicePq);
+    publishAttestation(bob.pkHex, bob.sk, makePqKeys(20));
+    await installExtension({ sk: alice.sk, pkHex: alice.pkHex, pqKem: alicePq.kem, schemes: ['nip44', 'pq'] });
+
+    setPreference('directMessagesEnabled', true);
+    setPreference('postQuantumEnabled', true);
+    const bridge = await getBridge();
+    await bridge.loginWithNip07(alice.pkHex);
+
+    let last: Record<string, ReadonlyArray<{ content: string; pq?: boolean; outgoing: boolean; pending?: boolean }>> = {};
+    bridge.subscribeDirectMessages((byPeer) => { last = byPeer as typeof last; });
+
+    await bridge.sendDirectMessage(bob.pkHex, 'still protected on reload');
+    await waitForWraps(2);
+    await flush(60);
+
+    const thread = last[bob.pkHex] ?? [];
+    // One message, not two: the ingested self-copy collapses onto the local
+    // copy via the shared rumor id.
+    expect(thread).toHaveLength(1);
+    expect(thread[0]).toMatchObject({ outgoing: true, pq: true });
   });
 });
 

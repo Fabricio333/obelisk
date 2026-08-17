@@ -57,7 +57,41 @@ describe('resolvePqSend', () => {
 
     const plan = await resolvePqSend({ myPubkey: ME, loginMethod: 'nip07', recipientPubkey: PEER });
 
-    expect(plan).toEqual({ recipientKemKey: KEM_B64 });
+    expect(plan).toEqual({ recipientKemKey: KEM_B64, selfKemKey: KEM_B64 });
+  });
+
+  it('carries our own KEM key too, for the sender-addressed second wrap', async () => {
+    // The self-copy's seal is encrypted *to us*, so its envelope has to be
+    // encapsulated to our key. Sealing it with the peer's would publish a
+    // copy of our own message that only the peer could ever open.
+    withSupportingExtension();
+    const myKem = new Uint8Array(32).fill(9);
+    getAttestation.mockImplementation(async (pk: string) =>
+      pk === ME ? attestation({ pubkey: ME, kem: myKem }) : attestation(),
+    );
+
+    const plan = await resolvePqSend({ myPubkey: ME, loginMethod: 'nip07', recipientPubkey: PEER });
+
+    expect(plan?.recipientKemKey).toBe(KEM_B64);
+    expect(plan?.selfKemKey).toBe(Buffer.from(myKem).toString('base64'));
+  });
+
+  it('leaves selfKemKey null when our own attestation carries no KEM key', async () => {
+    // The self-copy then falls back to a classic seal — readable, just not
+    // post-quantum — rather than being unpublishable or unreadable.
+    withSupportingExtension();
+    let calls = 0;
+    getAttestation.mockImplementation(async (pk: string) => {
+      // `selfPqState` reads our attestation first (usable), then the send
+      // path reads it again; simulate it going stale in between.
+      if (pk !== ME) return attestation();
+      calls += 1;
+      return calls === 1 ? attestation({ pubkey: ME }) : null;
+    });
+
+    const plan = await resolvePqSend({ myPubkey: ME, loginMethod: 'nip07', recipientPubkey: PEER });
+
+    expect(plan).toEqual({ recipientKemKey: KEM_B64, selfKemKey: null });
   });
 
   it('sends classic when the postQuantumEnabled preference is off', async () => {

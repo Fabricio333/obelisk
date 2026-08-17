@@ -26,6 +26,12 @@ const fake = vi.hoisted(() => {
   const state = {
     published: [] as Array<NostrEvent & { relays?: string[] }>,
     subscriptions: [] as Array<{ filter: Record<string, unknown>; sink: (ev: NostrEvent) => void }>,
+    /**
+     * Per-event publish veto. Returning a string rejects that publish with it
+     * as the relay's reason, so a test can fail exactly one of the two gift
+     * wraps a NIP-17 send produces.
+     */
+    rejectPublish: null as null | ((ev: NostrEvent) => string | null),
   };
 
   function matches(f: Record<string, unknown>, ev: { kind: number; pubkey: string; tags: string[][] }): boolean {
@@ -54,6 +60,8 @@ const fake = vi.hoisted(() => {
       return { close: () => { state.subscriptions = state.subscriptions.filter((s) => s !== sub); } };
     }
     publish(relays: string[], event: NostrEvent): Promise<string>[] {
+      const reason = state.rejectPublish?.(event);
+      if (reason) return [Promise.reject(new Error(reason))];
       state.published.push({ ...event, relays });
       queueMicrotask(() => {
         for (const sub of state.subscriptions) if (matches(sub.filter, event)) sub.sink(event);
@@ -162,6 +170,7 @@ async function waitForWrap(): Promise<NostrEvent & { relays?: string[] }> {
 beforeEach(() => {
   fake.state.published = [];
   fake.state.subscriptions = [];
+  fake.state.rejectPublish = null;
   bunkerFake.remoteSk = null;
   vi.resetModules();
   delete (window as unknown as { nostr?: unknown }).nostr;
@@ -173,7 +182,20 @@ afterEach(async () => {
   getBridgeImpl()?.dispose();
   fake.state.published = [];
   fake.state.subscriptions = [];
+  fake.state.rejectPublish = null;
 });
+
+/** Wait until `n` gift wraps have landed on the fake relay. */
+async function waitForWraps(n: number): Promise<Array<NostrEvent & { relays?: string[] }>> {
+  return vi.waitFor(
+    () => {
+      const wraps = fake.state.published.filter((e) => e.kind === 1059);
+      if (wraps.length < n) throw new Error(`only ${wraps.length} of ${n} gift wraps published`);
+      return wraps;
+    },
+    { timeout: 5000, interval: 5 },
+  );
+}
 
 describe('NIP-17 send/receive', () => {
   it('sends NIP-17 by default and routes to the recipient\'s published inbox relays', async () => {
@@ -199,13 +221,19 @@ describe('NIP-17 send/receive', () => {
 
     await bridge.sendDirectMessage(bob.pkHex, 'meet me at the obelisk');
     await waitForWrap();
+    await vi.waitFor(() => {
+      if (fake.state.published.filter((e) => e.kind === 1059).length < 2) {
+        throw new Error('self-copy not published yet');
+      }
+    }, { timeout: 5000, interval: 5 });
 
     const wraps = fake.state.published.filter((e) => e.kind === 1059);
-    expect(wraps).toHaveLength(1);
+    const toBob = wraps.find((w) => w.tags.some((t) => t[0] === 'p' && t[1] === bob.pkHex));
+    expect(toBob).toBeDefined();
     // Routed to bob's advertised inbox, not just alice's own relay.
-    expect(wraps[0].relays).toContain(bobInboxRelay);
+    expect(toBob!.relays).toContain(bobInboxRelay);
     // Wire content is opaque — no plaintext, no NIP-04 fallback.
-    expect(wraps[0].content).not.toContain('meet me');
+    for (const w of wraps) expect(w.content).not.toContain('meet me');
     expect(fake.state.published.filter((e) => e.kind === 4)).toHaveLength(0);
   });
 
@@ -351,6 +379,189 @@ describe('NIP-17 signer adapter — all three login methods', () => {
     const { message, senderPubkey } = await unwrapGiftWrap(bobSigner, wrap);
     expect(senderPubkey).toBe(alice.pkHex);
     expect(message.content).toBe('from bunker');
+  });
+});
+
+/**
+ * The sender-addressed second gift wrap.
+ *
+ * A kind-1059 is signed by a fresh ephemeral key, so no `authors: [me]`
+ * filter can ever find our own sends. Without a wrap addressed to ourselves,
+ * an outgoing NIP-17 message lives only in the session that sent it: reload
+ * and it is gone, while the recipient keeps it permanently.
+ */
+describe('NIP-17 self-copy', () => {
+  async function loginAlice(alice: ReturnType<typeof makeKeypair>) {
+    const { getBridge } = await import('./client');
+    const { setPreference } = await import('@/lib/preferences');
+    const bridge = await getBridge();
+    await bridge.loginWithNsec(alice.skHex, alice.pkHex);
+    setPreference('directMessagesEnabled', true);
+    return bridge;
+  }
+
+  it('publishes two wraps: different ephemeral keys, different recipients, one shared rumor', async () => {
+    const { PrivateKeySigner } = await import('@nostr-wot/signers');
+    const { unwrapGiftWrap } = await import('@nostr-wot/dm');
+    const alice = makeKeypair();
+    const bob = makeKeypair();
+
+    const bridge = await loginAlice(alice);
+    bridge.subscribeDirectMessages(() => {});
+    await bridge.sendDirectMessage(bob.pkHex, 'two copies, one message');
+    const wraps = await waitForWraps(2);
+
+    expect(wraps).toHaveLength(2);
+    const pTags = wraps.map((w) => w.tags.find((t) => t[0] === 'p')?.[1]).sort();
+    expect(pTags).toEqual([alice.pkHex, bob.pkHex].sort());
+
+    // Each wrap gets its own ephemeral key. Sharing one would let any relay
+    // link the sender's copy to the recipient's, which is exactly the
+    // metadata protection NIP-17 exists to provide.
+    expect(wraps[0].pubkey).not.toBe(wraps[1].pubkey);
+    expect(wraps.map((w) => w.pubkey)).not.toContain(alice.pkHex);
+    expect(wraps.map((w) => w.pubkey)).not.toContain(bob.pkHex);
+
+    // Same rumor in both, byte for byte: same id, same author, same content.
+    // That shared id is what deduplicates the copies on ingest.
+    const toBob = wraps.find((w) => w.tags.some((t) => t[0] === 'p' && t[1] === bob.pkHex))!;
+    const toSelf = wraps.find((w) => w.tags.some((t) => t[0] === 'p' && t[1] === alice.pkHex))!;
+    const bobsView = await unwrapGiftWrap(new PrivateKeySigner(bob.sk), toBob);
+    const ourView = await unwrapGiftWrap(new PrivateKeySigner(alice.sk), toSelf);
+    expect(ourView.message.id).toBe(bobsView.message.id);
+    expect(ourView.message.content).toBe('two copies, one message');
+    expect(ourView.senderPubkey).toBe(alice.pkHex);
+    // The self-copy still names bob as the chat partner, which is how
+    // `ingestIncomingGiftWrap` recovers the counterparty for an outgoing wrap.
+    expect(ourView.message.tags).toContainEqual(['p', bob.pkHex]);
+  });
+
+  it('renders the ingested self-copy once, not twice, alongside the local copy', async () => {
+    const alice = makeKeypair();
+    const bob = makeKeypair();
+
+    const bridge = await loginAlice(alice);
+    let last: Readonly<Record<string, ReadonlyArray<{ id: string; content: string; outgoing: boolean; pending?: boolean; protocol?: string }>>> = {};
+    bridge.subscribeDirectMessages((byPeer) => {
+      const out: Record<string, ReadonlyArray<{ id: string; content: string; outgoing: boolean; pending?: boolean; protocol?: string }>> = {};
+      for (const [k, v] of Object.entries(byPeer)) {
+        out[k] = v.map((m) => ({ id: m.id, content: m.content, outgoing: m.outgoing, pending: m.pending, protocol: m.protocol }));
+      }
+      last = out;
+    });
+
+    await bridge.sendDirectMessage(bob.pkHex, 'exactly once');
+    await waitForWraps(2);
+    await flush(40);
+
+    const thread = last[bob.pkHex] ?? [];
+    expect(thread).toHaveLength(1);
+    expect(thread[0]).toMatchObject({ content: 'exactly once', outgoing: true, protocol: 'nip17' });
+    expect(thread[0].pending).toBeFalsy();
+    // Keyed on the rumor id, not on either gift wrap's ephemeral id — that
+    // is what lets the two copies collapse into one message.
+    const wraps = fake.state.published.filter((e) => e.kind === 1059);
+    expect(wraps.map((w) => w.id)).not.toContain(thread[0].id);
+    // Nothing leaked into a thread keyed on our own pubkey.
+    expect(last[alice.pkHex]).toBeUndefined();
+  });
+
+  it('restores the sent message after a reload', async () => {
+    // The actual bug: everything the sender sees is in-memory today, so a
+    // reload drops their own history. Log out (which clears every DM store)
+    // and log back in against the same relay: the message must come back,
+    // outgoing, in bob's thread.
+    const alice = makeKeypair();
+    const bob = makeKeypair();
+
+    const bridge = await loginAlice(alice);
+    bridge.subscribeDirectMessages(() => {});
+    await bridge.sendDirectMessage(bob.pkHex, 'survives a reload');
+    await waitForWraps(2);
+    await flush(40);
+
+    await bridge.logout();
+
+    const { setPreference } = await import('@/lib/preferences');
+    await bridge.loginWithNsec(alice.skHex, alice.pkHex);
+    setPreference('directMessagesEnabled', true);
+    let last: Readonly<Record<string, ReadonlyArray<{ content: string; outgoing: boolean; protocol?: string }>>> = {};
+    bridge.subscribeDirectMessages((byPeer) => {
+      const out: Record<string, ReadonlyArray<{ content: string; outgoing: boolean; protocol?: string }>> = {};
+      for (const [k, v] of Object.entries(byPeer)) {
+        out[k] = v.map((m) => ({ content: m.content, outgoing: m.outgoing, protocol: m.protocol }));
+      }
+      last = out;
+    });
+
+    await vi.waitFor(
+      () => {
+        if ((last[bob.pkHex] ?? []).length === 0) throw new Error('history not restored yet');
+      },
+      { timeout: 5000, interval: 5 },
+    );
+
+    expect(last[bob.pkHex]).toEqual([
+      { content: 'survives a reload', outgoing: true, protocol: 'nip17' },
+    ]);
+  });
+
+  it('still succeeds the send when the self-copy publish fails', async () => {
+    const alice = makeKeypair();
+    const bob = makeKeypair();
+
+    const bridge = await loginAlice(alice);
+    let last: Readonly<Record<string, ReadonlyArray<{ content: string; pending?: boolean; failed?: boolean }>>> = {};
+    bridge.subscribeDirectMessages((byPeer) => {
+      const out: Record<string, ReadonlyArray<{ content: string; pending?: boolean; failed?: boolean }>> = {};
+      for (const [k, v] of Object.entries(byPeer)) {
+        out[k] = v.map((m) => ({ content: m.content, pending: m.pending, failed: m.failed }));
+      }
+      last = out;
+    });
+
+    // Reject only the wrap addressed to ourselves. The recipient's copy is
+    // the message; losing ours degrades history, it does not lose the send.
+    fake.state.rejectPublish = (ev) =>
+      ev.kind === 1059 && ev.tags.some((t) => t[0] === 'p' && t[1] === alice.pkHex)
+        ? 'blocked: not accepting self-addressed wraps'
+        : null;
+
+    await bridge.sendDirectMessage(bob.pkHex, 'delivered anyway');
+    await waitForWraps(1);
+    await flush(40);
+
+    const thread = last[bob.pkHex] ?? [];
+    expect(thread).toHaveLength(1);
+    expect(thread[0].content).toBe('delivered anyway');
+    expect(thread[0].failed).toBeFalsy();
+    expect(thread[0].pending).toBeFalsy();
+    // Only the recipient's copy made it to the relay.
+    expect(fake.state.published.filter((e) => e.kind === 1059)).toHaveLength(1);
+  });
+
+  it('does not publish a self-copy for a NIP-04 thread', async () => {
+    const { useDMStore } = await import('@/store/dm');
+    const alice = makeKeypair();
+    const bob = makeKeypair();
+
+    const bridge = await loginAlice(alice);
+    bridge.subscribeDirectMessages(() => {});
+    useDMStore.setState({ protocolOverrides: { [bob.pkHex]: 'nip04' } });
+
+    await bridge.sendDirectMessage(bob.pkHex, 'legacy thread');
+    await vi.waitFor(
+      () => {
+        if (!fake.state.published.some((e) => e.kind === 4)) throw new Error('no kind 4 yet');
+      },
+      { timeout: 5000, interval: 5 },
+    );
+    await flush(40);
+
+    // NIP-04 needs no self-copy: it is authored by us, so the `authors: [me]`
+    // subscription already finds it.
+    expect(fake.state.published.filter((e) => e.kind === 1059)).toHaveLength(0);
+    useDMStore.setState({ protocolOverrides: {} });
   });
 });
 

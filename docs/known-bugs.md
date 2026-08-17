@@ -26,10 +26,6 @@ Canonical list of open bugs and tech debt in Obelisk. Fixes are tracked here unt
 - **No speaking detector** — voice tiles in `VoiceRoom.tsx` don't react to voice activity because there's no per-peer `AnalyserNode` sampling RMS off incoming audio. Local mute state is reflected; actual speaking is not. Port the `SpeakingDetector` (FFT 512, 20 Hz sampling, threshold ~0.02, 400 ms hangover) and feed `setSpeaking(pubkey, speaking)` into `useVoiceStore`.
 
 
-## Direct messages
-
-- **Outgoing NIP-17 messages vanish on reload** — `publishDirectMessage` (`src/lib/nostr-bridge/client.ts`) publishes exactly one kind-1059, addressed to the recipient. NIP-17 expects a *second* wrap addressed to the sender, which is how a sender's own outgoing history survives a reload or reaches their other devices. Obelisk sends none, caches no DM events, and cannot subscribe to its own wraps (they are signed by a fresh ephemeral key per message, so there is no "authored by me" filter). The result: an outgoing NIP-17 message is visible only in the session that sent it, while the recipient keeps it permanently. `ingestIncomingGiftWrap` already handles the self-copy shape (`outgoing === true`, real recipient from the rumor's `p` tag), so the receive half is done — the fix is to seal and publish a second wrap to `me` and route it to our own kind-10050. NIP-04 threads are unaffected, since the `authors: [me]` filter picks those up.
-
 ## Notifications
 
 The read-state foundation (server-side `lastReadAt`, in-app toasts via `ToastStack`, unread bullets, "new messages" separator, favicon badge, title counter, bech32 + reply mention detection via `extractMentionPubkeys`) is built but buggy in practice. Known issues:

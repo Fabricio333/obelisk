@@ -1,5 +1,5 @@
 /** Relay-only nostr-tools bridge singleton. */
-import { SimplePool, type Filter, type Event as NostrEvent, type EventTemplate, type UnsignedEvent, type VerifiedEvent, finalizeEvent, getPublicKey, nip04 } from 'nostr-tools';
+import { SimplePool, type Filter, type Event as NostrEvent, type EventTemplate, type UnsignedEvent, type VerifiedEvent, finalizeEvent, getEventHash, getPublicKey, nip04 } from 'nostr-tools';
 import {
   KIND_EMOJI_FAVORITES,
   KIND_EMOJI_SET,
@@ -3079,7 +3079,22 @@ export class BridgeImpl {
       if (!me) throw new Error('Not logged in');
       const signer = this.getDmSigner();
       if (!signer) throw new Error('Not logged in');
-      const inner = buildChatMessage(me, recipientPubkey, content);
+      // ONE rumor, sealed twice — once for the recipient, once for us (see
+      // `publishSelfGiftWrapCopy`). The rumor's id is what deduplicates the
+      // two copies on ingest, so the second wrap must reuse this exact
+      // object; a second `buildChatMessage` call would stamp a different
+      // `created_at` and hash to a different id, and our own copy would come
+      // back from the relay as a second message in the thread.
+      //
+      // The timestamp is pinned to the one the optimistic placeholder already
+      // committed to, rather than `buildChatMessage`'s own `Date.now()`, so
+      // the placeholder, the finalized local copy and the self-copy that
+      // comes back off the relay all agree to the second.
+      const inner: UnsignedEvent = {
+        ...buildChatMessage(me, recipientPubkey, content),
+        created_at: createdAt,
+      };
+      const rumorId = getEventHash(inner);
       // Post-quantum when the conversation qualifies, classic otherwise.
       // `resolvePqSend` never throws and returns null for every negative
       // case, so this cannot block a send.
@@ -3118,15 +3133,100 @@ export class BridgeImpl {
       this.replacePendingDM(
         recipientPubkey,
         clientTag,
-        // Use our own pre-fuzz `createdAt`, NOT `wrap.created_at` — NIP-17
-        // fuzzes both the seal's and the wrap's timestamps up to 2 days into
-        // the past for privacy, so the wrap's own timestamp would make the
-        // just-sent message appear to have been sent days ago.
-        { id: wrap.id, createdAt, protocol: 'nip17', pq },
+        // The *rumor* id, not `wrap.id`. The gift wrap's id belongs to the
+        // ephemeral-keyed envelope and differs between the recipient's copy
+        // and ours, so keying the thread on it would let our own self-copy
+        // render alongside this one. The rumor id is the same in both wraps
+        // and on every other device, which is exactly what `ingestDM`'s
+        // `existing.some(m => m.id === dm.id)` needs to dedupe.
+        //
+        // `createdAt` is our own pre-fuzz value, NOT `wrap.created_at` —
+        // NIP-17 fuzzes both the seal's and the wrap's timestamps up to 2
+        // days into the past for privacy, so the wrap's own timestamp would
+        // make the just-sent message appear to have been sent days ago.
+        { id: rumorId, createdAt, protocol: 'nip17', pq },
         content,
       );
+      // Second wrap, addressed to us. Deliberately after the recipient's
+      // copy has been published and the thread settled: this is history
+      // durability, not delivery, and it must never gate the send.
+      await this.publishSelfGiftWrapCopy(me, inner, pq ? pqPlan?.selfKemKey ?? null : null);
     } catch {
       this.markDMFailed(recipientPubkey, clientTag);
+    }
+  }
+
+  /**
+   * Publish the sender-addressed second gift wrap NIP-17 expects.
+   *
+   * A kind-1059 is signed by a fresh ephemeral key, so there is no
+   * `authors: [me]` filter that can ever find our own sends the way the
+   * NIP-04 path does. Without this copy an outgoing NIP-17 message lives only
+   * in the session that sent it: reload, or open Obelisk on another device,
+   * and the sender's own history is gone while the recipient keeps it
+   * permanently. `ingestIncomingGiftWrap` already handles the shape this
+   * produces (`outgoing === true`, real counterparty read off the rumor's
+   * `p` tag).
+   *
+   * Three properties this has to preserve:
+   *
+   * - **Same rumor.** `inner` is the object the recipient's wrap sealed, so
+   *   both copies carry the same rumor id and `ingestDM` dedupes ours against
+   *   the local copy `replacePendingDM` already wrote.
+   * - **Fresh ephemeral key.** `sealAndGiftWrap` generates one per call, so
+   *   the two wraps share no key material. Reusing one would let any relay
+   *   link the sender's copy to the recipient's and undo the metadata
+   *   protection that is the whole point of NIP-17.
+   * - **Never fails the send.** The recipient's copy is the message; losing
+   *   ours degrades history only. Every failure here is swallowed and logged
+   *   through the same relay-debug channel partial publish failures use.
+   *
+   * `selfKemKey` is our *own* ML-KEM encapsulation key, and is only ever
+   * non-null when the recipient's copy actually went out post-quantum. Two
+   * asymmetries drive that: sealing to ourselves with the peer's key would
+   * produce an envelope only the peer could open, and sealing ours
+   * post-quantum when the delivered copy was classic would make the message
+   * read as protected after a reload when it never was.
+   */
+  private async publishSelfGiftWrapCopy(
+    me: string,
+    inner: UnsignedEvent,
+    selfKemKey: string | null,
+  ): Promise<void> {
+    try {
+      const signer = this.getDmSigner();
+      if (!signer) return;
+      let wrap: NostrEvent;
+      if (selfKemKey) {
+        try {
+          wrap = await sealAndGiftWrap(signer, me, inner, {
+            pq: { scheme: 'pq', recipientKemKey: selfKemKey },
+          });
+        } catch {
+          // Same rule as the recipient's copy: never let a refused
+          // post-quantum seal cost us the message. A classic seal addressed
+          // to ourselves is ordinary NIP-44 self-ECDH and stays readable.
+          wrap = await sealAndGiftWrap(signer, me, inner);
+        }
+      } else {
+        wrap = await sealAndGiftWrap(signer, me, inner);
+      }
+      // Our own NIP-17 inbox (kind 10050) — the same relays
+      // `subscribeIncomingDMs` listens on for wraps addressed to us, which is
+      // what makes this copy come back after a reload. `myDmRelays` carries
+      // the NIP-65/NIP-17 set already discovered for this session.
+      const fallbackRelays = Array.from(new Set([...this.relays, ...this.myDmRelays]));
+      const inboxRelays = await this.fetchPartnerInboxRelays(me, fallbackRelays);
+      // `quiet`: the user already saw one "Publishing" entry for this
+      // message, and a second one for a copy addressed to themselves reads
+      // as the message being sent twice.
+      await this.publishSignedEvent(wrap, inboxRelays, { quiet: true });
+    } catch (e) {
+      pushRelayDebug({
+        kind: 'dm-self-copy-failed',
+        eventKind: KIND_GIFT_WRAP,
+        reason: e instanceof Error ? e.message : String(e),
+      });
     }
   }
 
@@ -5988,10 +6088,12 @@ export class BridgeImpl {
     const filterIn: Filter = { kinds: [KIND_DIRECT_MESSAGE], '#p': [me], limit: 200 };
     const filterOut: Filter = { kinds: [KIND_DIRECT_MESSAGE], authors: [me], limit: 200 };
     // NIP-17 gift wraps addressed to us. There is no equivalent "from me"
-    // filter — the wrap is signed by a fresh ephemeral key per message, not
-    // by our own pubkey, so our own sends never show up here (matches
-    // `@nostr-wot/dm`'s own `sendDM`, which relies on the optimistic-send
-    // placeholder rather than a self-addressed copy for the sender's view).
+    // filter and there cannot be one — every wrap is signed by a fresh
+    // ephemeral key, not by our own pubkey. That is precisely why the send
+    // path publishes a second wrap addressed to us
+    // (`publishSelfGiftWrapCopy`): this one filter is how our own outgoing
+    // history comes back after a reload, and how it reaches our other
+    // devices.
     const filterWraps: Filter = { kinds: [KIND_GIFT_WRAP], '#p': [me], limit: 200 };
     for (const f of [filterIn, filterOut]) {
       const sub = this.subscribeWatched(this.relays, f, (ev) => this.ingestIncomingDM(ev));
