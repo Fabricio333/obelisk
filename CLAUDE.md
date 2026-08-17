@@ -175,6 +175,20 @@ predictable:
 | DM read-state cursors + `inboxLastReadAt` (NIP-59 wraps) | **NIP-65 read+write union** |
 | Voice signaling / SFU RPC (kinds 25050, 31313, 31314) | Per-channel relay set (mesh: active relay; SFU: pinned trust set) |
 
+Publishing has one extra rule that reads do not, because a publish rides an
+**authenticated** socket:
+
+| Publish | Scope |
+|---|---|
+| NIP-17 gift wrap, recipient copy (kind 1059) | **Recipient's kind-10050 inbox only.** Falls to their NIP-65 read set, then — last resort — the active relay. Never a union: see `resolveGiftWrapRelays` and [docs/direct-messages.md](docs/direct-messages.md). |
+| NIP-17 gift wrap, self copy (kind 1059) | **Our own inbox only** (`this.relays` ∪ `myDmRelays`), minus any relay that just took the recipient's copy. |
+| Own NIP-17 inbox list (kind 10050) | NIP-65 read+write union + active relay, with `authMode: 'never'`. |
+
+Gift wraps publish with `authMode: 'last-resort'` — never volunteer a NIP-42
+identity on the socket carrying an ephemeral-keyed envelope. A new
+DM-adjacent publish must pick an `authMode` deliberately, not inherit the
+default.
+
 When you add a new background subscription, decide upfront which row it
 belongs to. If it's not DMs, it goes on the active relay only — never on
 `useConfiguredRelays()`. Fanning out across configured relays opens
@@ -331,6 +345,7 @@ for where this sits relative to the bridgeCache.
 - SFU test peers — moved to obelisk-sfu repo (`scripts/test-peers/` there); spawn from the SFU admin UI
 - [docs/relay-layout-and-branding.md](docs/relay-layout-and-branding.md) — shared NIP-78 layout & branding; multi-author latest-wins, gated on group-admin union
 - [docs/relay-roles.md](docs/relay-roles.md) — operator-defined tiered roles (NIP-78 kind 30078); highest tier held is the badge shown in chat and the member list
+- [docs/dm-metadata-privacy.md](docs/dm-metadata-privacy.md) — why gift-wrapped DMs can still leak the social graph, the ordered relay ladder, AUTH modes, what cannot be fixed client-side, and the rules for changing DM routing
 - [docs/uploads.md](docs/uploads.md) — Blossom storage + URL format
 - [docs/cloudflare-tunnel.md](docs/cloudflare-tunnel.md) — `npm run dev:tunnel` exposes localhost:3000 at https://obelisk.fabri.lat
 - [docs/known-bugs.md](docs/known-bugs.md) — open bugs & tech debt

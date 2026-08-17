@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import Link from 'next/link';
 import { hexToNpub } from '@nostr-wot/data';
-import { nostrActions, useSignerReady, useUserMetadata as useProfile } from '@/lib/nostr-bridge';
+import { nostrActions, useMyLoginMethod, useMyPubkey, useSignerReady, useUserMetadata as useProfile } from '@/lib/nostr-bridge';
 import BlossomImageInput from '@/components/BlossomImageInput';
 import { usePreferences, setPreference } from '@/lib/preferences';
 import { setDmOptInEnabled } from '@/lib/dm/opt-in';
@@ -17,6 +18,8 @@ import UserAvatar from '@/components/UserAvatar';
 import ModalShell from '@/components/ModalShell';
 import MediaLibraryModal from '@/components/media/MediaLibraryModal';
 import { clearAllClientCacheExceptSession } from '@/lib/nostr-bridge/cache-clear';
+import { selfPqState, type SelfPqState } from '@/lib/pq/capability';
+import { guidesHref } from '@/lib/guide-urls';
 import { useTranslation } from '@/i18n/context';
 
 interface UserPanelProps {
@@ -481,6 +484,15 @@ export function PreferencesPanel() {
         checked={prefs.directMessagesEnabled}
         onChange={setDmOptInEnabled}
       />
+      <div>
+        <ToggleRow
+          label={t('settings.postQuantum')}
+          description={t('settings.postQuantumHint')}
+          checked={prefs.postQuantumEnabled}
+          onChange={(v) => setPreference('postQuantumEnabled', v)}
+        />
+        <PostQuantumStatusRow />
+      </div>
       <WotSettings />
       <LocalDataSection />
       <section className="space-y-3 border-t border-lc-border pt-4" data-testid="desktop-developer-settings">
@@ -494,6 +506,78 @@ export function PreferencesPanel() {
         <DeveloperSignatureTest />
       </section>
     </div>
+  );
+}
+
+/**
+ * Read-only status line beneath the post-quantum toggle. Reports the three
+ * states `selfPqState()` distinguishes, because they have genuinely different
+ * outcomes for the user:
+ *
+ *   - `canSend` — the signer advertises the `pq` scheme; sends really are
+ *     sealed post-quantum whenever the peer publishes keys.
+ *   - `capabilityUnknown` — keys are published but the signer reports
+ *     nothing, so the send path deliberately stays classic rather than risk
+ *     a downgrade it would then mislabel as protected. Saying only "keys
+ *     detected" here would be the dead-end the UX audit found: the user does
+ *     everything right and nothing changes, with no explanation.
+ *   - no keys at all — point at the setup guide.
+ */
+function PostQuantumStatusRow() {
+  const { t, locale } = useTranslation();
+  const myPubkey = useMyPubkey();
+  const loginMethod = useMyLoginMethod();
+  const [state, setState] = useState<SelfPqState | null>(null);
+
+  useEffect(() => {
+    setState(null);
+    if (!myPubkey) return;
+    let cancelled = false;
+    selfPqState(myPubkey, loginMethod).then((next) => {
+      if (!cancelled) setState(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [myPubkey, loginMethod]);
+
+  if (!myPubkey) return null;
+
+  if (state === null) {
+    return <p className="mt-1 text-xs text-lc-muted">{t('settings.postQuantumChecking')}</p>;
+  }
+
+  if (state.canSend) {
+    return (
+      <p className="mt-1 text-xs text-lc-muted" data-testid="pq-status-ready">
+        {t('settings.postQuantumDetected')} {t('settings.postQuantumReady')}
+      </p>
+    );
+  }
+
+  if (state.hasKeys) {
+    // Either `capabilityUnknown` (NIP-07, no `nip44.schemes` marker) or a
+    // non-NIP-07 session, which has no surface that could carry post-quantum
+    // encryption at all. The user-visible outcome is identical in both:
+    // messages keep going out classic, and Obelisk will switch on its own
+    // once the signer says it can.
+    return (
+      <p className="mt-1 text-xs text-lc-muted" data-testid="pq-status-signer-unknown">
+        {t('settings.postQuantumDetected')} {t('settings.postQuantumSignerUnknown')}
+      </p>
+    );
+  }
+
+  return (
+    <p className="mt-1 text-xs text-lc-muted">
+      {t('settings.postQuantumNotDetected')}{' '}
+      <Link
+        href={guidesHref(locale, 'quantum-safe-dms')}
+        className="text-lc-green underline underline-offset-2 hover:text-lc-green/80"
+      >
+        {t('settings.postQuantumSetupLink')}
+      </Link>
+    </p>
   );
 }
 

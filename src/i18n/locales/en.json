@@ -7,7 +7,6 @@
   "nav.launchApp": "Launch App",
   "nav.app": "App",
   "nav.disconnect": "Disconnect",
-
   "learn.heading": "Learn",
   "learn.subtitle": "How a pure Nostr client works, what NIP-29 groups are, and how to bring your own relay.",
   "learn.cta": "Read all guides",
@@ -23,7 +22,6 @@
   "learn.card.bitcoinZaps.desc": "Send sats from any message via NIP-57 zaps and Nostr Wallet Connect. No platform, no fee.",
   "learn.card.adminCli.title": "NIP-29 admins & roles",
   "learn.card.adminCli.desc": "Group moderation lives on the relay. Admins, members, kicks and bans are standard NIP-29 events.",
-
   "faq.heading": "Frequently Asked Questions",
   "faq.subtitle": "Short answers about the new Nostr-only Obelisk.",
   "faq.q1.question": "What is Obelisk?",
@@ -37,7 +35,7 @@
   "faq.q5.question": "How are groups implemented?",
   "faq.q5.answer": "Obelisk uses NIP-29: relay-managed groups. Channels, members, admins, kicks and bans are all standard NIP-29 events that the relay enforces. Any NIP-29-compatible relay works. You can host your own relay, run a private one for your community, or use a public one.",
   "faq.q6.question": "Are my messages encrypted?",
-  "faq.q6.answer": "Direct messages are end-to-end encrypted using Nostr DMs (NIP-04 today, NIP-17 gift-wrapped supported, NIP-44 v2 on the roadmap). Group messages are signed but public on the relay — anyone the relay lets in can read them, just like a Discord channel. Run a private relay if you need a closed group.",
+  "faq.q6.answer": "Direct messages are end-to-end encrypted. Obelisk sends NIP-17 gift-wrapped messages by default, so relays cannot see who you are talking to, and you can switch a conversation back to NIP-04 if the other person's client needs it. Turn on post-quantum protection in settings and the message is sealed with a post-quantum envelope as well, whenever your signer and the other person both have post-quantum keys. Group messages are signed but public on the relay: anyone the relay lets in can read them, just like a Discord channel. Run a private relay if you need a closed group.",
   "faq.q7.question": "Can I self-host Obelisk?",
   "faq.q7.answer": "Yes — Obelisk is a Next.js app and 'hosting' it just means serving static-style HTML/JS. There's no database to manage and no backend service to run. Run it locally with `npm run dev`, ship it to any Node host, or expose it through a tunnel. We're working on a static-export build for one-click deployment to GitHub Pages, S3, or any static CDN.",
   "faq.q8.question": "How do I get a Nostr key?",
@@ -46,14 +44,12 @@
   "faq.q9.answer": "Voice is on the roadmap. The previous voice implementation used a Socket.io signaling server, which doesn't fit a backend-free architecture — we're rebuilding it as P2P WebRTC with relay-based signaling so it stays pure Nostr.",
   "faq.q10.question": "Does Obelisk work on mobile?",
   "faq.q10.answer": "Yes. Obelisk is a responsive web app and works in any modern mobile browser. Pair it with a NIP-07-compatible signer (or a NIP-46 bunker, once shipped) for a smooth login. A dedicated PWA build is on the roadmap.",
-
   "hero.title": "Tus comunidades,",
   "hero.titleHighlight": "bajo tu control",
   "hero.subtitle": "Discord-style group chat built directly on Nostr relays.",
   "hero.trustLine": "No accounts. No backend. Your keys, your relays.",
   "hero.launchApp": "Launch App",
   "hero.github": "GitHub",
-
   "features.heading": "Why Obelisk",
   "features.subtitle": "All the chat. None of the servers. Your keys, your relays, signed events.",
   "features.nostrIdentity.title": "Nostr login — your keys, your account",
@@ -61,7 +57,7 @@
   "features.realtimeChat.title": "NIP-29 groups",
   "features.realtimeChat.desc": "Channels, members, admins, kicks and bans are all standard NIP-29 events on the relay. Open protocol, no proprietary format, no lock-in.",
   "features.encryptedDMs.title": "Encrypted DMs",
-  "features.encryptedDMs.desc": "Direct messages are end-to-end encrypted Nostr DMs (NIP-04 + NIP-17 gift-wrapped). Only you and the recipient can read them.",
+  "features.encryptedDMs.desc": "Direct messages are end-to-end encrypted Nostr DMs, gift-wrapped with NIP-17 by default and NIP-04 when a conversation needs it. Only you and the recipient can read them.",
   "features.voice.title": "P2P voice channels over Nostr",
   "features.voice.desc": "Talk to anyone in a channel with no media server in the middle. Voice is WebRTC peer-to-peer; signaling rides on Nostr events, just like every other message.",
   "features.selfHosted.title": "No backend, no database",
@@ -72,7 +68,6 @@
   "features.zaps.desc": "Send sats from any message via NIP-57 zaps and Nostr Wallet Connect (NIP-47). No custodian, no platform fee, no middleman.",
   "features.adminCli.title": "Open source",
   "features.adminCli.desc": "MIT-licensed, every line on GitHub. Read it, fork it, audit it, run it. The whole app is the client you can see.",
-
   "steps.heading": "Three steps",
   "steps.subtitle": "No signup forms. No email verification. Just keys and relays.",
   "steps.1.title": "Sign in with Nostr",
@@ -81,7 +76,6 @@
   "steps.2.desc": "The default groups relay is preloaded. Add any NIP-29 relay you like — each one becomes its own 'server' in the rail.",
   "steps.3.title": "Chat",
   "steps.3.desc": "Join NIP-29 groups, post messages, react, reply, DM. Every action is a signed Nostr event going straight to the relay.",
-
   "roadmap.heading": "Roadmap",
   "roadmap.subtitle": "Building in the open. From Nostr-only client today to a richer, more portable client tomorrow.",
   "roadmap.done": "Done",
@@ -103,14 +97,11 @@
   "roadmap.phase4.items": "NIP-46 bunker (remote signer)|NIP-44 v2 encryption migration|Static-export build (no Node required)",
   "roadmap.phase5.title": "Voice & PWA",
   "roadmap.phase5.items": "P2P voice channels with relay signaling|Installable PWA with push notifications|Offline-first message cache",
-
   "stack.heading": "Tech stack",
   "stack.subtitle": "Modern, open-source, no proprietary backend.",
-
   "cta.heading": "Ready to chat without a server",
   "cta.subtitle": "Open the app, log in with your Nostr keys, pick a relay. That's it.",
   "cta.button": "Launch Obelisk",
-
   "footer.tagline": "Obelisk — A pure Nostr client. ",
   "footer.brandBlurb": "Discord-style group chat with no backend. Your keys, your relays, signed Nostr events.",
   "footer.col.guides": "Guides",
@@ -123,7 +114,6 @@
   "footer.github": "GitHub",
   "footer.lacrypta": "La Crypta",
   "footer.nostr": "Nostr",
-
   "preferences.backup.advanced": "Advanced",
   "preferences.backup.action": "Download account backup",
   "preferences.backup.description": "Events, profile, follows, media packs, favorites, and recoverable uploaded media. Private keys are never included.",
@@ -131,7 +121,6 @@
   "preferences.backup.done": "Backup downloaded.",
   "preferences.backup.partial": "Backup downloaded. {{count}} media file(s) could not be embedded; their URLs and Blossom hashes are still included.",
   "preferences.backup.error": "Backup failed.",
-
   "profile.title": "Profile",
   "profile.nostrSection": "Nostr Profile",
   "profile.obeliskSection": "Obelisk Settings",
@@ -143,7 +132,6 @@
   "profile.nip05": "NIP-05",
   "profile.logout": "Disconnect",
   "profile.editNostr": "Edit Nostr Profile",
-
   "profileEditor.setupTitle": "Set up your profile",
   "profileEditor.setupDesc": "Add a name and picture so others can recognize you.",
   "profileEditor.randomName": "Generate a random name",
@@ -170,7 +158,6 @@
   "profileEditor.confirmDesc": "This will publish your updated profile (kind 0) to Nostr relays. Your other profile fields (NIP-05, Lightning, etc.) will be preserved.",
   "profileEditor.confirmPublish": "Publish changes",
   "profileEditor.changed": "updated",
-
   "inbox.title": "Inbox",
   "inbox.empty": "No notifications yet",
   "inbox.markAllRead": "Mark all read",
@@ -182,7 +169,6 @@
   "inbox.timeAgo.minutes": "{n}m",
   "inbox.timeAgo.hours": "{n}h",
   "inbox.timeAgo.days": "{n}d",
-
   "landing.video.heading": "Watch the walkthrough",
   "landing.video.subtitle": "Two minutes through a real relay: log in with your keys, join a group, talk, zap.",
   "landing.video.title": "Obelisk walkthrough video",
@@ -198,12 +184,10 @@
   "landing.preview.mobile.desc": "Tap your way through servers, categories, voice and forums. Install it as a PWA — no app store required.",
   "landing.preview.mobile.alt": "Obelisk mobile screenshot — server icons, General Chat, nested forum channels, voice channel and uncategorized list.",
   "landing.preview.mobile.cta": "Tour the mobile UI",
-
   "landing.showcase.heading": "One client, every screen",
   "landing.showcase.subtitle": "Real-time voice rooms with video, channels in your pocket — same Nostr-only client, no native app, no backend.",
   "landing.showcase.desktop.alt": "Obelisk desktop screenshot — voice channel with an SFU peer transmitting a colour test pattern.",
   "landing.showcase.mobile.alt": "Obelisk mobile screenshot — server list with categorised channels and a live voice room.",
-
   "mobile.hero.badge": "Mobile tour",
   "mobile.hero.title": "Group chat that fits in your",
   "mobile.hero.titleHighlight": "pocket",
@@ -233,7 +217,6 @@
   "mobile.cta.heading": "Take Obelisk with you",
   "mobile.cta.subtitle": "Open the web app on your phone, install it from the browser menu, and you're done. No app store, no review, no platform tax.",
   "mobile.cta.button": "Launch on mobile",
-
   "desktop.hero.badge": "Desktop tour",
   "desktop.hero.title": "A Discord-class workspace, on the open",
   "desktop.hero.titleHighlight": "Nostr stack",
@@ -261,6 +244,14 @@
   "settings.you": "You",
   "settings.profile": "Profile",
   "settings.preferences": "Preferences",
+  "settings.postQuantum": "Post-quantum protection",
+  "settings.postQuantumHint": "Seal direct messages with post-quantum keys when you and the other person both have them and your signer can use them. Anything that cannot be sealed still sends, with ordinary encryption. While this is on, each conversation also shows whether it is quantum-safe.",
+  "settings.postQuantumChecking": "Checking for post-quantum keys…",
+  "settings.postQuantumDetected": "Post-quantum keys detected on this account.",
+  "settings.postQuantumReady": "Your signer can send post-quantum messages. While this setting is on, conversations with people who also publish post-quantum keys get the extra seal.",
+  "settings.postQuantumSignerUnknown": "Your signer does not report post-quantum support, so messages keep going out with ordinary encryption. Obelisk starts using post-quantum on its own once the signer reports it.",
+  "settings.postQuantumNotDetected": "No post-quantum keys detected on this account.",
+  "settings.postQuantumSetupLink": "Set up post-quantum keys",
   "preferences.relays.status.active": "active",
   "preferences.relays.status.switch": "switch",
   "preferences.activity.label": "Show activity indicator",
@@ -279,7 +270,6 @@
   "preferences.mobile.version": "Version",
   "preferences.language.label": "Language",
   "preferences.language.description": "Choose the language used by the app UI.",
-
   "common.close": "Close",
   "common.cancel": "Cancel",
   "common.save": "Save",
@@ -297,7 +287,6 @@
   "common.copied": "Copied!",
   "common.copy": "Copy {label}",
   "common.channel": "channel",
-
   "dm.optIn.title": "Turn on direct messages",
   "dm.optIn.subtitle": "Enable DMs only on devices where you want them active.",
   "dm.optIn.point.events": "DMs use Nostr encrypted direct-message events.",
@@ -319,7 +308,7 @@
   "dm.follows": "Follows",
   "dm.others": "Others",
   "dm.youPrefix": "You: ",
-  "dm.encryptedPill": "Messages are NIP-04 encrypted end-to-end",
+  "dm.encryptedPill": "Messages are end-to-end encrypted",
   "dm.attach": "Attach",
   "dm.compose.to": "To:",
   "dm.compose.next": "Next",
@@ -329,11 +318,10 @@
   "dm.compose.placeholder": "Name, NIP-05, or npub",
   "dm.emptyMobileDescription": "Tap + to start an encrypted DM with anyone on Nostr.",
   "dm.pickConversation": "Pick or start a DM conversation.",
-  "dm.emptyEncrypted": "No messages yet. Send the first one (NIP-04 encrypted).",
-  "dm.placeholderEncrypted": "Encrypted message (NIP-04)",
+  "dm.emptyEncrypted": "No messages yet. Send the first one, end-to-end encrypted.",
+  "dm.placeholderEncrypted": "Encrypted message",
   "dm.failedSend": "Couldn’t send",
   "dm.dismissFailed": "Dismiss failed message",
-
   "preferences.directMessages.label": "Direct messages",
   "preferences.directMessages.description": "Allow this device to open Nostr encrypted DM subscriptions and display conversations.",
   "preferences.directMessages.mobileDescription": "Nostr encrypted DMs on this device",
@@ -361,7 +349,6 @@
   "preferences.appearance.bubbleMotion.still": "Still",
   "preferences.appearance.colorAria": "{label} color",
   "preferences.appearance.hexAria": "{label} hex color",
-
   "user.settings": "User settings",
   "user.editProfile": "Edit profile",
   "user.appPreferences": "App preferences",
@@ -377,7 +364,6 @@
   "user.nameRequired": "Name is required",
   "user.notSignedIn": "Not signed in",
   "user.publishFailed": "Failed to publish",
-
   "mobile.settings.identity": "Identity",
   "mobile.settings.openOtherClient": "Open in another client",
   "mobile.settings.editNostrProfile": "Edit Nostr Profile",
@@ -470,12 +456,6 @@
   "mobile.empty.unknownScreen": "Unknown screen",
   "mobile.empty.backHome": "Back to home",
   "mobile.navigation.pressBackAgain": "Press back again to exit",
-  "mobile.search.aria": "Search messages, people, and channels",
-  "mobile.search.placeholder": "Search messages, people, channels...",
-  "mobile.search.all": "All",
-  "mobile.search.channelsHelp": "Type to filter channels.",
-  "mobile.search.serverSideHelp": "Server-side message search uses from:, in:#, has:.",
-
   "desktop.empty.title": "Pick a channel or DM",
   "desktop.empty.description": "Choose from the sidebar — or hit + to create a new channel.",
   "desktop.channel.loadingInfo": "Loading channel info...",
@@ -489,7 +469,6 @@
   "desktop.channel.settings": "Channel settings",
   "desktop.channel.hideMembers": "Hide member list",
   "desktop.channel.showMembers": "Show member list",
-
   "desktop.composer.replyingTo": "Replying to",
   "desktop.composer.cancelReply": "Cancel reply",
   "desktop.composer.removeAttachment": "Remove attachment",
@@ -528,14 +507,12 @@
   "desktop.reactions.openEmojiPicker": "Open emoji picker",
   "desktop.zaps.one": "zap",
   "desktop.zaps.many": "zaps",
-
   "desktop.inbox.markRead": "Mark read",
   "desktop.inbox.caughtUpDms": "No new direct messages.",
   "desktop.inbox.caughtUpMentions": "No mentions on this relay.",
   "desktop.inbox.markReadDmsTitle": "Mark all direct messages as read",
   "desktop.inbox.markReadMentionsTitle": "Mark all mentions on this relay as read",
   "desktop.inbox.type.mention": "@ Mention",
-
   "search.open": "Open search",
   "search.close": "Close search",
   "search.filters.title": "Filters",
@@ -564,5 +541,21 @@
   "mobile.signing.pending": "Waiting for approval",
   "mobile.signing.ok": "Signed",
   "mobile.signing.error": "Signature failed",
-  "mobile.signing.none": "No signature request is active."
+  "mobile.signing.none": "No signature request is active.",
+  "pqc.heading": "Post-quantum messages",
+  "pqc.subtitle": "Encrypted messages sent today can be recorded now and read years from now, once a quantum computer breaks the key exchange Nostr relies on. It is the one part of the problem that can be fixed in advance.",
+  "pqc.status": "Live in Obelisk. Direct messages are gift-wrapped by default, and carry a post-quantum seal once you turn post-quantum protection on and your signer and the other person both have post-quantum keys. The keys themselves live in the Nostr WoT extension and the @nostr-wot/pq library.",
+  "pqc.collab": "Built in collaboration with",
+  "pqc.nostrwot.desc": "Identity, signer and post-quantum keys derived from a single 24-word recovery phrase.",
+  "pqc.quantakrypto.desc": "Applied post-quantum cryptography: design, specification and cryptographic review.",
+  "pqc.guide": "Read the guide: making your DMs quantum-safe",
+  "pq.secured": "Quantum-ready",
+  "pq.securedDetail": "Both of you publish post-quantum keys, so this conversation can be quantum-secured.",
+  "pq.notSecured": "Not quantum-safe",
+  "pq.notSecuredDetail": "Like almost every Nostr conversation today, this one rests on classic encryption. It can be recorded now and decrypted later, once a quantum computer breaks that key exchange.",
+  "pq.learnHow": "How to get quantum-safe",
+  "pq.markNoGiftwrap": "Not gift-wrapped",
+  "pq.markNoGiftwrapDetail": "Relays can see who you are talking to.",
+  "pq.markNoPq": "Not quantum-safe",
+  "pq.markNoPqDetail": "This message has no post-quantum protection. It is safe today, but it could be recorded now and read later, once a quantum computer breaks the classic key exchange."
 }

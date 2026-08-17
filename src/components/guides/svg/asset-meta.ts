@@ -50,6 +50,11 @@ export const HERO_ASSET_META: Record<string, GuideAssetMeta> = {
     height: 400,
     alt: 'Obelisk zap bot hero: a stylish robot with black sunglasses listening for Nostr zap receipts and group reactions, then posting signed kind 9 announcements into NIP-29 groups.',
   },
+  'quantum-safe': {
+    width: 800,
+    height: 400,
+    alt: 'Quantum-safe DMs hero: a sealed message at the center wrapped in two shells, an inner classic secp256k1 key exchange and an outer post-quantum layer, illustrating hybrid protection.',
+  },
 };
 
 export const DIAGRAM_ASSET_META: Record<string, GuideAssetMeta> = {

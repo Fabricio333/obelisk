@@ -55,6 +55,11 @@ import { MentionText } from '@/components/chat/MentionText';
 import MentionNavigator from '@/components/chat/MentionNavigator';
 import HistoryPaginationStatus from '@/components/chat/HistoryPaginationStatus';
 import MemberList from '@/components/chat/MemberList';
+import PqConversationNotice from '@/components/chat/PqConversationNotice';
+import PqMessageMark from '@/components/chat/PqMessageMark';
+import { usePqConversationStatus } from '@/lib/pq/hooks';
+import { threadMarks } from '@/lib/pq/status';
+import { usePreferences } from '@/lib/preferences';
 import RelayAdminPanel from '@/components/admin/RelayAdminPanel';
 import VoiceRoom from '@/components/voice/VoiceRoom';
 import ForumView from '@/components/chat/ForumView';
@@ -4231,11 +4236,33 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 // -- DMs ----------------------------------------------------------------
 
-function DMPanel({ peer }: { peer: string | null; onPickPeer: (p: string) => void }) {
-  const { t } = useTranslation();
+// Exported for tests only — mounted internally by `AppShell`, same as
+// `RelayTopBar` / `SidebarMe`.
+export function DMPanel({ peer }: { peer: string | null; onPickPeer: (p: string) => void }) {
+  const { t, locale } = useTranslation();
   const dms = useDirectMessages();
   const meta = useProfile(peer);
   const thread = peer ? dms[peer] ?? [] : [];
+  // Post-quantum provenance. The notice is capability state for the whole
+  // conversation; the marks are per-message and aggregated to transitions
+  // only (see `threadMarks` — every message in pre-NIP-17 history is NIP-04,
+  // so a pill per bubble would be unreadable).
+  // Both surfaces are gated on the `postQuantumEnabled` preference: warning a
+  // user about protection they deliberately turned off is nagging rather than
+  // teaching. The preference defaults *on* — unlike `directMessagesEnabled`,
+  // it grants nothing and reveals nothing, it only decides whether Obelisk
+  // tells you what a conversation actually rests on.
+  const pqEnabled = usePreferences().postQuantumEnabled;
+  const pqStatus = usePqConversationStatus(peer);
+  const marks = pqEnabled
+    ? threadMarks(
+        thread.map((m) => ({
+          protocol: m.protocol ?? 'nip04',
+          pq: m.pq,
+          settled: !m.pending && !m.failed,
+        })),
+      )
+    : [];
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -4311,11 +4338,21 @@ function DMPanel({ peer }: { peer: string | null; onPickPeer: (p: string) => voi
           </div>
         </button>
       </header>
+      {/* Only surfaced when the user opted into post-quantum. With the
+          preference off, `conversationStatus` is always `not-secured`, and a
+          permanent warning about a feature they deliberately turned off would
+          be nagging, not teaching. `null` means the attestation lookups are
+          still in flight. */}
+      {pqEnabled && pqStatus !== null && (
+        <div className="shrink-0 border-b border-lc-border bg-lc-dark px-5 pb-3">
+          <PqConversationNotice status={pqStatus} guideHref={guidesHref(locale, 'quantum-safe-dms')} />
+        </div>
+      )}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
         {thread.length === 0 ? (
           <div className="text-sm text-lc-muted">{t('dm.emptyEncrypted')}</div>
         ) : (
-          thread.map((m) => {
+          thread.map((m, i) => {
             const onRetryDM = () => {
               if (!m.clientTag || !peer) return;
               void nostrActions.retryDirectMessage(peer, m.clientTag);
@@ -4338,6 +4375,10 @@ function DMPanel({ peer }: { peer: string | null; onPickPeer: (p: string) => voi
               >
                 <div className="whitespace-pre-wrap break-words">{m.content}</div>
                 <div className={'mt-1 flex items-center justify-end gap-1.5 text-[10px] ' + (m.outgoing ? 'text-black/60' : 'text-lc-muted')}>
+                  {/* `onAccent` because the outgoing bubble is `bg-lc-green`:
+                      the default `text-lc-muted` is ~2:1 against it. This row
+                      already switches the timestamp the same way. */}
+                  <PqMessageMark mark={marks[i] ?? null} onAccent={m.outgoing} />
                   {m.pending && (
                     <span
                       className={'inline-block h-2.5 w-2.5 animate-spin rounded-full border ' + (m.outgoing ? 'border-black/30 border-t-black/70' : 'border-lc-muted/40 border-t-lc-muted')}

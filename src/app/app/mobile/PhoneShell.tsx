@@ -105,6 +105,11 @@ import RelayAdminPanel from '@/components/admin/RelayAdminPanel';
 import RelayEmojiAdminModal from '@/components/admin/RelayEmojiAdminModal';
 import RelayRolesAdminModal from '@/components/admin/RelayRolesAdminModal';
 import RoleBadge from '@/components/chat/RoleBadge';
+import PqConversationNotice from '@/components/chat/PqConversationNotice';
+import PqMessageMark from '@/components/chat/PqMessageMark';
+import { usePqConversationStatus } from '@/lib/pq/hooks';
+import { threadMarks } from '@/lib/pq/status';
+import { guidesHref } from '@/lib/guide-urls';
 import { rolesByPubkey, useRelayRoles, type RelayRole, type RelayRoles } from '@/lib/relay-roles';
 import LanguagePreference from '@/components/LanguagePreference';
 import MediaLibraryModal from '@/components/media/MediaLibraryModal';
@@ -3503,17 +3508,42 @@ function DmThreadScreen({
   back: () => void;
   openProfile: (pubkey: string) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const dms = useDirectMessages();
   const meta = useUserMetadata(peer);
   const myPubkey = useMyPubkey();
   const [draft, setDraft] = useState('');
   const msgsRef = useRef<HTMLDivElement>(null);
+  // Same gate and same aggregation as desktop (`DMPanel`) — mobile is a
+  // first-class surface here, not a reduced one: it is where the default
+  // Spanish locale's audience mostly is, and the "no feedback at all" gap the
+  // UX audit found is worse on a phone, where the settings panel is further
+  // away.
+  const pqEnabled = usePreferences().postQuantumEnabled;
+  const pqStatus = usePqConversationStatus(peer);
+  // What the *next* send on this thread will use — the per-thread override if
+  // the user picked one, otherwise NIP-17. Not the protocol of the history
+  // above it, which can legitimately be a mix.
+  const sendProtocol = useDMStore((s) => s.protocolOverrides[peer]) ?? 'nip17';
 
   const messages = useMemo(() => {
     const list = (dms[peer] ?? []).filter((message) => message.counterparty === peer);
     return [...list].sort((a, b) => a.createdAt - b.createdAt);
   }, [dms, peer]);
+
+  const marks = useMemo(
+    () =>
+      pqEnabled
+        ? threadMarks(
+            messages.map((m) => ({
+              protocol: m.protocol ?? 'nip04',
+              pq: m.pq,
+              settled: !m.pending && !m.failed,
+            })),
+          )
+        : [],
+    [messages, pqEnabled],
+  );
 
   useEffect(() => {
     const el = msgsRef.current;
@@ -3545,17 +3575,17 @@ function DmThreadScreen({
   const grouped = useMemo(() => {
     const out: Array<
       | { type: 'divider'; key: string; label: string }
-      | { type: 'msg'; key: string; msg: JsDirectMessage }
+      | { type: 'msg'; key: string; msg: JsDirectMessage; index: number }
     > = [];
     let lastDay: string | null = null;
-    for (const m of messages) {
+    messages.forEach((m, index) => {
       const k = dayKey(m.createdAt);
       if (k !== lastDay) {
         out.push({ type: 'divider', key: `d-${k}`, label: dayLabel(m.createdAt) });
         lastDay = k;
       }
-      out.push({ type: 'msg', key: m.id, msg: m });
-    }
+      out.push({ type: 'msg', key: m.id, msg: m, index });
+    });
     return out;
   }, [messages]);
 
@@ -3572,10 +3602,18 @@ function DmThreadScreen({
           <div className="dm-header-name">{peerName}</div>
           <div className="dm-header-pubkey">
             <svg className="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="9" rx="1.5" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{shortNpub(peer)} · NIP-04</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {shortNpub(peer)} · {sendProtocol === 'nip04' ? 'NIP-04' : 'NIP-17'}
+            </span>
           </div>
         </div>
       </div>
+
+      {pqEnabled && pqStatus !== null && (
+        <div className="shrink-0 px-3.5 pb-2">
+          <PqConversationNotice status={pqStatus} guideHref={guidesHref(locale, 'quantum-safe-dms')} />
+        </div>
+      )}
 
       <div className="dm-messages native-scroll-y" ref={msgsRef}>
         <div className="dm-encryption-pill">
@@ -3597,6 +3635,10 @@ function DmThreadScreen({
             >
               <div className="dm-bubble-text">{it.msg.content}</div>
               <div className="dm-bubble-meta">
+                {/* `onAccent` on outgoing: the bubble is `var(--accent)` with
+                    `var(--accent-ink)` text, the same contrast trap as
+                    desktop's `bg-lc-green`. */}
+                <PqMessageMark mark={marks[it.index] ?? null} onAccent={it.msg.outgoing} />
                 {it.msg.pending && <span className="dm-bubble-spinner" aria-label={t('common.sending')} role="status" />}
                 <span className="dm-bubble-time">{timeOfDay(it.msg.createdAt)}</span>
               </div>

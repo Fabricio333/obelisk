@@ -346,6 +346,7 @@ export default function LandingPage() {
   const [learnRef, learnVisible] = useScrollReveal<HTMLElement>();
   const [ctaRef, ctaVisible] = useScrollReveal<HTMLElement>();
   const [faqRef, faqVisible] = useScrollReveal<HTMLElement>();
+  const [pqRef, pqVisible] = useScrollReveal<HTMLElement>();
 
   const FAQ_IDS = ['q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7', 'q8', 'q9', 'q10'] as const;
   const faqItems = FAQ_IDS.map((id) => ({
@@ -872,6 +873,56 @@ export default function LandingPage() {
                 answer={item.answer}
               />
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Post-quantum messages — joint work with Nostr WoT + QuantaKrypto.
+          Deliberately worded as in-development: Obelisk's DMs are still
+          NIP-04, so claiming shipped post-quantum messaging here would be
+          false. Promote the copy when the NIP-17 + PQ path actually lands. */}
+      <section
+        id="post-quantum"
+        ref={pqRef}
+        className={`py-24 px-6 border-t border-lc-border ${pqVisible ? 'animate-fade-in-up' : 'opacity-0'}`}
+      >
+        <div className="max-w-4xl mx-auto text-center">
+          <h2 className="text-3xl md:text-4xl font-bold mb-4">
+            {t('pqc.heading')}<span className="text-lc-green">.</span>
+          </h2>
+          <p className="text-lc-muted text-lg mb-4">{t('pqc.subtitle')}</p>
+          <p className="text-sm text-lc-muted/80 mb-12">{t('pqc.status')}</p>
+
+          <p className="text-xs uppercase tracking-widest text-lc-muted mb-6">
+            {t('pqc.collab')}
+          </p>
+          <div className="grid sm:grid-cols-2 gap-4 text-left">
+            <a
+              href="https://nostr-wot.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="lc-card p-6 hover:border-lc-green transition-colors"
+            >
+              <span className="block font-semibold mb-2">Nostr WoT</span>
+              <span className="block text-sm text-lc-muted">{t('pqc.nostrwot.desc')}</span>
+            </a>
+            <a
+              href="https://quantakrypto.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="lc-card p-6 hover:border-lc-green transition-colors"
+            >
+              <span className="block font-semibold mb-2">QuantaKrypto</span>
+              <span className="block text-sm text-lc-muted">{t('pqc.quantakrypto.desc')}</span>
+            </a>
+          </div>
+          <div className="mt-10">
+            <Link
+              href={guidesHref(locale, 'quantum-safe-dms')}
+              className="lc-pill lc-pill-secondary text-sm inline-flex items-center gap-2"
+            >
+              {t('pqc.guide')} <span aria-hidden="true">→</span>
+            </Link>
           </div>
         </div>
       </section>

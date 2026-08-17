@@ -10,6 +10,7 @@ export interface Preferences {
   showActivityIndicator: boolean;
   developerRelayDebug: boolean;
   directMessagesEnabled: boolean;
+  postQuantumEnabled: boolean;
   profileFeedRelays: string[];
   accentColor: string;
   backgroundColor: string;
@@ -22,6 +23,14 @@ const DEFAULTS: Preferences = {
   showActivityIndicator: true,
   developerRelayDebug: false,
   directMessagesEnabled: false,
+  // On by default. The toggle gates both post-quantum sending *and* the two
+  // provenance surfaces (the conversation notice and the per-message marks),
+  // and the indicators are the feature: defaulting off meant a user saw
+  // nothing at all — no notice, no marks, no guide link — so the detection
+  // work was invisible to everyone who never opened settings. Sending stays
+  // conservative on its own (`resolvePqSend` only seals post-quantum when the
+  // signer advertises it), so this default cannot cause a false claim.
+  postQuantumEnabled: true,
   profileFeedRelays: [...DEFAULT_PROFILE_FEED_RELAYS],
   accentColor: '#b4f953',
   backgroundColor: '#0a0a0a',
@@ -123,6 +132,9 @@ function normalizePreferences(raw: Partial<Preferences>): Preferences {
     directMessagesEnabled: typeof raw.directMessagesEnabled === 'boolean'
       ? raw.directMessagesEnabled
       : DEFAULTS.directMessagesEnabled,
+    postQuantumEnabled: typeof raw.postQuantumEnabled === 'boolean'
+      ? raw.postQuantumEnabled
+      : DEFAULTS.postQuantumEnabled,
     profileFeedRelays: normalizeProfileFeedRelays(raw.profileFeedRelays),
     accentColor: sanitizeHexColor(raw.accentColor, DEFAULTS.accentColor),
     backgroundColor: sanitizeHexColor(raw.backgroundColor, DEFAULTS.backgroundColor),

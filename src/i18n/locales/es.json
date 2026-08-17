@@ -7,7 +7,6 @@
   "nav.launchApp": "Entrar",
   "nav.app": "App",
   "nav.disconnect": "Desconectar",
-
   "learn.heading": "Aprendé",
   "learn.subtitle": "Cómo funciona un cliente puro de Nostr, qué son los grupos NIP-29, y cómo usar tu propio relay.",
   "learn.cta": "Ver todas las guías",
@@ -23,7 +22,6 @@
   "learn.card.bitcoinZaps.desc": "Mandá sats desde cualquier mensaje vía zaps NIP-57 y Nostr Wallet Connect. Sin plataforma, sin fee.",
   "learn.card.adminCli.title": "Admins y roles NIP-29",
   "learn.card.adminCli.desc": "La moderación vive en el relay. Admins, miembros, kicks y bans son eventos NIP-29 estándar.",
-
   "faq.heading": "Preguntas frecuentes",
   "faq.subtitle": "Respuestas cortas sobre el nuevo Obelisk, ahora puro Nostr.",
   "faq.q1.question": "¿Qué es Obelisk?",
@@ -37,7 +35,7 @@
   "faq.q5.question": "¿Cómo están implementados los grupos?",
   "faq.q5.answer": "Obelisk usa NIP-29: grupos administrados por el relay. Canales, miembros, admins, kicks y bans son eventos NIP-29 estándar que el relay aplica. Cualquier relay compatible con NIP-29 sirve. Podés correr tu propio relay, uno privado para tu comunidad, o usar uno público.",
   "faq.q6.question": "¿Están encriptados mis mensajes?",
-  "faq.q6.answer": "Los mensajes directos son end-to-end encriptados con DMs de Nostr (NIP-04 hoy, NIP-17 gift-wrapped soportado, NIP-44 v2 en el roadmap). Los mensajes de grupo están firmados pero son públicos en el relay: cualquiera que el relay deje entrar puede leerlos, igual que un canal de Discord. Si querés un grupo cerrado, corré un relay privado.",
+  "faq.q6.answer": "Los mensajes directos son end-to-end encriptados. Obelisk manda mensajes NIP-17 con gift wrap por defecto, así los relays no pueden ver con quién hablás, y podés volver una conversación a NIP-04 si el cliente de la otra persona lo necesita. Si activás la protección post-cuántica en configuración, el mensaje además se sella con un sobre post-cuántico, siempre que tu firmante y la otra persona tengan claves post-cuánticas. Los mensajes de grupo están firmados pero son públicos en el relay: cualquiera que el relay deje entrar puede leerlos, igual que un canal de Discord. Si querés un grupo cerrado, corré un relay privado.",
   "faq.q7.question": "¿Puedo self-hostear Obelisk?",
   "faq.q7.answer": "Sí. Obelisk es una app de Next.js y 'hostearla' es básicamente servir HTML y JS. No hay base de datos que mantener ni servicio backend que correr. Corré local con `npm run dev`, deployalo en cualquier host de Node, o exponé con un túnel. Estamos trabajando en un build estático para deploy en GitHub Pages, S3 o cualquier CDN estático.",
   "faq.q8.question": "¿Cómo obtengo una clave Nostr?",
@@ -46,14 +44,12 @@
   "faq.q9.answer": "Voz está en el roadmap. La implementación anterior usaba un servidor de signaling con Socket.io, que no encaja con una arquitectura sin backend; la estamos rehaciendo como WebRTC P2P con signaling vía relays para que se mantenga puro Nostr.",
   "faq.q10.question": "¿Funciona en el celular?",
   "faq.q10.answer": "Sí. Obelisk es una web app responsive y funciona en cualquier navegador móvil moderno. Combinala con un signer compatible NIP-07 (o un bunker NIP-46, una vez que se lance) para un login fluido. Una PWA dedicada está en el roadmap.",
-
   "hero.title": "Tus comunidades,",
   "hero.titleHighlight": "bajo tu control",
   "hero.subtitle": "Chat grupal estilo Discord construido directamente sobre relays Nostr.",
   "hero.trustLine": "Sin cuentas. Sin backend. Tus claves, tus relays.",
   "hero.launchApp": "Entrar",
   "hero.github": "GitHub",
-
   "features.heading": "Por qué Obelisk",
   "features.subtitle": "Todo el chat. Ningún servidor. Tus claves, tus relays, eventos firmados.",
   "features.nostrIdentity.title": "Login Nostr — tus claves, tu cuenta",
@@ -61,7 +57,7 @@
   "features.realtimeChat.title": "Grupos NIP-29",
   "features.realtimeChat.desc": "Canales, miembros, admins, kicks y bans son eventos NIP-29 estándar en el relay. Protocolo abierto, sin formato propietario, sin lock-in.",
   "features.encryptedDMs.title": "DMs encriptados",
-  "features.encryptedDMs.desc": "Los mensajes directos son DMs Nostr end-to-end encriptados (NIP-04 + NIP-17 gift-wrapped). Solo vos y el destinatario los pueden leer.",
+  "features.encryptedDMs.desc": "Los mensajes directos son DMs Nostr end-to-end encriptados, con gift wrap NIP-17 por defecto y NIP-04 cuando una conversación lo necesita. Solo vos y el destinatario los pueden leer.",
   "features.voice.title": "Canales de voz P2P sobre Nostr",
   "features.voice.desc": "Hablá en cualquier canal sin servidor de medios en el medio. La voz es WebRTC peer-to-peer; el signaling viaja por eventos Nostr, igual que cualquier otro mensaje.",
   "features.selfHosted.title": "Sin backend, sin base de datos",
@@ -72,7 +68,6 @@
   "features.zaps.desc": "Mandá sats desde cualquier mensaje vía zaps NIP-57 y Nostr Wallet Connect (NIP-47). Sin custodio, sin fee de plataforma, sin intermediario.",
   "features.adminCli.title": "Open source",
   "features.adminCli.desc": "Licencia MIT, todo el código en GitHub. Leelo, forkealo, auditalo, corrélo. Toda la app es el cliente que estás viendo.",
-
   "steps.heading": "Tres pasos",
   "steps.subtitle": "Sin formularios. Sin verificación de email. Solo claves y relays.",
   "steps.1.title": "Iniciá sesión con Nostr",
@@ -81,7 +76,6 @@
   "steps.2.desc": "El relay default de grupos viene cargado. Agregá cualquier relay NIP-29 que quieras: cada uno se vuelve un 'servidor' en el rail.",
   "steps.3.title": "Chateá",
   "steps.3.desc": "Unite a grupos NIP-29, posteá mensajes, reaccioná, respondé, mandá DMs. Cada acción es un evento Nostr firmado que va directo al relay.",
-
   "roadmap.heading": "Roadmap",
   "roadmap.subtitle": "Construyendo en público. De cliente puro Nostr hoy, a un cliente más rico y portable mañana.",
   "roadmap.done": "Listo",
@@ -103,14 +97,11 @@
   "roadmap.phase4.items": "Bunker NIP-46 (signer remoto)|Migración a encriptación NIP-44 v2|Build de export estático (sin Node)",
   "roadmap.phase5.title": "Voz y PWA",
   "roadmap.phase5.items": "Canales de voz P2P con signaling vía relay|PWA instalable con notificaciones push|Cache de mensajes offline-first",
-
   "stack.heading": "Tech stack",
   "stack.subtitle": "Moderno, open source, sin backend propietario.",
-
   "cta.heading": "Listo para chatear sin servidor",
   "cta.subtitle": "Abrí la app, entrá con tus claves Nostr, elegí un relay. Eso es todo.",
   "cta.button": "Entrar a Obelisk",
-
   "footer.tagline": "Obelisk — Un cliente puro de Nostr. ",
   "footer.brandBlurb": "Chat grupal estilo Discord sin backend. Tus claves, tus relays, eventos Nostr firmados.",
   "footer.col.guides": "Guías",
@@ -123,7 +114,6 @@
   "footer.github": "GitHub",
   "footer.lacrypta": "La Crypta",
   "footer.nostr": "Nostr",
-
   "preferences.backup.advanced": "Avanzado",
   "preferences.backup.action": "Descargar backup de la cuenta",
   "preferences.backup.description": "Eventos, perfil, seguidos, packs, favoritos y archivos subidos recuperables. Nunca incluye claves privadas.",
@@ -131,7 +121,6 @@
   "preferences.backup.done": "Backup descargado.",
   "preferences.backup.partial": "Backup descargado. No se pudieron incluir {{count}} archivo(s); sus URLs y hashes Blossom siguen guardados.",
   "preferences.backup.error": "Falló el backup.",
-
   "profile.title": "Perfil",
   "profile.nostrSection": "Perfil Nostr",
   "profile.obeliskSection": "Ajustes Obelisk",
@@ -143,7 +132,6 @@
   "profile.nip05": "NIP-05",
   "profile.logout": "Desconectar",
   "profile.editNostr": "Editar Perfil Nostr",
-
   "profileEditor.setupTitle": "Configurar tu perfil",
   "profileEditor.setupDesc": "Agregale un nombre y una foto para que los demas te reconozcan.",
   "profileEditor.randomName": "Generar un nombre al azar",
@@ -170,7 +158,6 @@
   "profileEditor.confirmDesc": "Esto va a publicar tu perfil actualizado (kind 0) en los relays de Nostr. Los demas campos (NIP-05, Lightning, etc.) se mantienen.",
   "profileEditor.confirmPublish": "Publicar cambios",
   "profileEditor.changed": "actualizado",
-
   "inbox.title": "Bandeja de entrada",
   "inbox.empty": "Todavía no hay notificaciones",
   "inbox.markAllRead": "Marcar todo como leído",
@@ -182,7 +169,6 @@
   "inbox.timeAgo.minutes": "{n}m",
   "inbox.timeAgo.hours": "{n}h",
   "inbox.timeAgo.days": "{n}d",
-
   "landing.video.heading": "Mirá el recorrido",
   "landing.video.subtitle": "Dos minutos sobre un relay real: entrá con tus claves, sumate a un grupo, hablá, zapeá.",
   "landing.video.title": "Video de recorrido por Obelisk",
@@ -198,12 +184,10 @@
   "landing.preview.mobile.desc": "Navegá entre servidores, categorías, voz y foros. Instalalo como PWA — sin app store.",
   "landing.preview.mobile.alt": "Captura mobile de Obelisk — íconos de servidores, General Chat, foros anidados, canal de voz y lista sin categoría.",
   "landing.preview.mobile.cta": "Ver el tour de mobile",
-
   "landing.showcase.heading": "Un solo cliente, todas las pantallas",
   "landing.showcase.subtitle": "Salas de voz con video en tiempo real, canales en el bolsillo — el mismo cliente puro Nostr, sin app nativa, sin backend.",
   "landing.showcase.desktop.alt": "Captura desktop de Obelisk — canal de voz con un peer SFU transmitiendo un patrón de prueba de color.",
   "landing.showcase.mobile.alt": "Captura mobile de Obelisk — lista de servidores con canales categorizados y una sala de voz en vivo.",
-
   "mobile.hero.badge": "Tour mobile",
   "mobile.hero.title": "Chat grupal que entra en tu",
   "mobile.hero.titleHighlight": "bolsillo",
@@ -233,7 +217,6 @@
   "mobile.cta.heading": "Llevá Obelisk con vos",
   "mobile.cta.subtitle": "Abrí la web app en tu celu, instalala desde el menú del navegador y listo. Sin app store, sin revisiones, sin impuesto de plataforma.",
   "mobile.cta.button": "Abrir en mobile",
-
   "desktop.hero.badge": "Tour desktop",
   "desktop.hero.title": "Un workspace nivel Discord, sobre",
   "desktop.hero.titleHighlight": "Nostr abierto",
@@ -261,6 +244,14 @@
   "settings.you": "Vos",
   "settings.profile": "Perfil",
   "settings.preferences": "Preferencias",
+  "settings.postQuantum": "Protección post-cuántica",
+  "settings.postQuantumHint": "Sellá los mensajes directos con claves post-cuánticas cuando vos y la otra persona las tengan y tu firmante las pueda usar. Lo que no se pueda sellar igual se envía, con cifrado común. Mientras esté activado, cada conversación también te muestra si está protegida contra ataques cuánticos.",
+  "settings.postQuantumChecking": "Buscando claves post-cuánticas…",
+  "settings.postQuantumDetected": "Se detectaron claves post-cuánticas en esta cuenta.",
+  "settings.postQuantumReady": "Tu firmante puede mandar mensajes post-cuánticos. Mientras esta opción esté activada, las conversaciones con gente que también publica claves post-cuánticas llevan el sello extra.",
+  "settings.postQuantumSignerUnknown": "Tu firmante no informa soporte post-cuántico, así que los mensajes se siguen enviando con cifrado común. Obelisk empieza a usar post-cuántico solo, en cuanto el firmante lo informe.",
+  "settings.postQuantumNotDetected": "No se detectaron claves post-cuánticas en esta cuenta.",
+  "settings.postQuantumSetupLink": "Configurar claves post-cuánticas",
   "preferences.relays.status.active": "activo",
   "preferences.relays.status.switch": "cambiar",
   "preferences.activity.label": "Mostrar indicador de actividad",
@@ -279,7 +270,6 @@
   "preferences.mobile.version": "Versión",
   "preferences.language.label": "Idioma",
   "preferences.language.description": "Elegí el idioma de la interfaz de la app.",
-
   "common.close": "Cerrar",
   "common.cancel": "Cancelar",
   "common.save": "Guardar",
@@ -297,7 +287,6 @@
   "common.copied": "¡Copiado!",
   "common.copy": "Copiar {label}",
   "common.channel": "canal",
-
   "dm.optIn.title": "Activar mensajes directos",
   "dm.optIn.subtitle": "Activá DMs solo en dispositivos donde querés tenerlos activos.",
   "dm.optIn.point.events": "Los DMs usan eventos de mensajes directos encriptados de Nostr.",
@@ -319,7 +308,7 @@
   "dm.follows": "Contactos",
   "dm.others": "Otros",
   "dm.youPrefix": "Vos: ",
-  "dm.encryptedPill": "Los mensajes están encriptados end-to-end con NIP-04",
+  "dm.encryptedPill": "Los mensajes están encriptados end-to-end",
   "dm.attach": "Adjuntar",
   "dm.compose.to": "Para:",
   "dm.compose.next": "Siguiente",
@@ -329,11 +318,10 @@
   "dm.compose.placeholder": "Nombre, NIP-05 o npub",
   "dm.emptyMobileDescription": "Tocá + para iniciar un DM encriptado con cualquier persona en Nostr.",
   "dm.pickConversation": "Elegí o iniciá una conversación por DM.",
-  "dm.emptyEncrypted": "Todavía no hay mensajes. Mandá el primero (encriptado NIP-04).",
-  "dm.placeholderEncrypted": "Mensaje encriptado (NIP-04)",
+  "dm.emptyEncrypted": "Todavía no hay mensajes. Mandá el primero, encriptado end-to-end.",
+  "dm.placeholderEncrypted": "Mensaje encriptado",
   "dm.failedSend": "No se pudo enviar",
   "dm.dismissFailed": "Descartar mensaje fallido",
-
   "preferences.directMessages.label": "Mensajes directos",
   "preferences.directMessages.description": "Permití que este dispositivo abra suscripciones de DMs encriptados de Nostr y muestre conversaciones.",
   "preferences.directMessages.mobileDescription": "DMs encriptados de Nostr en este dispositivo",
@@ -361,7 +349,6 @@
   "preferences.appearance.bubbleMotion.still": "Quietas",
   "preferences.appearance.colorAria": "Color de {label}",
   "preferences.appearance.hexAria": "Color hex de {label}",
-
   "user.settings": "Ajustes de usuario",
   "user.editProfile": "Editar perfil",
   "user.appPreferences": "Preferencias de la app",
@@ -377,7 +364,6 @@
   "user.nameRequired": "El nombre es obligatorio",
   "user.notSignedIn": "No iniciaste sesión",
   "user.publishFailed": "No se pudo publicar",
-
   "mobile.settings.identity": "Identidad",
   "mobile.settings.openOtherClient": "Abrir en otro cliente",
   "mobile.settings.editNostrProfile": "Editar perfil Nostr",
@@ -460,7 +446,7 @@
   "mobile.search.placeholder": "Buscar mensajes, personas, canales...",
   "mobile.search.all": "Todo",
   "mobile.search.channelsHelp": "Escribí para filtrar canales.",
-  "mobile.search.serverSideHelp": "La búsqueda de mensajes del relay usa from:, in:#, has:.",
+  "mobile.search.serverSideHelp": "La búsqueda de mensajes del servidor usa from:, in:#, has:.",
   "mobile.empty.noChannelSelected": "No hay canal seleccionado",
   "mobile.empty.noVoiceChannel": "No hay canal de voz",
   "mobile.empty.noConversation": "No hay conversación",
@@ -470,12 +456,6 @@
   "mobile.empty.unknownScreen": "Pantalla desconocida",
   "mobile.empty.backHome": "Volver al inicio",
   "mobile.navigation.pressBackAgain": "Presioná atrás otra vez para salir",
-  "mobile.search.aria": "Buscar mensajes, personas y canales",
-  "mobile.search.placeholder": "Buscar mensajes, personas, canales...",
-  "mobile.search.all": "Todo",
-  "mobile.search.channelsHelp": "Escribí para filtrar canales.",
-  "mobile.search.serverSideHelp": "La búsqueda de mensajes del servidor usa from:, in:#, has:.",
-
   "desktop.empty.title": "Elegí un canal o DM",
   "desktop.empty.description": "Elegí desde la barra lateral o tocá + para crear un canal.",
   "desktop.channel.loadingInfo": "Cargando información del canal...",
@@ -489,7 +469,6 @@
   "desktop.channel.settings": "Ajustes del canal",
   "desktop.channel.hideMembers": "Ocultar lista de miembros",
   "desktop.channel.showMembers": "Mostrar lista de miembros",
-
   "desktop.composer.replyingTo": "Respondiendo a",
   "desktop.composer.cancelReply": "Cancelar respuesta",
   "desktop.composer.removeAttachment": "Quitar adjunto",
@@ -528,14 +507,12 @@
   "desktop.reactions.openEmojiPicker": "Abrir selector de emojis",
   "desktop.zaps.one": "zap",
   "desktop.zaps.many": "zaps",
-
   "desktop.inbox.markRead": "Marcar leído",
   "desktop.inbox.caughtUpDms": "No hay mensajes directos nuevos.",
   "desktop.inbox.caughtUpMentions": "No hay menciones en este relay.",
   "desktop.inbox.markReadDmsTitle": "Marcar como leídos todos los mensajes directos",
   "desktop.inbox.markReadMentionsTitle": "Marcar como leídas todas las menciones de este relay",
   "desktop.inbox.type.mention": "@ Mención",
-
   "search.open": "Abrir búsqueda",
   "search.close": "Cerrar búsqueda",
   "search.filters.title": "Filtros",
@@ -564,5 +541,21 @@
   "mobile.signing.pending": "Esperando aprobación",
   "mobile.signing.ok": "Firmado",
   "mobile.signing.error": "Falló la firma",
-  "mobile.signing.none": "No hay una solicitud de firma activa."
+  "mobile.signing.none": "No hay una solicitud de firma activa.",
+  "pqc.heading": "Mensajes post-cuánticos",
+  "pqc.subtitle": "Los mensajes cifrados que se envían hoy se pueden grabar ahora y leer más adelante, el día que una computadora cuántica rompa el intercambio de claves del que depende Nostr. Es la única parte del problema que se puede resolver por adelantado.",
+  "pqc.status": "Ya funciona en Obelisk. Los mensajes directos van con gift wrap por defecto, y llevan un sello post-cuántico en cuanto activás la protección post-cuántica y tanto tu firmante como la otra persona tienen claves post-cuánticas. Las claves viven en la extensión Nostr WoT y en la librería @nostr-wot/pq.",
+  "pqc.collab": "Creado en colaboración con",
+  "pqc.nostrwot.desc": "Identidad, firmante y claves post-cuánticas derivadas de una única frase de recuperación de 24 palabras.",
+  "pqc.quantakrypto.desc": "Criptografía post-cuántica aplicada: diseño, especificación y revisión criptográfica.",
+  "pqc.guide": "Leer la guía: cómo proteger tus mensajes directos contra la computación cuántica",
+  "pq.secured": "Listo para post-cuántico",
+  "pq.securedDetail": "Ambos publican claves post-cuánticas, así que esta conversación puede quedar protegida contra ataques cuánticos.",
+  "pq.notSecured": "Sin protección cuántica",
+  "pq.notSecuredDetail": "Como casi todas las conversaciones de Nostr hoy, esta se apoya en cifrado clásico. Se puede grabar ahora y descifrar más adelante, cuando una computadora cuántica rompa ese intercambio de claves.",
+  "pq.learnHow": "Cómo protegerte",
+  "pq.markNoGiftwrap": "Sin gift wrap",
+  "pq.markNoGiftwrapDetail": "Los relays pueden ver con quién hablás.",
+  "pq.markNoPq": "Sin protección cuántica",
+  "pq.markNoPqDetail": "Este mensaje no tiene protección post-cuántica. Es seguro hoy, pero se podría grabar ahora y leer más adelante, cuando una computadora cuántica rompa el intercambio de claves clásico."
 }

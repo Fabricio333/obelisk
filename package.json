@@ -32,7 +32,9 @@
   "dependencies": {
     "@noble/hashes": "^2.0.1",
     "@nostr-wot/data": "^0.5.1",
-    "@nostr-wot/signers": "^1.1.0",
+    "@nostr-wot/dm": "^0.6.1",
+    "@nostr-wot/pq": "^0.2.1",
+    "@nostr-wot/signers": "^1.2.0",
     "@nostr-wot/ui": "^0.7.1",
     "@nostr-wot/wallet": "^0.3.3",
     "gray-matter": "^4.0.3",
