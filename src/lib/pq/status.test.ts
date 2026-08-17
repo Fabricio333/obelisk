@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { conversationStatus, messageMark } from './status';
+import { conversationStatus, messageMark, threadMarks, type ThreadMarkInput } from './status';
 
 describe('conversationStatus', () => {
   const on = { enabled: true, selfHasKeys: true, peerHasKeys: true };
@@ -40,5 +40,64 @@ describe('messageMark', () => {
 
   it('prefers the gift-wrap mark when a nip04 message is somehow flagged pq', () => {
     expect(messageMark({ protocol: 'nip04', pq: true })).toBe('no-giftwrap');
+  });
+});
+
+describe('threadMarks', () => {
+  const settled = (protocol: 'nip04' | 'nip17', pq?: boolean): ThreadMarkInput => ({
+    protocol,
+    pq,
+    settled: true,
+  });
+
+  it('marks only the head of a run, not every message', () => {
+    // The density problem this exists to solve: pre-NIP-17 history is all
+    // NIP-04, so `messageMark` alone would put a pill on every bubble.
+    expect(
+      threadMarks([settled('nip04'), settled('nip04'), settled('nip04'), settled('nip04')]),
+    ).toEqual(['no-giftwrap', null, null, null]);
+  });
+
+  it('marks each transition between protection levels', () => {
+    expect(
+      threadMarks([
+        settled('nip04'),
+        settled('nip04'),
+        settled('nip17', false),
+        settled('nip17', false),
+        settled('nip17', true),
+        settled('nip17', true),
+      ]),
+    ).toEqual(['no-giftwrap', null, 'no-pq', null, null, null]);
+  });
+
+  it('re-marks when a thread regresses to an earlier protection level', () => {
+    expect(
+      threadMarks([settled('nip17', true), settled('nip04'), settled('nip17', true), settled('nip17', false)]),
+    ).toEqual([null, 'no-giftwrap', null, 'no-pq']);
+  });
+
+  it('stays silent for a fully post-quantum thread', () => {
+    expect(threadMarks([settled('nip17', true), settled('nip17', true)])).toEqual([null, null]);
+  });
+
+  it('never marks an unsettled message and never lets it break a run', () => {
+    // A pending send has no established provenance: the bridge does not know
+    // whether the seal will be post-quantum until it has the peer's
+    // attestation. Marking it would flash a claim that may be wrong.
+    const marks = threadMarks([
+      settled('nip04'),
+      { protocol: 'nip17', pq: false, settled: false },
+      settled('nip04'),
+    ]);
+    expect(marks).toEqual(['no-giftwrap', null, null]);
+  });
+
+  it('treats a missing pq flag on stored history as not post-quantum', () => {
+    expect(threadMarks([settled('nip17', undefined)])).toEqual(['no-pq']);
+  });
+
+  it('returns an empty list for an empty thread', () => {
+    expect(threadMarks([])).toEqual([]);
   });
 });

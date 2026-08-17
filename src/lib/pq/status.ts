@@ -39,3 +39,41 @@ export function messageMark(input: MessageMarkInput): PqMessageMark {
   if (input.protocol === 'nip04') return 'no-giftwrap';
   return input.pq === true ? null : 'no-pq';
 }
+
+export interface ThreadMarkInput extends MessageMarkInput {
+  /**
+   * False while a send is in flight or has failed. An unsettled message has
+   * no established provenance yet — the bridge can't know whether a seal
+   * will end up post-quantum until it has the peer's attestation — so it
+   * neither shows a mark nor counts as a transition.
+   */
+  settled: boolean;
+}
+
+/**
+ * Per-message marks for a whole thread, aggregated so only **transitions**
+ * are shown.
+ *
+ * `messageMark` alone resolves a mark for essentially every message in a real
+ * thread: all pre-NIP-17 history is NIP-04, so a pill would land on every
+ * bubble in a Discord-style list, which is unreadable and stops carrying
+ * information. Marking transitions instead means one pill at the head of each
+ * run — "everything from here is NIP-04", then a fresh pill the moment the
+ * thread changes protection level — which is the same information at a
+ * hundredth of the density.
+ *
+ * A transition *to* a healthy message shows nothing, by construction: its mark
+ * is `null`. That is the intended reading — marks simply stop.
+ *
+ * Pure, so the whole lattice is table-testable.
+ */
+export function threadMarks(messages: readonly ThreadMarkInput[]): PqMessageMark[] {
+  let previous: PqMessageMark | undefined;
+  return messages.map((m) => {
+    if (!m.settled) return null;
+    const mark = messageMark(m);
+    const show = mark !== null && mark !== previous;
+    previous = mark;
+    return show ? mark : null;
+  });
+}
