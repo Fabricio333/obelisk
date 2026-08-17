@@ -356,10 +356,12 @@ describe('optimistic direct messages', () => {
     expect(final[0].failed).toBeFalsy();
     expect(final[0].content).toBe('hi peer');
     expect(final[0].id.startsWith('pending:')).toBe(false);
-    // One DM event published, encrypted (not plaintext on the wire).
-    const dms = fake.state.published.filter((e) => e.kind === 4);
-    expect(dms).toHaveLength(1);
-    expect(dms[0].content).not.toContain('hi peer');
+    // NIP-17 is the default protocol: one gift wrap (kind 1059) published,
+    // fully opaque on the wire (no kind-4 fallback).
+    const wraps = fake.state.published.filter((e) => e.kind === 1059);
+    expect(wraps).toHaveLength(1);
+    expect(wraps[0].content).not.toContain('hi peer');
+    expect(fake.state.published.filter((e) => e.kind === 4)).toHaveLength(0);
   });
 
   it('marks a DM as failed on publish reject and retryDirectMessage republishes', async () => {
@@ -388,7 +390,7 @@ describe('optimistic direct messages', () => {
     expect(failedList).toHaveLength(1);
     expect(failedList[0].failed).toBe(true);
     const tag = failedList[0].clientTag!;
-    expect(fake.state.published.filter((e) => e.kind === 4)).toHaveLength(0);
+    expect(fake.state.published.filter((e) => e.kind === 1059)).toHaveLength(0);
 
     await bridge.retryDirectMessage(peer.pkHex, tag);
     await flush();
@@ -396,6 +398,7 @@ describe('optimistic direct messages', () => {
     expect(retriedList).toHaveLength(1);
     expect(retriedList[0].pending).toBeFalsy();
     expect(retriedList[0].failed).toBeFalsy();
-    expect(fake.state.published.filter((e) => e.kind === 4)).toHaveLength(1);
+    // NIP-17 is the default protocol: retry re-publishes as a gift wrap.
+    expect(fake.state.published.filter((e) => e.kind === 1059)).toHaveLength(1);
   });
 });

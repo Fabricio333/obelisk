@@ -1,5 +1,5 @@
 /** Relay-only nostr-tools bridge singleton. */
-import { SimplePool, type Filter, type Event as NostrEvent, type EventTemplate, type VerifiedEvent, finalizeEvent, getPublicKey, nip04 } from 'nostr-tools';
+import { SimplePool, type Filter, type Event as NostrEvent, type EventTemplate, type UnsignedEvent, type VerifiedEvent, finalizeEvent, getPublicKey, nip04 } from 'nostr-tools';
 import {
   KIND_EMOJI_FAVORITES,
   KIND_EMOJI_SET,
@@ -12,6 +12,16 @@ import { v2 as nip44 } from 'nostr-tools/nip44';
 import type { NipSigner } from '@/lib/nip-59';
 import { parseRelayList, parseInboxRelayList } from '@nostr-wot/data';
 import { TextCoercingWebSocket } from '@nostr-wot/data';
+import {
+  KIND_GIFT_WRAP,
+  KIND_NIP44_DM,
+  buildChatMessage,
+  sealAndGiftWrap,
+  unwrapGiftWrap,
+} from '@nostr-wot/dm';
+import { isPqEnvelope } from '@nostr-wot/pq';
+import type { NostrSigner as DmNostrSigner } from '@nostr-wot/signers';
+import { useDMStore, type DMProtocol } from '@/store/dm';
 import { cacheGet, cacheSet, cacheDelete, cacheClearAll, cacheListIdsByKind, cacheFreeSpaceForQuota } from './cache';
 import { normalizeRelayUrl } from './relay-url';
 import { wotEngine } from '@/lib/wot/engine';
@@ -304,6 +314,15 @@ const KIND_CONTACT_LIST = 3;
 const KIND_EVENT_DELETION = 5;
 const KIND_REACTION = 7;
 const KIND_DIRECT_MESSAGE = 4;
+// NIP-17 inbox relay list. Also exported as `@nostr-wot/dm/cache`'s
+// `KIND_NIP17_INBOX_RELAYS`, but that submodule pulls in `@nostr-wot/data`'s
+// separate pool/coalescer (used by the WoT/profile hooks elsewhere in the
+// app) purely for its `fetchInboxRelays`/`publishInboxRelays` helpers. The
+// bridge already has its own well-exercised relay-list fetch/publish path
+// (`queryRelaysWithConfidence` + `signAndPublish`/`publishSignedEvent`, the
+// same one `fetchMyDmRelays` and `fetchRecipientReadRelays` use), so DM
+// inbox-list I/O stays on that instead of standing up a second pool for it.
+const KIND_NIP17_INBOX_RELAYS = 10050;
 const KIND_GROUP_CREATE = 9007;
 const KIND_GROUP_EDIT_METADATA = 9002;
 const KIND_GROUP_PUT_USER = 9000;
@@ -1065,6 +1084,7 @@ export class BridgeImpl {
     recipientPubkey: string;
     content: string;
     createdAt: number;
+    protocol: DMProtocol;
   }>();
   adminsByGroup = new StateStore<Record<string, string[]>>({});
   membersByGroup = new StateStore<Record<string, string[]>>({});
@@ -1839,6 +1859,11 @@ export class BridgeImpl {
     this.myLoginMethod.set(this.session?.loginMethod ?? null);
     this.isLoggedIn.set(true);
     void this.syncOwnProfileToActiveRelay('login');
+    // Best-effort, fire-and-forget: without a published kind-10050, no
+    // NIP-17 client (including another Obelisk session) can find where to
+    // deliver gift wraps to us, however many we send. See
+    // `ensureDmInboxRelaysPublished`.
+    void this.ensureDmInboxRelaysPublished();
   }
 
   /**
@@ -2986,6 +3011,9 @@ export class BridgeImpl {
     if (!this.session) throw new Error('Not logged in');
     const clientTag = generateClientTag();
     const createdAt = Math.floor(Date.now() / 1000);
+    // Per-thread override (`useDMStore.protocolOverrides`) if the user
+    // picked one, otherwise NIP-17. See `resolveDmProtocol`.
+    const protocol = resolveDmProtocol(recipientPubkey);
     const pendingMsg: JsDirectMessage = {
       id: `pending:${clientTag}`,
       counterparty: recipientPubkey,
@@ -2994,10 +3022,15 @@ export class BridgeImpl {
       createdAt,
       pending: true,
       clientTag,
+      protocol,
+      // Obelisk never sends with a post-quantum envelope yet (no ML-KEM key
+      // material wired through — see src/lib/pq/); this only ever reflects
+      // inbound messages until that lands.
+      pq: false,
     };
-    this.pendingDMSends.set(clientTag, { recipientPubkey, content, createdAt });
+    this.pendingDMSends.set(clientTag, { recipientPubkey, content, createdAt, protocol });
     this.upsertPendingDM(recipientPubkey, pendingMsg);
-    void this.publishDirectMessage(recipientPubkey, content, clientTag, createdAt);
+    void this.publishDirectMessage(recipientPubkey, content, clientTag, createdAt, protocol);
   }
 
   private async publishDirectMessage(
@@ -3005,23 +3038,64 @@ export class BridgeImpl {
     content: string,
     clientTag: string,
     createdAt: number,
+    protocol: DMProtocol,
   ): Promise<void> {
     try {
-      const cipher = await this.encryptNip04(recipientPubkey, content);
-      // NIP-04 DMs are delivered to the recipient's NIP-65 read relays; without
-      // this, sends to anyone whose read set doesn't include `this.relays` will
-      // never reach them. Failure to look up just falls back to `this.relays`.
-      const extraRelays = await this.fetchRecipientReadRelays(recipientPubkey).catch(() => [] as string[]);
-      const event = await this.signAndPublish(
-        {
-          kind: KIND_DIRECT_MESSAGE,
-          content: cipher,
-          tags: [['p', recipientPubkey]],
-          created_at: createdAt,
-        },
-        extraRelays,
+      if (protocol === 'nip04') {
+        const cipher = await this.encryptNip04(recipientPubkey, content);
+        // NIP-04 DMs are delivered to the recipient's NIP-65 read relays; without
+        // this, sends to anyone whose read set doesn't include `this.relays` will
+        // never reach them. Failure to look up just falls back to `this.relays`.
+        const extraRelays = await this.fetchRecipientReadRelays(recipientPubkey).catch(() => [] as string[]);
+        const event = await this.signAndPublish(
+          {
+            kind: KIND_DIRECT_MESSAGE,
+            content: cipher,
+            tags: [['p', recipientPubkey]],
+            created_at: createdAt,
+          },
+          extraRelays,
+        );
+        this.replacePendingDM(
+          recipientPubkey,
+          clientTag,
+          { id: event.id, createdAt: event.created_at, protocol: 'nip04', pq: false },
+          content,
+        );
+        return;
+      }
+
+      // NIP-17: kind-14 rumor -> seal (kind 13) -> gift wrap (kind 1059),
+      // all via @nostr-wot/dm. The signer adapter routes the seal's
+      // signature + NIP-44 encryption through whichever login method is
+      // active; the wrap itself is signed by a fresh ephemeral key inside
+      // `sealAndGiftWrap`, so it never touches `signAndPublish`'s
+      // session-signing path.
+      const me = this.session?.pubKeyHex;
+      if (!me) throw new Error('Not logged in');
+      const signer = this.getDmSigner();
+      if (!signer) throw new Error('Not logged in');
+      const inner = buildChatMessage(me, recipientPubkey, content);
+      const wrap = await sealAndGiftWrap(signer, recipientPubkey, inner);
+      // Route to the recipient's NIP-17 inbox (kind 10050), falling back to
+      // our own relays + their NIP-65 read relays if they haven't published
+      // one yet.
+      const fallbackRelays = Array.from(new Set([
+        ...this.relays,
+        ...(await this.fetchRecipientReadRelays(recipientPubkey).catch(() => [] as string[])),
+      ]));
+      const inboxRelays = await this.fetchPartnerInboxRelays(recipientPubkey, fallbackRelays);
+      await this.publishSignedEvent(wrap, inboxRelays);
+      this.replacePendingDM(
+        recipientPubkey,
+        clientTag,
+        // Use our own pre-fuzz `createdAt`, NOT `wrap.created_at` — NIP-17
+        // fuzzes both the seal's and the wrap's timestamps up to 2 days into
+        // the past for privacy, so the wrap's own timestamp would make the
+        // just-sent message appear to have been sent days ago.
+        { id: wrap.id, createdAt, protocol: 'nip17', pq: false },
+        content,
       );
-      this.replacePendingDM(recipientPubkey, clientTag, event, content);
     } catch {
       this.markDMFailed(recipientPubkey, clientTag);
     }
@@ -3072,7 +3146,7 @@ export class BridgeImpl {
     const msg = list.find((m) => m.clientTag === clientTag);
     if (!msg || !msg.failed) return;
     this.flipPendingDMToPending(counterparty, clientTag);
-    void this.publishDirectMessage(args.recipientPubkey, args.content, clientTag, args.createdAt);
+    void this.publishDirectMessage(args.recipientPubkey, args.content, clientTag, args.createdAt, args.protocol);
   }
 
   cancelPendingMessage(groupId: string, clientTag: string): void {
@@ -3160,16 +3234,23 @@ export class BridgeImpl {
   private replacePendingDM(
     counterparty: string,
     clientTag: string,
-    ev: NostrEvent,
+    // `id`/`createdAt` are passed explicitly rather than derived from the
+    // published event: for NIP-17 the gift-wrap's own `id`/`created_at`
+    // belong to the ephemeral-keyed wrap, and the wrap's timestamp is
+    // fuzzed up to 2 days into the past for privacy — neither is what the
+    // sender's own thread should display.
+    params: { id: string; createdAt: number; protocol: DMProtocol; pq: boolean },
     plaintext: string,
   ): void {
     this.pendingDMSends.delete(clientTag);
     const realMsg: JsDirectMessage = {
-      id: ev.id,
+      id: params.id,
       counterparty,
       outgoing: true,
       content: plaintext,
-      createdAt: ev.created_at,
+      createdAt: params.createdAt,
+      protocol: params.protocol,
+      pq: params.pq,
     };
     this.dmsByPeer.update((prev) => {
       const existing = prev[counterparty] ?? [];
@@ -5877,11 +5958,20 @@ export class BridgeImpl {
     // DMs to me (kind 4 with #p = me) and from me (authored by me).
     const filterIn: Filter = { kinds: [KIND_DIRECT_MESSAGE], '#p': [me], limit: 200 };
     const filterOut: Filter = { kinds: [KIND_DIRECT_MESSAGE], authors: [me], limit: 200 };
+    // NIP-17 gift wraps addressed to us. There is no equivalent "from me"
+    // filter — the wrap is signed by a fresh ephemeral key per message, not
+    // by our own pubkey, so our own sends never show up here (matches
+    // `@nostr-wot/dm`'s own `sendDM`, which relies on the optimistic-send
+    // placeholder rather than a self-addressed copy for the sender's view).
+    const filterWraps: Filter = { kinds: [KIND_GIFT_WRAP], '#p': [me], limit: 200 };
     for (const f of [filterIn, filterOut]) {
       const sub = this.subscribeWatched(this.relays, f, (ev) => this.ingestIncomingDM(ev));
       this.subs.push(sub);
       this.dmSubHandles.push(sub);
     }
+    const wrapSub = this.subscribeWatched(this.relays, filterWraps, (ev) => this.ingestIncomingGiftWrap(ev));
+    this.subs.push(wrapSub);
+    this.dmSubHandles.push(wrapSub);
     // Wide-net pickup: other clients publish DMs to the user's own NIP-17
     // (10050) inbox or NIP-65 (10002) read/write relays — not necessarily
     // `this.relays`. Resolve those, then add a parallel subscription.
@@ -5896,6 +5986,9 @@ export class BridgeImpl {
         this.subs.push(sub);
         this.dmSubHandles.push(sub);
       }
+      const extraWrapSub = this.subscribeWatched(extras, filterWraps, (ev) => this.ingestIncomingGiftWrap(ev));
+      this.subs.push(extraWrapSub);
+      this.dmSubHandles.push(extraWrapSub);
     });
   }
 
@@ -6250,16 +6343,87 @@ export class BridgeImpl {
       return; // can't decrypt → skip silently
     }
     if (this.session?.pubKeyHex !== me || this.connectGeneration !== generation) return;
-    this.ingestDM(ev, plaintext, isOutgoing, counterparty);
+    this.ingestDM({
+      id: ev.id,
+      createdAt: ev.created_at,
+      plaintext,
+      outgoing: isOutgoing,
+      counterparty,
+      protocol: 'nip04',
+      pq: false,
+      notifyId: ev.id,
+    });
   }
 
-  private ingestDM(ev: NostrEvent, plaintext: string, outgoing: boolean, counterparty: string): void {
+  /**
+   * Ingest a kind-1059 gift wrap addressed to us — the NIP-17 counterpart of
+   * {@link ingestIncomingDM}. Unwraps via `@nostr-wot/dm`'s `unwrapGiftWrap`
+   * (which verifies the seal's signature and rejects a forged rumor
+   * authorship — see the design doc's Security section), then ingests into
+   * the same `dmsByPeer` store the UI already reads.
+   */
+  private async ingestIncomingGiftWrap(ev: NostrEvent): Promise<void> {
+    if (!this.session) return;
+    const me = this.session.pubKeyHex;
+    const generation = this.connectGeneration;
+    // A fresh signer + tracker per call: `unwrapGiftWrap` doesn't report
+    // whether the seal it opened was a post-quantum envelope, so the
+    // adapter's `nip44Decrypt` records `isPqEnvelope(ciphertext)` on every
+    // call it makes and we read it back afterwards. `unwrapGiftWrap` awaits
+    // its wrap-layer decrypt before its seal-layer decrypt, so the seal
+    // call — the one that actually matters — is always the last write.
+    // Scoping the tracker to a fresh object per call (rather than a field
+    // on `this`) keeps concurrent inbound wraps from racing on it.
+    const pqTrack = { current: false };
+    const signer = this.getDmSigner(pqTrack);
+    if (!signer) return;
+    let message: (UnsignedEvent & { id: string }) | undefined;
+    let senderPubkey: string | undefined;
+    try {
+      ({ message, senderPubkey } = await unwrapGiftWrap(signer, ev));
+    } catch {
+      return; // can't decrypt/verify → skip silently, same as the NIP-04 path
+    }
+    if (this.session?.pubKeyHex !== me || this.connectGeneration !== generation) return;
+    if (message.kind !== KIND_NIP44_DM) return; // ignore non-chat NIP-17 rumor kinds
+    const outgoing = senderPubkey === me;
+    // Mirrors @nostr-wot/dm's own `handleGiftWrap`: an outgoing wrap (e.g. a
+    // self-copy from another device) carries the real recipient in the
+    // rumor's own `p` tag; an inbound one is from the sender directly.
+    const counterparty = outgoing ? message.tags.find((t) => t[0] === 'p')?.[1] : senderPubkey;
+    if (!counterparty) return;
+    this.ingestDM({
+      id: message.id,
+      createdAt: message.created_at,
+      plaintext: message.content,
+      outgoing,
+      counterparty,
+      protocol: 'nip17',
+      pq: pqTrack.current,
+      notifyId: ev.id,
+    });
+  }
+
+  private ingestDM(params: {
+    id: string;
+    createdAt: number;
+    plaintext: string;
+    outgoing: boolean;
+    counterparty: string;
+    protocol: DMProtocol;
+    pq: boolean;
+    /** Event id to attribute the notification card to (the on-the-wire id — the gift wrap's, not the inner rumor's — for NIP-17). */
+    notifyId: string;
+  }): void {
+    const { id, createdAt, plaintext, outgoing, counterparty, protocol, pq, notifyId } = params;
     const dm: JsDirectMessage = {
-      id: ev.id,
+      id,
       counterparty,
       outgoing,
       content: plaintext,
-      createdAt: ev.created_at,
+      createdAt,
+      protocol,
+      pq,
     };
     let isNew = false;
     let replacedClientTag: string | null = null;
@@ -6306,10 +6470,10 @@ export class BridgeImpl {
     if (!isNew || outgoing) return;
     if (isUserWatchingDM(counterparty)) return;
     useNotificationsStore.getState().pushDmNotification({
-      id: ev.id,
+      id: notifyId,
       senderPubkey: counterparty,
       preview: plaintext.slice(0, 280),
-      createdAt: ev.created_at * 1000,
+      createdAt: createdAt * 1000,
     });
   }
 
@@ -6362,6 +6526,106 @@ export class BridgeImpl {
         throw new Error(`Cannot NIP-44 encrypt with login method ${session.loginMethod}`);
       },
       nip44Decrypt: async (senderPubkey, ciphertext) => {
+        if (session.loginMethod === 'nsec' && session.privKeyHex) {
+          const sk = hexToBytes(session.privKeyHex);
+          const key = nip44.utils.getConversationKey(sk, senderPubkey);
+          return nip44.decrypt(ciphertext, key);
+        }
+        if (session.loginMethod === 'nip07') {
+          const w = (window as unknown as {
+            nostr?: { nip44?: { decrypt: (p: string, c: string) => Promise<string> } };
+          }).nostr;
+          if (!w?.nip44?.decrypt) throw new Error('Extension does not support NIP-44 decryption');
+          return w.nip44.decrypt(senderPubkey, ciphertext);
+        }
+        if (session.loginMethod === 'bunker') {
+          return this.withBunkerSigner((b) => b.nip44Decrypt(senderPubkey, ciphertext));
+        }
+        throw new Error(`Cannot NIP-44 decrypt with login method ${session.loginMethod}`);
+      },
+    };
+  }
+
+  /**
+   * Build the `NostrSigner` shape `@nostr-wot/dm` (and `@nostr-wot/signers`)
+   * expect, backed by the active session — the DM-transport counterpart of
+   * {@link getNipSigner}. Dispatches by `loginMethod` exactly like
+   * `encryptNip04`/`decryptNip04`/`getNipSigner` do, so all three login
+   * methods (nsec, NIP-07, bunker) keep working. Internal only: nothing
+   * outside this file's DM send/receive paths should ever see this type —
+   * that boundary is what keeps a bad SDK integration scoped to the
+   * bridge's DM methods instead of the whole app.
+   *
+   * `pqTrack`, if given, is written on every `nip44Decrypt` call with
+   * whether that call's ciphertext was a post-quantum envelope
+   * (`@nostr-wot/pq`'s `isPqEnvelope`). It exists solely so
+   * {@link ingestIncomingGiftWrap} can recover `unwrapGiftWrap`'s internal
+   * pq-vs-classic routing decision, which its return value doesn't expose.
+   */
+  private getDmSigner(pqTrack?: { current: boolean }): DmNostrSigner | null {
+    if (!this.session) return null;
+    const session = this.session;
+    return {
+      getPublicKey: async () => session.pubKeyHex,
+      signEvent: async (template) => {
+        if (session.loginMethod === 'nsec' && session.privKeyHex) {
+          const sk = hexToBytes(session.privKeyHex);
+          return finalizeEvent({ ...template }, sk);
+        }
+        if (session.loginMethod === 'nip07') {
+          const w = (window as unknown as { nostr?: { signEvent: (e: unknown) => Promise<NostrEvent> } }).nostr;
+          if (!w) throw new Error('NIP-07 extension unavailable');
+          return w.signEvent(template);
+        }
+        if (session.loginMethod === 'bunker') {
+          return this.withBunkerSigner((b) => b.signEvent(template) as Promise<NostrEvent>);
+        }
+        throw new Error(`Cannot sign with login method ${session.loginMethod}`);
+      },
+      nip04Encrypt: (recipientPubkey, plaintext) => this.encryptNip04(recipientPubkey, plaintext),
+      nip04Decrypt: (senderPubkey, ciphertext) => this.decryptNip04(senderPubkey, ciphertext),
+      nip44Encrypt: async (recipientPubkey, plaintext, opts) => {
+        if (opts?.scheme === 'pq') {
+          // Only the extension path can carry the third argument today:
+          // `window.nostr.nip44.encrypt` has a channel for it.  nsec has no
+          // ML-KEM key material in this build (that's `src/lib/pq/`'s job,
+          // out of scope here), and bunker's NIP-46 `nip44_encrypt` request
+          // has no field for `recipientKemKey` (see
+          // `@nostr-wot/signers`' `Nip46Signer.nip44Encrypt` doc). Both
+          // throw rather than silently downgrading a message the caller
+          // explicitly asked to protect post-quantum.
+          if (session.loginMethod === 'nip07') {
+            const w = (window as unknown as {
+              nostr?: {
+                nip44?: {
+                  encrypt: (p: string, t: string, o?: { scheme: 'pq'; recipientKemKey: string }) => Promise<string>;
+                };
+              };
+            }).nostr;
+            if (!w?.nip44?.encrypt) throw new Error('Extension does not support NIP-44 encryption');
+            return w.nip44.encrypt(recipientPubkey, plaintext, opts);
+          }
+          throw new Error(`Post-quantum NIP-44 encryption is not available for login method ${session.loginMethod}`);
+        }
+        if (session.loginMethod === 'nsec' && session.privKeyHex) {
+          const sk = hexToBytes(session.privKeyHex);
+          const key = nip44.utils.getConversationKey(sk, recipientPubkey);
+          return nip44.encrypt(plaintext, key);
+        }
+        if (session.loginMethod === 'nip07') {
+          const w = (window as unknown as {
+            nostr?: { nip44?: { encrypt: (p: string, t: string) => Promise<string> } };
+          }).nostr;
+          if (!w?.nip44?.encrypt) throw new Error('Extension does not support NIP-44 encryption');
+          return w.nip44.encrypt(recipientPubkey, plaintext);
+        }
+        if (session.loginMethod === 'bunker') {
+          return this.withBunkerSigner((b) => b.nip44Encrypt(recipientPubkey, plaintext));
+        }
+        throw new Error(`Cannot NIP-44 encrypt with login method ${session.loginMethod}`);
+      },
+      nip44Decrypt: async (senderPubkey, ciphertext) => {
+        if (pqTrack) pqTrack.current = isPqEnvelope(ciphertext);
         if (session.loginMethod === 'nsec' && session.privKeyHex) {
           const sk = hexToBytes(session.privKeyHex);
           const key = nip44.utils.getConversationKey(sk, senderPubkey);
@@ -6475,6 +6739,32 @@ export class BridgeImpl {
   }
 
   /**
+   * Look up `pubkey`'s NIP-17 inbox relays (kind 10050) so a gift wrap sent
+   * to them actually lands where they're listening, not just wherever we
+   * happen to be connected. Falls back to `fallbackRelays` unchanged if
+   * they haven't published one — matching `@nostr-wot/dm`'s own
+   * `fetchInboxRelays` documented fallback behaviour, just resolved via the
+   * bridge's own pool instead of standing up a second one (see the
+   * `KIND_NIP17_INBOX_RELAYS` comment above).
+   */
+  private async fetchPartnerInboxRelays(pubkey: string, fallbackRelays: string[]): Promise<string[]> {
+    try {
+      const searchRelays = Array.from(new Set([...fallbackRelays, ...PROFILE_RELAYS]));
+      const { events } = await this.queryRelaysWithConfidence(
+        searchRelays,
+        { kinds: [KIND_NIP17_INBOX_RELAYS], authors: [pubkey], limit: 1 },
+        4000,
+      );
+      const newest = newestEvent(events);
+      if (!newest) return fallbackRelays;
+      const relays = parseInboxRelayList(newest, 'public').filter(isImportableRelayUrl);
+      return relays.length > 0 ? Array.from(new Set([...relays, ...fallbackRelays])) : fallbackRelays;
+    } catch {
+      return fallbackRelays;
+    }
+  }
+
+  /**
    * Fetch the user's own kind 10050 (NIP-17 inbox) + kind 10002 (NIP-65)
    * relay lists across a wide search net. Used after connect to extend the
    * incoming-DM subscription onto the relays where other clients (Damus,
@@ -6509,6 +6799,56 @@ export class BridgeImpl {
       // best-effort — fall through to whatever we have
     }
     return Array.from(out);
+  }
+
+  /**
+   * Publish our own kind-10050 NIP-17 inbox list if we don't have one yet,
+   * or the one on the relays no longer matches the relay(s) we're actually
+   * listening on. Best-effort, fire-and-forget from `finalizeLogin` — a
+   * failure here just means senders fall back to our NIP-65 relays (or
+   * their own default set) the way `fetchInboxRelays` already documents,
+   * not a broken login.
+   *
+   * Advertises `this.relays` (the relay(s) `subscribeIncomingDMs` actually
+   * listens on) as the inbox. Obelisk is single-active-relay-per-session
+   * today, so this is one relay in practice; if that changes, this call
+   * site is the one place that needs to widen.
+   */
+  private async ensureDmInboxRelaysPublished(): Promise<void> {
+    // Same opt-in gate as `subscribeIncomingDMs` — don't advertise a NIP-17
+    // inbox for a feature the user has turned off locally.
+    if (!getPreferences().directMessagesEnabled) return;
+    if (!this.session) return;
+    const me = this.session.pubKeyHex;
+    const STALE_MS = 7 * 24 * 3600 * 1000;
+    try {
+      const searchRelays = Array.from(new Set([...this.relays, ...PROFILE_RELAYS]));
+      const { events } = await this.queryRelaysWithConfidence(
+        searchRelays,
+        { kinds: [KIND_NIP17_INBOX_RELAYS], authors: [me], limit: 1 },
+        4000,
+      );
+      const newest = newestEvent(events);
+      const desired = Array.from(new Set(this.relays));
+      const current = newest ? parseInboxRelayList(newest, 'public') : [];
+      const matches = current.length === desired.length && desired.every((r) => current.includes(r));
+      const isStale = !newest || Date.now() - newest.created_at * 1000 > STALE_MS;
+      if (matches && !isStale) return;
+      // Session may have changed (logout/switch) while the query was in flight.
+      if (this.session?.pubKeyHex !== me) return;
+      const signer = this.getDmSigner();
+      if (!signer) return;
+      const event = await signer.signEvent({
+        kind: KIND_NIP17_INBOX_RELAYS,
+        created_at: Math.floor(Date.now() / 1000),
+        content: '',
+        tags: desired.map((url) => ['relay', url]),
+      });
+      await this.publishSignedEvent(event, searchRelays, { quiet: true });
+    } catch {
+      // best-effort — a missing/stale inbox list degrades NIP-17
+      // reachability, it doesn't break anything else.
+    }
   }
 
   private async signAndPublish(
@@ -6569,12 +6909,28 @@ export class BridgeImpl {
     const targetRelays = mode === 'replace'
       ? Array.from(new Set(extraRelays))
       : Array.from(new Set([...this.relays, ...extraRelays]));
+    return this.publishSignedEvent(event, targetRelays, opts);
+  }
+
+  /**
+   * Publish an already-signed event with retry/rejection-state handling —
+   * the tail half of {@link signAndPublish}, split out so callers that sign
+   * outside the session-dispatch path (NIP-17 gift wraps, signed by a fresh
+   * ephemeral key inside `sealAndGiftWrap`, not by the session's own key)
+   * still get the same relay-access tracking and timeout retry instead of a
+   * bare `pool.publish`.
+   */
+  private async publishSignedEvent(
+    event: NostrEvent,
+    targetRelays: string[],
+    opts?: { quiet?: boolean },
+  ): Promise<NostrEvent> {
     const pubId = opts?.quiet ? null : pushActivity(
       'Publishing to relays',
-      "kind " + template.kind + " -> " + targetRelays.length + " relay(s)",
-      { operation: "publish", eventKind: template.kind, description: eventKindDescription(template.kind) },
+      "kind " + event.kind + " -> " + targetRelays.length + " relay(s)",
+      { operation: "publish", eventKind: event.kind, description: eventKindDescription(event.kind) },
     );
-    pushRelayDebug({ kind: "publish-start", relays: targetRelays, eventKind: template.kind, status: eventKindDescription(template.kind) });
+    pushRelayDebug({ kind: "publish-start", relays: targetRelays, eventKind: event.kind, status: eventKindDescription(event.kind) });
     const publishes = this.pool.publish(targetRelays, event, { onauth: this.getAuthSigner() });
 
     // Some relays never ACK ephemeral events, so keep the bounded
@@ -6801,6 +7157,17 @@ function generateGroupId(): string {
  * entropy — more than enough to avoid collisions across the few hundred
  * placeholders a session might accumulate.
  */
+/**
+ * Which DM wire protocol to use for `recipientPubkey`: the per-thread
+ * override from `useDMStore` (`src/store/dm.ts`) if the user has picked
+ * one, otherwise NIP-17 by default. NIP-04 is opt-in-per-thread now, not
+ * the default — see `docs/superpowers/specs/2026-08-16-nip17-dms-design.md`.
+ */
+function resolveDmProtocol(recipientPubkey: string): DMProtocol {
+  const override = useDMStore.getState().protocolOverrides[recipientPubkey];
+  return override === 'nip04' ? 'nip04' : 'nip17';
+}
+
 function generateClientTag(): string {
   const bytes = new Uint8Array(8);
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
