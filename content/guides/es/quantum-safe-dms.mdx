@@ -3,7 +3,7 @@ title: Cómo proteger tus mensajes directos contra la computación cuántica
 description: Los mensajes cifrados que enviás hoy se pueden grabar ahora y leer más adelante, el día que una computadora cuántica rompa el intercambio de claves que usa Nostr. Esta es la única parte del problema que podés resolver por adelantado, y hay dos formas de hacerlo.
 heroComponent: quantum-safe
 publishedAt: '2026-08-15'
-updatedAt: '2026-08-15'
+updatedAt: '2026-08-17'
 tags: [seguridad, post-cuantico, mensajes-directos, cifrado]
 ---
 
@@ -35,16 +35,24 @@ La contrapartida: esta clave **no se puede recuperar con tu frase de recuperaci�
 
 ## Cómo configurarlo
 
-Ambos caminos pasan por la [extensión Nostr WoT](https://nostr-wot.com), que es la que posee tus claves. Obelisk nunca las ve; en cuanto esa función esté disponible, solo leerá la atestación pública que indica que tu cuenta tiene claves post-cuánticas.
+Ambos caminos pasan por la [extensión Nostr WoT](https://nostr-wot.com), que es la que posee tus claves. Obelisk nunca las ve: solo lee la atestación pública que indica que tu cuenta tiene claves post-cuánticas.
 
-Publicar tu atestación es lo que te va a hacer alcanzable para mensajes post-cuánticos una vez que los clientes empiecen a enviarlos; no hay nada más que hacer de tu parte. Obelisk mostrará un indicador por conversación, construido a partir de esta misma atestación, en cuanto esa función esté disponible.
+Publicar tu atestación es lo que te hace alcanzable para mensajes post-cuánticos, y no hay nada más que hacer de tu parte. Del lado de Obelisk, activá **Protección post-cuántica** en configuración. A partir de ahí, cada vez que vos y la persona a la que le escribís tengan claves post-cuánticas publicadas, Obelisk sella el mensaje con un sobre post-cuántico dentro del gift wrap común.
+
+Hay una condición que Obelisk no controla. Obelisk solo cifra en post-cuántico cuando tu extensión informa explícitamente que puede hacerlo, porque un pedido post-cuántico a una extensión que no lo entiende vuelve como un mensaje cifrado común, sin ningún aviso. En vez de afirmar una protección que no puede verificar, Obelisk manda el mensaje con cifrado común y lo marca como tal. El panel de configuración te dice en cuál de las dos situaciones estás.
+
+Solo los inicios de sesión con extensión pueden usar post-cuántico. Un login con `nsec` no tiene frase de recuperación de la cual derivar claves, y el protocolo de firma remota de un bunker no tiene campo para llevar material de clave post-cuántico. Eso corta para los dos lados: en esos logins Obelisk tampoco puede abrir un mensaje post-cuántico entrante, porque abrir el sobre necesita justamente las claves que no tiene. Si alguien te manda uno, no te va a aparecer. Entrá con la extensión para leerlo.
+
+Un mensaje que no se puede proteger nunca queda bloqueado. Siempre se envía.
 
 ## Cómo leer las marcas
 
-Obelisk envía mensajes NIP-04 hoy, así que todos los mensajes que ya tenés en el historial van a llevar la marca "Sin gift wrap" en cuanto esto llegue a Obelisk, no solo los antiguos. Es exactamente por eso que existe este trabajo: cerrar esa brecha es lo que va apagando la marca, mensaje por mensaje. En una conversación con historial vas a ver marcas de distintos tipos mientras tanto, porque ambos pueden haber usado varios clientes a lo largo de los años.
+Obelisk ahora envía mensajes NIP-17 con gift wrap por defecto, así que los relays ya no ven a quién le escribís. Lo anterior a eso no cambia: el cifrado no es retroactivo, y nada puede volver atrás para proteger un mensaje que ya está guardado en un relay. Una conversación vieja conserva su historial NIP-04 tal cual estaba.
 
-- **Sin gift wrap**: un mensaje NIP-04. El contenido está cifrado, pero los relays pueden ver con quién hablabas. Esto incluye todos los mensajes que Obelisk envía hoy.
+Las marcas aparecen solo cuando tenés activada **Protección post-cuántica**, y solo donde el nivel de protección *cambia*. Un tramo largo de historial NIP-04 lleva una marca al principio, no una en cada mensaje.
+
+- **Sin gift wrap**: un mensaje NIP-04. El contenido está cifrado, pero los relays pueden ver con quién hablabas. Así se ve tu historial anterior a NIP-17, y así se ve una conversación que volviste a NIP-04 a propósito.
 - **Sin protección cuántica**: un mensaje con gift wrap pero sin protección post-cuántica. Seguro hoy, cosechable para después.
 - **Sin marca**: con gift wrap y post-cuántico. No hay nada que señalar.
 
-Una conversación se va a quedar silenciosa a medida que el gift wrap y el soporte post-cuántico se activen, no antes.
+Una conversación se queda silenciosa cuando ambos lados mandan mensajes con gift wrap y post-cuánticos, no antes.

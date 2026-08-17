@@ -191,7 +191,7 @@ describe('post-quantum status row', () => {
     resolve({ canSend: false, capabilityUnknown: false, hasKeys: false, attestationPublished: false });
   });
 
-  it('reports detected keys once selfPqState resolves with hasKeys', async () => {
+  it('explains the dead-end when keys are published but the signer reports nothing', async () => {
     mockSelfPqState.mockResolvedValue({
       canSend: false, capabilityUnknown: true, hasKeys: true, attestationPublished: true,
     });
@@ -203,10 +203,28 @@ describe('post-quantum status row', () => {
       </LocaleProvider>,
     );
 
-    await waitFor(() => {
-      expect(screen.getByText('Post-quantum keys detected on this account.')).toBeInTheDocument();
-    });
+    // "Keys detected" alone would be the dead-end the UX audit found: the
+    // user did everything right and nothing changes, unexplained.
+    const row = await screen.findByTestId('pq-status-signer-unknown');
+    expect(row).toHaveTextContent('Post-quantum keys detected on this account.');
+    expect(row).toHaveTextContent('does not report post-quantum support');
     expect(mockSelfPqState).toHaveBeenCalledWith('a'.repeat(64), 'nip07');
+  });
+
+  it('confirms sending works once the signer advertises the pq scheme', async () => {
+    mockSelfPqState.mockResolvedValue({
+      canSend: true, capabilityUnknown: false, hasKeys: true, attestationPublished: true,
+    });
+    const { PreferencesPanel } = await import('./UserPanel');
+
+    render(
+      <LocaleProvider initialLocale="en">
+        <PreferencesPanel />
+      </LocaleProvider>,
+    );
+
+    const row = await screen.findByTestId('pq-status-ready');
+    expect(row).toHaveTextContent('Your signer can send post-quantum messages.');
   });
 
   it('links to the guide when no keys are detected', async () => {

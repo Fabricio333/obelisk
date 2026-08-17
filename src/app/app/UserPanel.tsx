@@ -510,12 +510,18 @@ export function PreferencesPanel() {
 }
 
 /**
- * Read-only status line beneath the post-quantum toggle. The toggle alone
- * controls nothing observable — this is the one place that actually reads
- * `selfPqState()` (already computed and tested, previously called by
- * nothing) and tells the user whether the extension they installed and the
- * attestation they published actually took. It does not claim sending
- * works: Obelisk still sends NIP-04 today.
+ * Read-only status line beneath the post-quantum toggle. Reports the three
+ * states `selfPqState()` distinguishes, because they have genuinely different
+ * outcomes for the user:
+ *
+ *   - `canSend` — the signer advertises the `pq` scheme; sends really are
+ *     sealed post-quantum whenever the peer publishes keys.
+ *   - `capabilityUnknown` — keys are published but the signer reports
+ *     nothing, so the send path deliberately stays classic rather than risk
+ *     a downgrade it would then mislabel as protected. Saying only "keys
+ *     detected" here would be the dead-end the UX audit found: the user does
+ *     everything right and nothing changes, with no explanation.
+ *   - no keys at all — point at the setup guide.
  */
 function PostQuantumStatusRow() {
   const { t, locale } = useTranslation();
@@ -541,8 +547,25 @@ function PostQuantumStatusRow() {
     return <p className="mt-1 text-xs text-lc-muted">{t('settings.postQuantumChecking')}</p>;
   }
 
+  if (state.canSend) {
+    return (
+      <p className="mt-1 text-xs text-lc-muted" data-testid="pq-status-ready">
+        {t('settings.postQuantumDetected')} {t('settings.postQuantumReady')}
+      </p>
+    );
+  }
+
   if (state.hasKeys) {
-    return <p className="mt-1 text-xs text-lc-muted">{t('settings.postQuantumDetected')}</p>;
+    // Either `capabilityUnknown` (NIP-07, no `nip44.schemes` marker) or a
+    // non-NIP-07 session, which has no surface that could carry post-quantum
+    // encryption at all. The user-visible outcome is identical in both:
+    // messages keep going out classic, and Obelisk will switch on its own
+    // once the signer says it can.
+    return (
+      <p className="mt-1 text-xs text-lc-muted" data-testid="pq-status-signer-unknown">
+        {t('settings.postQuantumDetected')} {t('settings.postQuantumSignerUnknown')}
+      </p>
+    );
   }
 
   return (

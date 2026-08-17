@@ -3,7 +3,7 @@ title: Making your DMs quantum-safe
 description: Encrypted messages you send today can be recorded now and read years from now, once a quantum computer breaks the key exchange Nostr uses. This is the one part of the problem you can fix in advance, and there are two ways to do it.
 heroComponent: quantum-safe
 publishedAt: '2026-08-15'
-updatedAt: '2026-08-15'
+updatedAt: '2026-08-17'
 tags: [security, post-quantum, direct-messages, encryption]
 ---
 
@@ -35,16 +35,24 @@ The trade-off: this key **cannot be recovered from your recovery phrase**, becau
 
 ## How to set it up
 
-Both paths run through the [Nostr WoT extension](https://nostr-wot.com), which owns your keys. Obelisk never sees them: it will only read the public attestation that says your account has post-quantum keys, once that support ships.
+Both paths run through the [Nostr WoT extension](https://nostr-wot.com), which owns your keys. Obelisk never sees them: it only reads the public attestation that says your account has post-quantum keys.
 
-Publishing your attestation is what will make you reachable for post-quantum messages once clients start sending them; there is nothing else to do on your end. Obelisk will show a per-conversation indicator, built from this same attestation, once that support ships.
+Publishing your attestation is what makes you reachable for post-quantum messages, and there is nothing else to do on your end. On Obelisk's side, turn on **Post-quantum protection** in settings. From then on, whenever you and the person you are writing to both publish post-quantum keys, Obelisk seals the message with a post-quantum envelope inside the ordinary gift wrap.
+
+One condition sits outside Obelisk's control. Obelisk only encrypts post-quantum when your extension explicitly reports that it can, because a post-quantum request to an extension that does not understand it comes back as an ordinary encrypted message with no warning. Rather than claim protection it cannot verify, Obelisk sends the message with ordinary encryption and labels it that way. The settings panel tells you which of the two you are in.
+
+Only browser-extension logins can use post-quantum at all. An `nsec` login has no recovery phrase to derive keys from, and a bunker's remote-signing protocol has no field to carry post-quantum key material. That cuts both ways: on those logins Obelisk cannot open an incoming post-quantum message either, because opening the envelope needs exactly the keys it does not have. If someone sends you one, it will not appear. Sign in with the extension to read it.
+
+A message that cannot be protected is never blocked. It always sends.
 
 ## Reading the marks
 
-Obelisk sends NIP-04 messages today, so every message already in your history will carry the "Not gift-wrapped" mark once this lands, not just the old ones. That is exactly why this work exists: closing that gap is what turns the mark off, one exchange at a time.
+Obelisk sends gift-wrapped NIP-17 messages by default now, so relays no longer see who you are writing to. What came before that does not change: encryption is not retroactive, and nothing can reach back to protect a message already sitting on a relay. An old thread keeps its NIP-04 history exactly as it was.
 
-- **Not gift-wrapped**: a NIP-04 message. The contents are encrypted, but relays can see who you were talking to. This includes every message Obelisk sends today.
+The marks only appear once **Post-quantum protection** is on, and only where the protection level *changes*. A long thread of NIP-04 history gets one mark at its head, not one on every message.
+
+- **Not gift-wrapped**: a NIP-04 message. The contents are encrypted, but relays can see who you were talking to. This is what your history from before NIP-17 looks like, and what a conversation you have deliberately switched back to NIP-04 looks like.
 - **Not quantum-safe**: a gift-wrapped message without post-quantum protection. Safe today, harvestable for later.
 - **No mark**: gift-wrapped and post-quantum. Nothing to flag.
 
-A conversation will go quiet as gift wrap and post-quantum support roll out, not before.
+A conversation goes quiet once both sides are sending gift-wrapped, post-quantum messages, and not before.
