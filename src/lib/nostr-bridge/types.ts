@@ -1,3 +1,5 @@
+import type { DMProtocol } from '@/store/dm';
+
 export interface JsForumTag {
   /** Short opaque slug. Stable across edits — threads reference this id. */
   readonly id: string;
@@ -124,6 +126,26 @@ export interface JsDirectMessage {
   readonly outgoing: boolean;
   readonly content: string;
   readonly createdAt: number;
+  /**
+   * Which wire protocol carried this message. Every ingest path (NIP-04
+   * decrypt, NIP-17 unwrap, and the optimistic-send placeholder) sets this
+   * explicitly. Optional only so a message built before this field existed
+   * reads as the historical default — plain NIP-04 — rather than `undefined`
+   * rendering as some third state.
+   */
+  readonly protocol?: DMProtocol;
+  /**
+   * Whether this specific message was sealed with `@nostr-wot/pq`'s hybrid
+   * post-quantum envelope. Only meaningful when `protocol === 'nip17'`.
+   * `undefined`/`false` both read as classic (non-post-quantum) — including
+   * for any message stored before this field existed.
+   *
+   * Set on both directions: inbound from `isPqEnvelope()` on the seal's
+   * ciphertext (see `getDmSigner`'s `pqTrack`), outbound from whether
+   * `resolvePqSend` produced a plan and the seal actually took it. Never
+   * optimistic: a send that falls back to classic records `false`.
+   */
+  readonly pq?: boolean;
   /**
    * Optimistic-send fields, set only on outgoing placeholders the bridge
    * inserted for an in-flight or failed publish. See {@link JsMessage} for

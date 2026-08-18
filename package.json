@@ -2,6 +2,15 @@
   "name": "obelisk",
   "version": "0.1.0",
   "private": true,
+  "license": "AGPL-3.0-only",
+  "author": "Fabricio Acosta",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/obelisk-app/obelisk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/obelisk-app/obelisk/issues"
+  },
   "scripts": {
     "dev": "node --env-file-if-exists=.env.local scripts/dev.mjs",
     "dev:next": "next dev",
@@ -23,9 +32,11 @@
   "dependencies": {
     "@noble/hashes": "^2.0.1",
     "@nostr-wot/data": "^0.5.1",
-    "@nostr-wot/signers": "file:vendor/nostr-wot-signers",
-    "@nostr-wot/ui": "^0.6.0",
-    "@nostr-wot/wallet": "^0.3.1",
+    "@nostr-wot/dm": "^0.6.1",
+    "@nostr-wot/pq": "^0.2.1",
+    "@nostr-wot/signers": "^1.2.0",
+    "@nostr-wot/ui": "^0.7.1",
+    "@nostr-wot/wallet": "^0.3.3",
     "gray-matter": "^4.0.3",
     "html-to-image": "^1.11.13",
     "light-bolt11-decoder": "^3.2.0",

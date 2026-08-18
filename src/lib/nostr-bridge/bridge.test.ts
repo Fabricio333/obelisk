@@ -677,6 +677,12 @@ describe('nostr-bridge', () => {
     setPreference('directMessagesEnabled', true);
     bridgeA.subscribeDirectMessages(() => {});
 
+    // NIP-17 is the default protocol now; this thread explicitly opts into
+    // NIP-04 via the per-thread override to verify the legacy path still
+    // behaves exactly as before the SDK adoption.
+    const { useDMStore } = await import('@/store/dm');
+    useDMStore.getState().setProtocolOverride(bob.pkHex, 'nip04');
+
     await bridgeA.sendDirectMessage(bob.pkHex, 'meet me at the obelisk');
     await flush(20);
 

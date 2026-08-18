@@ -74,7 +74,7 @@ Full guided tours: [obelisk.ar/desktop](https://obelisk.ar/desktop) · [obelisk.
 
 | | |
 |---|---|
-| **Live** | [obelisk.ar](https://obelisk.ar) — public global server (~75 active users) |
+| **Live** | [obelisk.ar](https://obelisk.ar) — the client, pointed at a public relay I operate |
 | **La Crypta** | A community of 20+ migrated from Discord |
 | **Self-host** | `git clone` + `npm run build` + serve. Bring your own relay. |
 
@@ -87,7 +87,9 @@ npm install
 npm run dev          # http://localhost:3000
 ```
 
-No `.env` needed for local dev — defaults to `wss://relay.obelisk.ar`.
+No `.env` is required for local development. New installs currently start with
+`wss://public.obelisk.ar` and `wss://lacrypta-relay.obelisk.ar`; optional relay suggestions come
+from `NEXT_PUBLIC_RECOMMENDED_RELAYS`.
 
 For HTTPS dev (needed for NIP-07 / mobile testing): `npm run dev:raise` (requires a Cloudflare tunnel, see [docs/cloudflare-tunnel.md](docs/cloudflare-tunnel.md)).
 
@@ -168,6 +170,21 @@ Issues and PRs welcome.
 4. New relay-derived data goes through the bridge (StateStore + ingest method + subscribeXxx + useXxx hook).
 
 See [CLAUDE.md](CLAUDE.md) for the full guide.
+
+## Legal
+
+Obelisk is free software under the **[AGPL-3.0](LICENSE)**. It is provided **as-is, without warranty
+of any kind**, express or implied. See the licence for the full disclaimer of warranty and
+limitation of liability.
+
+This repository is software, not a service. Nostr relays are independent servers run by independent
+operators. I operate `public.obelisk.ar` and `lacrypta-relay.obelisk.ar`; I do not operate or
+control any other relay, and I cannot moderate, delete, or disclose anything on one.
+
+- **Abuse, illegal content, takedowns:** [ABUSE.md](ABUSE.md) — abuse@obelisk.ar
+- **Security vulnerabilities:** [SECURITY.md](SECURITY.md) — security@obelisk.ar
+
+Obelisk is an individual open-source project. There is no company behind it.
 
 ## Resources
 

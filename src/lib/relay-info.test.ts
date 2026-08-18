@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { operatorPubkeyFromRelayInfo } from './relay-info';
+import { operatorPubkeyFromRelayInfo, suggestedRelaysFromEnv } from './relay-info';
 
 const SERVICE_KEY = 'a'.repeat(64);
 const CONTACT_NPUB = 'npub1m9vsm9d8sy0pevcjhenwm4ny6l37dm2hsg4dnusna43ql3n5305qy4zlg4';
@@ -23,5 +23,18 @@ describe('operatorPubkeyFromRelayInfo', () => {
 
   it('returns null without a usable operator identity', () => {
     expect(operatorPubkeyFromRelayInfo(null)).toBeNull();
+  });
+});
+
+describe('suggestedRelaysFromEnv', () => {
+  it('returns no suggestions when the deployment does not configure them', () => {
+    expect(suggestedRelaysFromEnv()).toEqual([]);
+  });
+
+  it('keeps unique valid secure relay URLs in deployment order', () => {
+    expect(suggestedRelaysFromEnv(' wss://one.example,invalid,ws://two.example,wss://one.example,wss://three.example ')).toEqual([
+      { url: 'wss://one.example' },
+      { url: 'wss://three.example' },
+    ]);
   });
 });

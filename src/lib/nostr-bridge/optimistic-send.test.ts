@@ -108,6 +108,18 @@ async function flush(times = 20) {
   for (let i = 0; i < times; i++) await Promise.resolve();
 }
 
+/** Wait until `n` NIP-17 gift wraps have landed on the fake relay. */
+async function waitForWraps(n: number) {
+  return vi.waitFor(
+    () => {
+      const wraps = fake.state.published.filter((e) => e.kind === 1059);
+      if (wraps.length < n) throw new Error(`only ${wraps.length} of ${n} gift wraps published`);
+      return wraps;
+    },
+    { timeout: 5000, interval: 5 },
+  );
+}
+
 beforeEach(() => {
   fake.state.published = [];
   fake.state.subscriptions = [];
@@ -356,10 +368,20 @@ describe('optimistic direct messages', () => {
     expect(final[0].failed).toBeFalsy();
     expect(final[0].content).toBe('hi peer');
     expect(final[0].id.startsWith('pending:')).toBe(false);
-    // One DM event published, encrypted (not plaintext on the wire).
-    const dms = fake.state.published.filter((e) => e.kind === 4);
-    expect(dms).toHaveLength(1);
-    expect(dms[0].content).not.toContain('hi peer');
+    // NIP-17 is the default protocol: two gift wraps (kind 1059) published —
+    // the recipient's and the sender-addressed self-copy that keeps our own
+    // outgoing history alive across a reload — both fully opaque on the wire
+    // (no kind-4 fallback). See `dm-nip17.test.ts` for the full contract.
+    // The self-copy resolves our own inbox relays first, so it lands a few
+    // relay round trips after the message itself settles.
+    await waitForWraps(2);
+    const wraps = fake.state.published.filter((e) => e.kind === 1059);
+    expect(wraps).toHaveLength(2);
+    for (const w of wraps) expect(w.content).not.toContain('hi peer');
+    expect(fake.state.published.filter((e) => e.kind === 4)).toHaveLength(0);
+    // The self-copy comes straight back through our own kind-1059
+    // subscription; it must not render as a second message.
+    expect(last[peer.pkHex]).toHaveLength(1);
   });
 
   it('marks a DM as failed on publish reject and retryDirectMessage republishes', async () => {
@@ -380,7 +402,12 @@ describe('optimistic direct messages', () => {
       last = out;
     });
 
-    fake.state.nextOutcomes.push({ reject: 'auth-required' });
+    // Deliberately NOT an `auth-required` rejection: a gift wrap refused for
+    // want of NIP-42 now escalates to one authenticated retry rather than
+    // failing the send (see `publishSignedEvent`'s `authMode: 'last-resort'`,
+    // covered in `dm-nip17.test.ts`). A flat refusal is the case that must
+    // still surface as a failed message the user can retry by hand.
+    fake.state.nextOutcomes.push({ reject: 'blocked: relay is not accepting events right now' });
     await bridge.sendDirectMessage(peer.pkHex, 'will fail');
     await flush();
 
@@ -388,7 +415,7 @@ describe('optimistic direct messages', () => {
     expect(failedList).toHaveLength(1);
     expect(failedList[0].failed).toBe(true);
     const tag = failedList[0].clientTag!;
-    expect(fake.state.published.filter((e) => e.kind === 4)).toHaveLength(0);
+    expect(fake.state.published.filter((e) => e.kind === 1059)).toHaveLength(0);
 
     await bridge.retryDirectMessage(peer.pkHex, tag);
     await flush();
@@ -396,6 +423,9 @@ describe('optimistic direct messages', () => {
     expect(retriedList).toHaveLength(1);
     expect(retriedList[0].pending).toBeFalsy();
     expect(retriedList[0].failed).toBeFalsy();
-    expect(fake.state.published.filter((e) => e.kind === 4)).toHaveLength(1);
+    // NIP-17 is the default protocol: retry re-publishes as a gift wrap,
+    // plus the sender-addressed self-copy.
+    await waitForWraps(2);
+    expect(fake.state.published.filter((e) => e.kind === 1059)).toHaveLength(2);
   });
 });

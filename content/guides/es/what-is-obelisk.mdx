@@ -3,7 +3,7 @@ title: ¿Qué es Obelisk?
 description: Obelisk es un cliente de chat grupal estilo Discord sin backend. No hay base de datos, no hay servidor de Obelisk — tu cuenta es un par de claves Nostr, tus grupos viven en relays de Nostr, y la app es solo un frontend que firma y lee eventos.
 heroComponent: what-is-obelisk
 publishedAt: '2026-04-16'
-updatedAt: '2026-04-28'
+updatedAt: '2026-08-17'
 tags: [intro, nostr, identity, nip-29]
 ---
 
@@ -14,7 +14,7 @@ Obelisk es un cliente de chat que se ve y se siente como Discord — servidores 
 ## Qué significa esto en la práctica
 
 - **No hay registro.** Iniciás sesión con una clave Nostr (extensión NIP-07 o nsec). No hay email, no hay contraseña, no hay cuenta de Obelisk para crear o recuperar.
-- **No hay servidor central.** No corremos nada. Apuntás la app a cualquier relay NIP-29 que quieras — `wss://groups.fiatjaf.com` es el default, pero podés agregar o reemplazarlo.
+- **No hay servidor de aplicación.** El cliente habla directo con relays NIP-29. Las instalaciones nuevas incluyen dos relays públicos operados por Obelisk, y podés quitar o reemplazar cualquiera.
 - **No hay base de datos.** Canales, miembros, admins, kicks y bans no son filas en nuestra base de datos — son eventos NIP-29 estándar que el relay hace cumplir.
 - **Tus datos son portables.** Cambiá de relay, corré el tuyo, espejá tu grupo en varios. La app no es dueña de nada.
 
@@ -23,7 +23,7 @@ Obelisk es un cliente de chat que se ve y se siente como Discord — servidores 
 Comunidades cripto, nerds de la privacidad, equipos de open-source, hackathons, y cualquiera al que le den alergia los formularios de "verificá tu email / confirmá tu teléfono". Si ya usás Nostr, Obelisk es una cara familiar estilo Discord para grupos en los que quizás ya estás. Si no, la pantalla de login te genera una clave en dos clicks.
 
 <Callout type="info" title="No tener backend significa">
-No te podemos banear. No podemos leer tus DMs. No podemos perder tus mensajes — porque nunca los tuvimos. El relay que elegís es el que guarda los datos, y siempre podés elegir otro relay.
+El cliente no tiene backend de cuentas ni base de datos de mensajes. Los operadores pueden moderar el contenido público de sus propios relays, pero no pueden leer DMs encriptados sin tus claves. El relay que elegís guarda los datos del grupo, y siempre podés elegir otro.
 </Callout>
 
 ## Qué funciona hoy

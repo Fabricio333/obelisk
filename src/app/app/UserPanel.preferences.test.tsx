@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { LocaleProvider } from '@/i18n/context';
 import { DM_OPT_IN_STORAGE_KEY } from '@/lib/dm/opt-in';
 
 const mockLogout = vi.hoisted(() => vi.fn());
+const mockSelfPqState = vi.hoisted(() => vi.fn());
 
 vi.mock('@/components/settings/WotSettings', () => ({
   default: () => <div data-testid="wot-settings" />,
@@ -13,6 +14,10 @@ vi.mock('@/lib/nostr-bridge/cache-clear', () => ({
   clearAllClientCacheExceptSession: () => 0,
 }));
 
+vi.mock('@/lib/pq/capability', () => ({
+  selfPqState: (...args: unknown[]) => mockSelfPqState(...args),
+}));
+
 vi.mock('@/lib/nostr-bridge', () => ({
   nostrActions: {
     ensureUserMetadata: vi.fn().mockResolvedValue(undefined),
@@ -20,6 +25,8 @@ vi.mock('@/lib/nostr-bridge', () => ({
     logout: (...args: unknown[]) => mockLogout(...args),
   },
   useSignerReady: () => true,
+  useMyPubkey: () => 'a'.repeat(64),
+  useMyLoginMethod: () => 'nip07',
   useUserMetadata: () => ({
     displayName: 'Alice', name: 'Alice',
     picture: 'https://cdn.example/alice.jpg',
@@ -32,6 +39,13 @@ vi.mock('@/lib/nostr-bridge', () => ({
 vi.mock('@/components/media/MediaLibraryModal', () => ({
   default: ({ embedded }: { embedded?: boolean }) => <div data-testid="media-library-stub" data-embedded={embedded ? 'true' : 'false'} />,
 }));
+
+beforeEach(() => {
+  mockSelfPqState.mockReset();
+  mockSelfPqState.mockResolvedValue({
+    canSend: false, capabilityUnknown: false, hasKeys: false, attestationPublished: false,
+  });
+});
 
 describe('UserPanel personal media access', () => {
   beforeEach(() => mockLogout.mockClear());
@@ -158,5 +172,79 @@ describe('PreferencesPanel appearance controls', () => {
     expect(screen.getByText('Idioma')).toBeInTheDocument();
     expect(screen.getByText('Mensajes directos')).toBeInTheDocument();
     expect(screen.getByText(/DMs encriptados de Nostr/i)).toBeInTheDocument();
+  });
+});
+
+describe('post-quantum status row', () => {
+  it('shows a checking state before selfPqState resolves', async () => {
+    let resolve!: (v: unknown) => void;
+    mockSelfPqState.mockReturnValue(new Promise((r) => { resolve = r; }));
+    const { PreferencesPanel } = await import('./UserPanel');
+
+    render(
+      <LocaleProvider initialLocale="en">
+        <PreferencesPanel />
+      </LocaleProvider>,
+    );
+
+    expect(screen.getByText('Checking for post-quantum keys…')).toBeInTheDocument();
+    resolve({ canSend: false, capabilityUnknown: false, hasKeys: false, attestationPublished: false });
+  });
+
+  it('explains the dead-end when keys are published but the signer reports nothing', async () => {
+    mockSelfPqState.mockResolvedValue({
+      canSend: false, capabilityUnknown: true, hasKeys: true, attestationPublished: true,
+    });
+    const { PreferencesPanel } = await import('./UserPanel');
+
+    render(
+      <LocaleProvider initialLocale="en">
+        <PreferencesPanel />
+      </LocaleProvider>,
+    );
+
+    // "Keys detected" alone would be the dead-end the UX audit found: the
+    // user did everything right and nothing changes, unexplained.
+    const row = await screen.findByTestId('pq-status-signer-unknown');
+    expect(row).toHaveTextContent('Post-quantum keys detected on this account.');
+    expect(row).toHaveTextContent('does not report post-quantum support');
+    expect(mockSelfPqState).toHaveBeenCalledWith('a'.repeat(64), 'nip07');
+  });
+
+  it('confirms sending works once the signer advertises the pq scheme', async () => {
+    mockSelfPqState.mockResolvedValue({
+      canSend: true, capabilityUnknown: false, hasKeys: true, attestationPublished: true,
+    });
+    const { PreferencesPanel } = await import('./UserPanel');
+
+    render(
+      <LocaleProvider initialLocale="en">
+        <PreferencesPanel />
+      </LocaleProvider>,
+    );
+
+    const row = await screen.findByTestId('pq-status-ready');
+    expect(row).toHaveTextContent('Your signer can send post-quantum messages.');
+  });
+
+  it('links to the guide when no keys are detected', async () => {
+    mockSelfPqState.mockResolvedValue({
+      canSend: false, capabilityUnknown: false, hasKeys: false, attestationPublished: false,
+    });
+    const { PreferencesPanel } = await import('./UserPanel');
+
+    render(
+      <LocaleProvider initialLocale="en">
+        <PreferencesPanel />
+      </LocaleProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('No post-quantum keys detected on this account.')).toBeInTheDocument();
+    });
+    expect(screen.getByRole('link', { name: 'Set up post-quantum keys' })).toHaveAttribute(
+      'href',
+      '/guides/quantum-safe-dms',
+    );
   });
 });

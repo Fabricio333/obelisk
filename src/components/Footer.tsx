@@ -30,7 +30,7 @@ export default function Footer({ localeOverride }: Props) {
   return (
     <footer className="border-t border-lc-border/50 pt-14 pb-10 px-6" data-testid="site-footer">
       <div className="max-w-6xl mx-auto">
-        <div className="grid gap-10 md:grid-cols-[1.3fr_1fr_1fr_1fr]">
+        <div className="grid gap-10 md:grid-cols-2 lg:grid-cols-[1.3fr_1fr_1fr_1fr_1fr]">
           {/* Brand */}
           <div>
             <Link href="/" className="flex items-center gap-3 mb-4">
@@ -109,7 +109,7 @@ export default function Footer({ localeOverride }: Props) {
               </li>
               <li>
                 <a
-                  href="https://github.com/Fabricio333/obelisk"
+                  href="https://github.com/obelisk-app/obelisk"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-sm text-lc-muted hover:text-lc-green transition-colors"
@@ -151,10 +151,47 @@ export default function Footer({ localeOverride }: Props) {
               </li>
             </ul>
           </nav>
+
+          {/* Legal */}
+          <nav aria-labelledby="footer-legal">
+            <h3
+              id="footer-legal"
+              className="text-xs font-bold uppercase tracking-wider text-lc-white mb-4"
+            >
+              {t('footer.col.legal')}
+            </h3>
+            <ul className="space-y-2.5">
+              <li>
+                <a
+                  href="https://github.com/obelisk-app/obelisk/blob/main/LICENSE"
+                  className="text-sm text-lc-muted hover:text-lc-green transition-colors"
+                >
+                  {t('footer.license')}
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://github.com/obelisk-app/obelisk/blob/main/ABUSE.md"
+                  className="text-sm text-lc-muted hover:text-lc-green transition-colors"
+                >
+                  {t('footer.abuse')}
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://github.com/obelisk-app/obelisk/blob/main/SECURITY.md"
+                  className="text-sm text-lc-muted hover:text-lc-green transition-colors"
+                >
+                  {t('footer.security')}
+                </a>
+              </li>
+            </ul>
+          </nav>
         </div>
 
-        <div className="mt-12 pt-6 border-t border-lc-border/40 flex items-center justify-center">
+        <div className="mt-12 pt-6 border-t border-lc-border/40 flex flex-wrap items-center justify-between gap-3">
           <p className="text-xs text-lc-muted">{t('footer.tagline')}</p>
+          <p className="text-xs text-lc-muted">© {new Date().getFullYear()} Fabricio Acosta · AGPL-3.0</p>
         </div>
       </div>
     </footer>

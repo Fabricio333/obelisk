@@ -39,7 +39,7 @@ describe('Footer', () => {
     expect(links).toContain('/guides/es');
   });
 
-  it('includes product, community, and FAQ links', () => {
+  it('includes product, community, legal, and FAQ links', () => {
     render(
       <LocaleProvider initialLocale="en">
         <Footer />
@@ -49,7 +49,11 @@ describe('Footer', () => {
     expect(links).toContain('/app');
     expect(links).toContain('/#faq');
     expect(links).toContain('/help');
-    expect(links).toContain('https://github.com/Fabricio333/obelisk');
+    expect(links).toContain('https://github.com/obelisk-app/obelisk');
     expect(links).toContain('https://lacrypta.ar');
+    expect(links).toContain('https://github.com/obelisk-app/obelisk/blob/main/LICENSE');
+    expect(links).toContain('https://github.com/obelisk-app/obelisk/blob/main/ABUSE.md');
+    expect(links).toContain('https://github.com/obelisk-app/obelisk/blob/main/SECURITY.md');
+    expect(screen.getByText(/© \d{4} Fabricio Acosta · AGPL-3.0/)).toBeInTheDocument();
   });
 });
