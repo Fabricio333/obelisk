@@ -127,6 +127,10 @@ const TECH_STACK: { name: string; desc: string; color: string; icon?: string; im
   { name: 'nostr-tools', desc: 'SimplePool, signing, encryption', color: 'text-purple-400', icon: '⚡', href: 'https://github.com/nbd-wtf/nostr-tools' },
   { name: 'NIP-29', desc: 'Relay-managed groups', color: 'text-lc-green', icon: '◫', href: 'https://github.com/nostr-protocol/nips/blob/master/29.md' },
   { name: 'NIP-17', desc: 'Gift-wrapped DMs', color: 'text-pink-400', icon: '✉', href: 'https://github.com/nostr-protocol/nips/blob/master/17.md' },
+  // Six packages ship from this SDK (data, ui, dm, pq, signers, wallet), so the card
+  // names the SDK rather than picking one of them. First entry to use `img` instead of
+  // `icon` — the mark is white-on-transparent, so it reads on the lc-black card as is.
+  { name: 'Nostr WoT SDK', desc: 'Profiles, WoT, gift wrap, post-quantum', color: 'text-lc-green', img: '/nostr-wot-logo.svg', href: 'https://github.com/nostr-wot/nostr-wot-sdk' },
   { name: 'NIP-57 + NIP-47', desc: 'Lightning zaps & NWC', color: 'text-orange-400', icon: '⚡', href: 'https://github.com/nostr-protocol/nips/blob/master/47.md' },
   { name: 'Zustand', desc: 'Client state', color: 'text-amber-400', icon: '◇', href: 'https://github.com/pmndrs/zustand' },
   { name: 'Tailwind v4', desc: 'Styling', color: 'text-cyan-400', icon: '~', href: 'https://tailwindcss.com' },
@@ -878,9 +882,12 @@ export default function LandingPage() {
       </section>
 
       {/* Post-quantum messages — joint work with Nostr WoT + QuantaKrypto.
-          Deliberately worded as in-development: Obelisk's DMs are still
-          NIP-04, so claiming shipped post-quantum messaging here would be
-          false. Promote the copy when the NIP-17 + PQ path actually lands. */}
+          This copy used to be written as in-development because DMs were still
+          NIP-04. That shipped: DMs are gift-wrapped by default and carry a
+          post-quantum seal when both sides advertise keys, so `pqc.status` now
+          says so. The claim is conditional on purpose — a signer without
+          post-quantum support still sends classic NIP-44, and saying otherwise
+          would badge an unprotected message as protected. */}
       <section
         id="post-quantum"
         ref={pqRef}
@@ -897,13 +904,22 @@ export default function LandingPage() {
             {t('pqc.collab')}
           </p>
           <div className="grid sm:grid-cols-2 gap-4 text-left">
+            {/* Both marks are monochrome white-on-transparent, which is the sanctioned
+                on-dark treatment for each brand and keeps the pair visually consistent.
+                The QuantaKrypto colour mark is not usable here: one of its nodes is
+                #0E1626, which disappears against lc-black. `alt` is empty on purpose —
+                the organisation name sits right beside it, so a screen reader would
+                otherwise announce it twice. */}
             <a
               href="https://nostr-wot.com"
               target="_blank"
               rel="noopener noreferrer"
               className="lc-card p-6 hover:border-lc-green transition-colors"
             >
-              <span className="block font-semibold mb-2">Nostr WoT</span>
+              <div className="flex items-center gap-3 mb-2">
+                <img src="/nostr-wot-logo.svg" alt="" aria-hidden="true" className="w-9 h-9 shrink-0" />
+                <span className="font-semibold">Nostr WoT</span>
+              </div>
               <span className="block text-sm text-lc-muted">{t('pqc.nostrwot.desc')}</span>
             </a>
             <a
@@ -912,7 +928,10 @@ export default function LandingPage() {
               rel="noopener noreferrer"
               className="lc-card p-6 hover:border-lc-green transition-colors"
             >
-              <span className="block font-semibold mb-2">QuantaKrypto</span>
+              <div className="flex items-center gap-3 mb-2">
+                <img src="/quantakrypto-mark.svg" alt="" aria-hidden="true" className="w-9 h-9 shrink-0" />
+                <span className="font-semibold">QuantaKrypto</span>
+              </div>
               <span className="block text-sm text-lc-muted">{t('pqc.quantakrypto.desc')}</span>
             </a>
           </div>
