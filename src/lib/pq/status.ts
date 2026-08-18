@@ -24,6 +24,40 @@ export interface MessageMarkInput {
 }
 
 /**
+ * How well the *next* message on this thread will be protected, as one of
+ * three rungs rather than the secured/not-secured pair the banner used.
+ *
+ * Two independent things are being reported and the old pair conflated them:
+ *
+ * - **gift wrap** hides who is talking to whom, and is on for every send
+ *   unless the thread carries a NIP-04 override;
+ * - **post-quantum** protects the contents against a future quantum computer,
+ *   and needs published keys on both sides plus the preference on.
+ *
+ * A thread can have the first without the second, which is the common case and
+ * is genuinely good news. Calling that "Not quantum-safe" in a yellow banner
+ * described the missing half and stayed silent about the half that was working.
+ */
+export type PqProtectionLevel = 'quantum' | 'wrapped' | 'basic';
+
+export interface ProtectionLevelInput {
+  /** The next send uses NIP-17. False only when the thread is overridden to NIP-04. */
+  giftWrapped: boolean;
+  /**
+   * Resolved conversation status, or `null` while the attestation lookups are
+   * still in flight. `null` reads as "not established", never as quantum:
+   * claiming protection we have not confirmed is the one failure mode here.
+   */
+  status: PqConversationStatus | null;
+}
+
+export function protectionLevel({ giftWrapped, status }: ProtectionLevelInput): PqProtectionLevel {
+  // Post-quantum rides inside the seal, so it cannot exist without the wrap.
+  if (!giftWrapped) return 'basic';
+  return status === 'secured' ? 'quantum' : 'wrapped';
+}
+
+/**
  * Capability-and-configuration state, deliberately not a claim about the
  * messages already in the thread. We can verify a peer published an
  * attestation; we cannot verify their client uses it.

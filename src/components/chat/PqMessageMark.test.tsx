@@ -20,8 +20,11 @@ describe('PqMessageMark', () => {
       </LocaleProvider>,
     );
     const mark = screen.getByTestId('pq-mark');
-    expect(mark).toHaveAttribute('title', 'Relays can see who you are talking to.');
-    expect(mark).toHaveAttribute('aria-label', expect.stringContaining('Relays can see who you are talking to.'));
+    // Plain language on purpose: "relays" is jargon to everyone outside Nostr,
+    // and this string is aimed at a reader who has never heard the word.
+    const detail = 'The servers that carried this message could see who you were talking to.';
+    expect(mark).toHaveAttribute('title', detail);
+    expect(mark).toHaveAttribute('aria-label', expect.stringContaining(detail));
   });
 
   it('exposes a detail for the no-pq mark too', () => {

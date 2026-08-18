@@ -55,10 +55,10 @@ import { MentionText } from '@/components/chat/MentionText';
 import MentionNavigator from '@/components/chat/MentionNavigator';
 import HistoryPaginationStatus from '@/components/chat/HistoryPaginationStatus';
 import MemberList from '@/components/chat/MemberList';
-import PqConversationNotice from '@/components/chat/PqConversationNotice';
+import PqShield from '@/components/chat/PqShield';
 import PqMessageMark from '@/components/chat/PqMessageMark';
 import { usePqConversationStatus } from '@/lib/pq/hooks';
-import { threadMarks } from '@/lib/pq/status';
+import { protectionLevel, threadMarks } from '@/lib/pq/status';
 import { usePreferences } from '@/lib/preferences';
 import RelayAdminPanel from '@/components/admin/RelayAdminPanel';
 import VoiceRoom from '@/components/voice/VoiceRoom';
@@ -4254,6 +4254,12 @@ export function DMPanel({ peer }: { peer: string | null; onPickPeer: (p: string)
   // tells you what a conversation actually rests on.
   const pqEnabled = usePreferences().postQuantumEnabled;
   const pqStatus = usePqConversationStatus(peer);
+  // What the *next* send on this thread will use — the per-thread override
+  // if the user picked one, otherwise NIP-17. Not the protocol of the
+  // history above it, which can legitimately be a mix.
+  // `peer` is still nullable here — the "pick a conversation" early return
+  // happens further down — so the lookup has to be guarded.
+  const sendProtocol = useDMStore((s) => (peer ? s.protocolOverrides[peer] : undefined)) ?? 'nip17';
   const marks = pqEnabled
     ? threadMarks(
         thread.map((m) => ({
@@ -4337,17 +4343,18 @@ export function DMPanel({ peer }: { peer: string | null; onPickPeer: (p: string)
             <div className="truncate font-mono text-[10px] text-lc-muted">{peer}</div>
           </div>
         </button>
+        {/* Unlike the per-message marks below, this is not gated on the
+            post-quantum preference. It reports what protection the thread has,
+            and two of its three states have nothing to do with post-quantum —
+            a user who turned that off still benefits from knowing whether the
+            wrap is hiding who they talk to. It is one icon, so it cannot nag. */}
+        <span className="ml-auto">
+          <PqShield
+            level={protectionLevel({ giftWrapped: sendProtocol !== 'nip04', status: pqStatus })}
+            guideHref={guidesHref(locale, 'quantum-safe-dms')}
+          />
+        </span>
       </header>
-      {/* Only surfaced when the user opted into post-quantum. With the
-          preference off, `conversationStatus` is always `not-secured`, and a
-          permanent warning about a feature they deliberately turned off would
-          be nagging, not teaching. `null` means the attestation lookups are
-          still in flight. */}
-      {pqEnabled && pqStatus !== null && (
-        <div className="shrink-0 border-b border-lc-border bg-lc-dark px-5 pb-3">
-          <PqConversationNotice status={pqStatus} guideHref={guidesHref(locale, 'quantum-safe-dms')} />
-        </div>
-      )}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4">
         {thread.length === 0 ? (
           <div className="text-sm text-lc-muted">{t('dm.emptyEncrypted')}</div>

@@ -105,10 +105,10 @@ import RelayAdminPanel from '@/components/admin/RelayAdminPanel';
 import RelayEmojiAdminModal from '@/components/admin/RelayEmojiAdminModal';
 import RelayRolesAdminModal from '@/components/admin/RelayRolesAdminModal';
 import RoleBadge from '@/components/chat/RoleBadge';
-import PqConversationNotice from '@/components/chat/PqConversationNotice';
+import PqShield from '@/components/chat/PqShield';
 import PqMessageMark from '@/components/chat/PqMessageMark';
 import { usePqConversationStatus } from '@/lib/pq/hooks';
-import { threadMarks } from '@/lib/pq/status';
+import { protectionLevel, threadMarks } from '@/lib/pq/status';
 import { guidesHref } from '@/lib/guide-urls';
 import { rolesByPubkey, useRelayRoles, type RelayRole, type RelayRoles } from '@/lib/relay-roles';
 import LanguagePreference from '@/components/LanguagePreference';
@@ -3607,13 +3607,16 @@ function DmThreadScreen({
             </span>
           </div>
         </div>
-      </div>
-
-      {pqEnabled && pqStatus !== null && (
-        <div className="shrink-0 px-3.5 pb-2">
-          <PqConversationNotice status={pqStatus} guideHref={guidesHref(locale, 'quantum-safe-dms')} />
+        {/* Not gated on the post-quantum preference: two of its three states
+            are about the gift wrap, which matters to every user. One icon,
+            tapped rather than hovered on a phone. */}
+        <div style={{ marginLeft: 'auto' }}>
+          <PqShield
+            level={protectionLevel({ giftWrapped: sendProtocol !== 'nip04', status: pqStatus })}
+            guideHref={guidesHref(locale, 'quantum-safe-dms')}
+          />
         </div>
-      )}
+      </div>
 
       <div className="dm-messages native-scroll-y" ref={msgsRef}>
         <div className="dm-encryption-pill">
