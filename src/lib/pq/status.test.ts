@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { conversationStatus, messageMark, threadMarks, type ThreadMarkInput } from './status';
+import { conversationStatus, messageMark, protectionLevel, threadMarks, type ThreadMarkInput } from './status';
 
 describe('conversationStatus', () => {
   const on = { enabled: true, selfHasKeys: true, peerHasKeys: true };
@@ -99,5 +99,32 @@ describe('threadMarks', () => {
 
   it('returns an empty list for an empty thread', () => {
     expect(threadMarks([])).toEqual([]);
+  });
+});
+
+describe('protectionLevel', () => {
+  it('reports quantum only when the thread is wrapped and the status is secured', () => {
+    expect(protectionLevel({ giftWrapped: true, status: 'secured' })).toBe('quantum');
+  });
+
+  it('reports wrapped when the wrap is on but post-quantum is not established', () => {
+    expect(protectionLevel({ giftWrapped: true, status: 'not-secured' })).toBe('wrapped');
+  });
+
+  it('reports wrapped, never quantum, while the lookups are still in flight', () => {
+    // Claiming protection before it is confirmed is the one failure that
+    // matters here: a shield that says "extra safe" on an unconfirmed thread
+    // is worse than no shield.
+    expect(protectionLevel({ giftWrapped: true, status: null })).toBe('wrapped');
+  });
+
+  it('reports basic when the thread is overridden to NIP-04', () => {
+    expect(protectionLevel({ giftWrapped: false, status: 'not-secured' })).toBe('basic');
+  });
+
+  it('cannot report quantum without the wrap, even if both sides have keys', () => {
+    // Post-quantum rides inside the seal. A NIP-04 thread has no seal, so a
+    // 'secured' capability status is irrelevant to what actually gets sent.
+    expect(protectionLevel({ giftWrapped: false, status: 'secured' })).toBe('basic');
   });
 });
