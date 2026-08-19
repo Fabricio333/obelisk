@@ -51,8 +51,24 @@ Obelisk sends gift-wrapped NIP-17 messages by default now, so relays no longer s
 
 The marks only appear once **Post-quantum protection** is on, and only where the protection level *changes*. A long thread of NIP-04 history gets one mark at its head, not one on every message.
 
-- **Not gift-wrapped**: a NIP-04 message. The contents are encrypted, but relays can see who you were talking to. This is what your history from before NIP-17 looks like, and what a conversation you have deliberately switched back to NIP-04 looks like.
-- **Not quantum-safe**: a gift-wrapped message without post-quantum protection. Safe today, harvestable for later.
+- **Who you talk to is visible**: a NIP-04 message. The contents are encrypted, but the servers that carried it could see who you were talking to. This is what your history from before NIP-17 looks like, and what a conversation you have deliberately switched back to NIP-04 looks like.
+- **Not extra safe**: a gift-wrapped message without post-quantum protection. Locked today, but someone could save it now and open it years from now.
 - **No mark**: gift-wrapped and post-quantum. Nothing to flag.
 
 A conversation goes quiet once both sides are sending gift-wrapped, post-quantum messages, and not before.
+
+## The shield in the header
+
+Every conversation carries a small shield next to the other person's name. Hover it, or tap it on a phone, and it tells you which of three states you are in:
+
+- **Extra safe**: your messages are locked, nobody can see who you are talking to, and even a future quantum computer could not open them.
+- **Safe**: your messages are locked and nobody can see who you are talking to. One day a quantum computer could open them, though.
+- **Basic**: your messages are locked, but the servers that carry them can see who you are talking to.
+
+Most conversations are **Safe**, and that is genuinely good news rather than a warning. Gift wrap is already hiding who you talk to. The shield is small on purpose: a standing banner about the state nearly every conversation is in stops being read within a week.
+
+## Further reading
+
+Post-quantum encryption here is **opt-in**: a client asks for it explicitly rather than negotiating it behind your back. That sounds like extra work and is actually the thing that stops your app promising protection it did not deliver. Nostr WoT has written up [why quantum-resistant direct messages have to be opt-in](https://nostr-wot.com/blog/opt-in-quantum-resistant-direct-messages), including the failure it prevents.
+
+The identity side, where the keys come from, is covered in [post-quantum Nostr identities](https://nostr-wot.com/blog/post-quantum-nostr-identities). The full implementation write-up is on [QuantaKrypto](https://quantakrypto.com/blog/obelisk-first-nostr-client-post-quantum-dms).
