@@ -9,6 +9,11 @@ const wiped = [
   "obelisk-cache/older-key",
   "obelisk-read-state:" + PUBKEY,
   "obelisk-dm-store:" + PUBKEY,
+  // Must be wiped with the two above: the ledger suppresses re-opening gift
+  // wraps because their effects are already in the DM store and the cursor
+  // cache. Keeping it while wiping those would suppress the only events that
+  // could rebuild them.
+  "obelisk-wrap-ledger:" + PUBKEY,
   "obelisk-forum-follow:" + PUBKEY,
   "obelisk-dex/forum-collapsed/group-1",
   "obelisk-dex/mobile-setup-seen/" + PUBKEY,

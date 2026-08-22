@@ -70,6 +70,10 @@ export class WotEngine {
   private cache = new Map<string, VerdictEntry>();
   private pending = new Set<string>();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  /** True while a `wotBatch` round-trip is outstanding. See {@link scheduleFlush}. */
+  private flushing = false;
+  /** Bumped by {@link clearVerdicts} so an in-flight batch's answers can be discarded. */
+  private flushGeneration = 0;
 
   private cfg: WotEngineConfig = { enabled: false, maxHops: 2, minPaths: 1 };
   private ownPubkey: string | null = null;
@@ -236,6 +240,12 @@ export class WotEngine {
 
   private scheduleFlush(): void {
     if (this.flushTimer) return;
+    // A flush already talking to the extension must finish before another
+    // starts. Guarding only the timer (as this used to) let a second
+    // `getDistanceBatch` go out while the first was still awaiting, so two
+    // graph traversals competed for the same single-request extension
+    // channel — and every signature queued behind both.
+    if (this.flushing) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
       void this.flush();
@@ -243,10 +253,26 @@ export class WotEngine {
   }
 
   private async flush(): Promise<void> {
+    if (this.flushing) return;
     if (this.pending.size === 0) return;
     const batch = Array.from(this.pending);
     this.pending.clear();
-    const result = await wotBatch(batch, this.cfg.maxHops, this.cfg.minPaths);
+    this.flushing = true;
+    // Verdicts are computed against the config in force when the batch left.
+    // If `clearVerdicts` runs while we're awaiting — a maxHops change, a
+    // minPaths change, an account switch — these answers describe a graph
+    // traversal nobody asked for any more and must not be written back.
+    const generation = this.flushGeneration;
+    let result: Record<string, { distance: number | null; paths: number | null }> | null;
+    try {
+      result = await wotBatch(batch, this.cfg.maxHops, this.cfg.minPaths);
+    } finally {
+      this.flushing = false;
+      // Anything enqueued while we were in flight was blocked from arming a
+      // timer by the guard above; re-arm now so it isn't stranded.
+      if (this.pending.size > 0) this.scheduleFlush();
+    }
+    if (this.flushGeneration !== generation) return;
     if (!result) {
       if (typeof console !== 'undefined') {
         console.warn('[wot] batch returned null — extension absent or rejected', { count: batch.length });
@@ -304,6 +330,8 @@ export class WotEngine {
   private clearVerdicts(): void {
     this.cache.clear();
     this.pending.clear();
+    // Invalidate any batch already on the wire — see {@link flush}.
+    this.flushGeneration += 1;
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;

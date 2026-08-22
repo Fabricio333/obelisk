@@ -215,7 +215,7 @@ export function useGroups(): ReadonlyArray<JsGroup> {
   const wotEnabled = useWotEnabled();
   // Re-render whenever a verdict resolves so groups whose admins just got a
   // verdict appear/disappear from the rail.
-  const [, force] = useState(0);
+  const [verdictTick, force] = useState(0);
   useEffect(() => {
     if (!wotEnabled) return;
     return wotEngine.on('verdicts-changed', () => force((n) => n + 1));
@@ -249,7 +249,11 @@ export function useGroups(): ReadonlyArray<JsGroup> {
       for (const pk of principals) wotEngine.markUnknown(pk);
       return false;
     });
-  }, [all, creators, adminsByGroup, membersByGroup, myPubkey, wotEnabled]);
+    // `verdictTick` is a dep, not dead weight: the filter reads
+    // `wotEngine.getDistance`, which is not part of any other dep. Without it
+    // the `verdicts-changed` re-render above returned the memoized list and a
+    // resolved verdict never re-admitted its group to the rail.
+  }, [all, creators, adminsByGroup, membersByGroup, myPubkey, wotEnabled, verdictTick]);
 }
 
 /**

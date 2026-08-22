@@ -187,6 +187,30 @@ async function waitForWraps(n: number): Promise<NostrEvent[]> {
   );
 }
 
+/**
+ * Wait until a peer's thread holds at least `n` messages.
+ *
+ * Inbound wraps are opened through the bridge's signer queue, which
+ * serializes decrypt round-trips so background work can't delay a signature
+ * (see `signer-queue.ts`). That makes the number of microtasks between "the
+ * wrap is on the relay" and "the message is in the store" a function of how
+ * much other signer work is in flight — polling the condition is stable
+ * where a fixed tick count is not.
+ */
+async function waitForThread<T>(
+  read: () => ReadonlyArray<T> | undefined,
+  n: number,
+): Promise<ReadonlyArray<T>> {
+  return vi.waitFor(
+    () => {
+      const thread = read() ?? [];
+      if (thread.length < n) throw new Error(`only ${thread.length} of ${n} messages ingested`);
+      return thread;
+    },
+    { timeout: 5000, interval: 5 },
+  );
+}
+
 const addressedTo = (pubkey: string) => (ev: NostrEvent) =>
   ev.tags.some((t) => t[0] === 'p' && t[1] === pubkey);
 
@@ -534,9 +558,8 @@ describe('post-quantum DM receiving', () => {
 
     let last: Record<string, ReadonlyArray<{ content: string; protocol?: string; pq?: boolean }>> = {};
     bridge.subscribeDirectMessages((byPeer) => { last = byPeer as typeof last; });
-    await flush();
 
-    const thread = last[alice.pkHex] ?? [];
+    const thread = await waitForThread(() => last[alice.pkHex], 1);
     expect(thread).toHaveLength(1);
     expect(thread[0]).toMatchObject({ content: 'from a pq client', protocol: 'nip17', pq: true });
   });
@@ -571,9 +594,8 @@ describe('post-quantum DM receiving', () => {
 
     let last: Record<string, ReadonlyArray<{ content: string; pq?: boolean }>> = {};
     bridge.subscribeDirectMessages((byPeer) => { last = byPeer as typeof last; });
-    await flush();
 
-    const thread = last[alice.pkHex] ?? [];
+    const thread = await waitForThread(() => last[alice.pkHex], 2);
     expect(thread).toHaveLength(2);
     expect(thread.find((m) => m.content === 'protected')?.pq).toBe(true);
     expect(thread.find((m) => m.content === 'classic')?.pq).toBe(false);

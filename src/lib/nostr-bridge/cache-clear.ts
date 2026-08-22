@@ -18,6 +18,11 @@
  *   - `obelisk:relay-info-v2/v3`       — NIP-11 relay-info caches (singleton keys).
  *   - `obelisk-read-state:*`           — per-account read cursors + inbox events.
  *   - `obelisk-dm-store:*`             — per-account DM store.
+ *   - `obelisk-wrap-ledger:*`          — per-account seen-gift-wrap ledger.
+ *     MUST be wiped alongside the two above: the ledger suppresses re-opening
+ *     wraps on the grounds that their effects are already persisted in the DM
+ *     store and the bridgeCache cursors. Wiping those while keeping the ledger
+ *     would suppress the only events that could rebuild them.
  *   - `obelisk-forum-follow:*`         — per-account forum-follow store.
  *   - `obelisk-dex/forum-collapsed/*`  — per-group collapsed-state flag.
  *   - `obelisk-dex/mobile-setup-seen/*` — per-account "tutorial seen" flag.
@@ -46,6 +51,7 @@ const WIPED_PREFIXES = [
   'obelisk-read-state',
   'obelisk-dm-store:',
   'obelisk-dm-store',
+  'obelisk-wrap-ledger:',
   'obelisk-forum-follow:',
   'obelisk-forum-follow',
   'obelisk-dex/forum-collapsed/',

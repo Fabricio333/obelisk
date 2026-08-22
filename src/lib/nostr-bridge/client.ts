@@ -25,6 +25,9 @@ import { resolvePqSend } from '@/lib/pq/send';
 import { useDMStore, type DMProtocol } from '@/store/dm';
 import { cacheGet, cacheSet, cacheDelete, cacheClearAll, cacheListIdsByKind, cacheFreeSpaceForQuota } from './cache';
 import { normalizeRelayUrl } from './relay-url';
+import { enqueueSignerOp, resetSignerQueue, installSignerQueueDebug, type SignerLane } from './signer-queue';
+import { memoizeDecrypt, clearDecryptCache } from './decrypt-cache';
+import { hasSeenWrap, markWrapSeen, resetWrapLedger } from './wrap-ledger';
 import { wotEngine } from '@/lib/wot/engine';
 import { useModerationStore } from '@/store/moderation';
 import { resetAllClientState } from '@/lib/reset';
@@ -864,6 +867,8 @@ export class BridgeImpl {
     this.pool = this.createPool();
     this.wireWotEngine();
     this.wireAuthSettledHook();
+    // `window.__obeliskSignerQueue.stats()` — mirrors `window.wot`.
+    installSignerQueueDebug();
   }
 
   /**
@@ -1835,6 +1840,11 @@ export class BridgeImpl {
       this.mediaPackLatestAt.clear();
     }
     this.persist();
+    // Point the seen-wrap ledger at this account before `connect()` opens the
+    // kind-1059 subscriptions — otherwise the first replayed wraps are decrypted
+    // against an empty ledger and the reload saving is lost. Covers the page-reload
+    // rehydration too, since `initialize()` also routes through here.
+    resetWrapLedger(this.session?.pubKeyHex ?? null);
     this.resetPoolForSessionChange();
     // Pin `this.relays` to the session's relay before connect(). Without this,
     // any drift between `currentRelayUrl` (what the UI shows as active) and
@@ -2169,10 +2179,44 @@ export class BridgeImpl {
     return signer;
   }
 
-  private async withBunkerSigner<T>(operation: (signer: RemoteSigner) => Promise<T>): Promise<T> {
+  /**
+   * Run `operation` against the active bunker signer, serialized through the
+   * signer queue (see `./signer-queue.ts`). NIP-46 round-trips are the
+   * slowest thing the app asks a signer to do — a full relay hop, sometimes a
+   * user approval prompt — so background traffic (inbound wrap decrypts, WoT
+   * lookups) must not sit in front of a message the user just sent.
+   *
+   * Two ordering rules are load-bearing here:
+   *
+   *   - `ensureBunkerSigner()` runs **outside** the queued slot. Its lazy
+   *     reconnect costs 1-3s; holding the single in-flight slot for that
+   *     would block every other operation behind a reconnect that isn't a
+   *     signer round-trip at all.
+   *   - `deadlineMs`, when given, is applied **inside** the slot. A deadline
+   *     wrapped around the whole call would start ticking at enqueue and
+   *     could expire while the request is still waiting its turn — timing the
+   *     queue instead of the signer.
+   */
+  private async withBunkerSigner<T>(
+    operation: (signer: RemoteSigner) => Promise<T>,
+    opts?: {
+      lane?: SignerLane;
+      label?: string;
+      deadlineMs?: number;
+      deadlineMessage?: string;
+    },
+  ): Promise<T> {
+    const lane = opts?.lane ?? 'interactive';
+    const label = opts?.label ?? 'bunker';
+    const invoke = (s: RemoteSigner): Promise<T> =>
+      enqueueSignerOp(lane, label, () =>
+        opts?.deadlineMs
+          ? withDeadline(operation(s), opts.deadlineMs, opts.deadlineMessage ?? 'Remote signer timed out')
+          : operation(s),
+      );
     const signer = await this.ensureBunkerSigner();
     try {
-      return await operation(signer);
+      return await invoke(signer);
     } catch (error) {
       if (!(error instanceof Error) || !/signer is not open anymore/i.test(error.message)) throw error;
       if (this.bunkerSigner === signer) {
@@ -2182,7 +2226,7 @@ export class BridgeImpl {
       this.bunkerSignerRecovery ??= this.ensureBunkerSigner().finally(() => {
         this.bunkerSignerRecovery = null;
       });
-      return operation(await this.bunkerSignerRecovery);
+      return invoke(await this.bunkerSignerRecovery);
     }
   }
 
@@ -2191,6 +2235,13 @@ export class BridgeImpl {
       try { this.bunkerSigner.close(); } catch { /* ignore */ }
       this.bunkerSigner = null;
     }
+    // Queued signer ops close over the outgoing session's signer; running them
+    // against the next identity would be wrong. Reject them so their awaiting
+    // callers unwind instead of hanging forever. The decrypt memo holds the
+    // outgoing identity's plaintext and goes with them.
+    resetSignerQueue();
+    clearDecryptCache();
+    resetWrapLedger(null);
     this.session = null;
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem(STORAGE_KEY);
@@ -4552,7 +4603,11 @@ export class BridgeImpl {
       if (!win) throw new Error('NIP-07 extension unavailable');
       return await trackActivity(
         'Waiting for extension signature',
-        () => win.signEvent(fullTemplate) as Promise<NostrEvent>,
+        () => enqueueSignerOp(
+          'interactive',
+          `signEvent:${template.kind}`,
+          () => win.signEvent(fullTemplate) as Promise<NostrEvent>,
+        ),
         "kind " + template.kind,
         { operation: "sign", eventKind: template.kind, description: eventKindDescription(template.kind) },
       );
@@ -4560,7 +4615,10 @@ export class BridgeImpl {
     if (this.session.loginMethod === 'bunker') {
       return await trackActivity(
         'Waiting for bunker signature',
-        () => this.withBunkerSigner((b) => b.signEvent(fullTemplate) as Promise<NostrEvent>),
+        () => this.withBunkerSigner(
+          (b) => b.signEvent(fullTemplate) as Promise<NostrEvent>,
+          { lane: 'interactive', label: `signEvent:${template.kind}` },
+        ),
         "kind " + template.kind,
         { operation: "sign", eventKind: template.kind, description: eventKindDescription(template.kind) },
       );
@@ -4587,7 +4645,11 @@ export class BridgeImpl {
         if (!win) throw new Error('NIP-07 extension unavailable');
         return trackActivity(
           'Waiting for extension signature',
-          () => win.signEvent(unsigned) as Promise<VerifiedEvent>,
+          () => enqueueSignerOp(
+            'interactive',
+            'nip42-auth',
+            () => win.signEvent(unsigned) as Promise<VerifiedEvent>,
+          ),
           'NIP-42 relay auth',
           { operation: 'sign', eventKind: evt.kind, description: eventKindDescription(evt.kind) },
         );
@@ -4595,10 +4657,17 @@ export class BridgeImpl {
       if (session.loginMethod === 'bunker') {
         return trackActivity(
           'Waiting for bunker signature',
-          () => withDeadline(
-            this.withBunkerSigner((b) => b.signEvent(unsigned) as Promise<VerifiedEvent>),
-            BUNKER_AUTH_SIGNATURE_TIMEOUT_MS,
-            'Remote signer did not answer NIP-42 relay authentication',
+          // The deadline is handed to `withBunkerSigner` rather than wrapped
+          // around it so it starts when the request reaches the signer, not
+          // when it joins the queue. See that method's doc comment.
+          () => this.withBunkerSigner(
+            (b) => b.signEvent(unsigned) as Promise<VerifiedEvent>,
+            {
+              lane: 'interactive',
+              label: 'nip42-auth',
+              deadlineMs: BUNKER_AUTH_SIGNATURE_TIMEOUT_MS,
+              deadlineMessage: 'Remote signer did not answer NIP-42 relay authentication',
+            },
           ),
           'NIP-42 relay auth',
           { operation: 'sign', eventKind: evt.kind, description: eventKindDescription(evt.kind) },
@@ -6513,7 +6582,9 @@ export class BridgeImpl {
     if (!counterparty) return;
     let plaintext: string;
     try {
-      plaintext = await this.decryptNip04(counterparty, ev.content);
+      // Background lane: nobody is waiting on an inbound DM the way they wait
+      // on one they just sent. A backlog of these must not delay a signature.
+      plaintext = await this.decryptNip04(counterparty, ev.content, 'background');
     } catch {
       return; // can't decrypt → skip silently
     }
@@ -6539,6 +6610,10 @@ export class BridgeImpl {
    */
   private async ingestIncomingGiftWrap(ev: NostrEvent): Promise<void> {
     if (!this.session) return;
+    // Before any decrypt: a wrap we opened in an earlier session has already
+    // landed in the persisted DM store, and re-opening it would cost two
+    // signer round-trips to learn nothing. See `./wrap-ledger.ts`.
+    if (hasSeenWrap('dm', ev.id)) return;
     const me = this.session.pubKeyHex;
     const generation = this.connectGeneration;
     // A fresh signer + tracker per call: `unwrapGiftWrap` doesn't report
@@ -6550,7 +6625,9 @@ export class BridgeImpl {
     // Scoping the tracker to a fresh object per call (rather than a field
     // on `this`) keeps concurrent inbound wraps from racing on it.
     const pqTrack = { current: false };
-    const signer = this.getDmSigner(pqTrack);
+    // Background lane: a connect-time backlog of inbound wraps is exactly the
+    // traffic that used to sit in front of the user's own signatures.
+    const signer = this.getDmSigner(pqTrack, 'background');
     if (!signer) return;
     let message: (UnsignedEvent & { id: string }) | undefined;
     let senderPubkey: string | undefined;
@@ -6560,6 +6637,13 @@ export class BridgeImpl {
       return; // can't decrypt/verify → skip silently, same as the NIP-04 path
     }
     if (this.session?.pubKeyHex !== me || this.connectGeneration !== generation) return;
+    // Mark here, not after the kind check: "this wrap is not a chat rumor" is
+    // a permanent property of an immutable event, and re-deriving it next
+    // session would cost the same two round-trips. A *failed* decrypt above
+    // stays unmarked — that one can be transient (locked extension, declined
+    // prompt) and deserves a retry. Deliberately after the session/generation
+    // guard, since a mid-flight account switch means a different ledger.
+    markWrapSeen('dm', ev.id);
     if (message.kind !== KIND_NIP44_DM) return; // ignore non-chat NIP-17 rumor kinds
     const outgoing = senderPubkey === me;
     // Mirrors @nostr-wot/dm's own `handleGiftWrap`: an outgoing wrap (e.g. a
@@ -6660,8 +6744,16 @@ export class BridgeImpl {
    *
    * Bunker NIP-44 round-trips can be slow (the remote signer signs and
    * encrypts on every call); callers should debounce publish bursts.
+   *
+   * `lane` picks the signer-queue priority for every operation on the
+   * returned signer. It defaults to `'interactive'` **on purpose**: this
+   * signer backs both the read-state sync engine (genuinely background) and
+   * the zap / NWC payment flow via `useNipSigner` (a user is watching a
+   * spinner). Inferring the lane from the method name would put payments
+   * behind the inbound-decrypt backlog, so the lane is the caller's call and
+   * the default is the one that's safe to get wrong.
    */
-  getNipSigner(): NipSigner | null {
+  getNipSigner(lane: SignerLane = 'interactive'): NipSigner | null {
     if (!this.session) return null;
     const session = this.session;
     const pubkey = session.pubKeyHex;
@@ -6675,10 +6767,13 @@ export class BridgeImpl {
         if (session.loginMethod === 'nip07') {
           const w = (window as unknown as { nostr?: { signEvent: (e: unknown) => Promise<NostrEvent> } }).nostr;
           if (!w) throw new Error('NIP-07 extension unavailable');
-          return w.signEvent(template);
+          return enqueueSignerOp(lane, `signEvent:${template.kind}`, () => w.signEvent(template));
         }
         if (session.loginMethod === 'bunker') {
-          return this.withBunkerSigner((b) => b.signEvent(template) as Promise<NostrEvent>);
+          return this.withBunkerSigner(
+            (b) => b.signEvent(template) as Promise<NostrEvent>,
+            { lane, label: `signEvent:${template.kind}` },
+          );
         }
         throw new Error(`Cannot sign with login method ${session.loginMethod}`);
       },
@@ -6693,10 +6788,13 @@ export class BridgeImpl {
             nostr?: { nip44?: { encrypt: (p: string, t: string) => Promise<string> } };
           }).nostr;
           if (!w?.nip44?.encrypt) throw new Error('Extension does not support NIP-44 encryption');
-          return w.nip44.encrypt(recipientPubkey, plaintext);
+          return enqueueSignerOp(lane, 'nip44Encrypt', () => w.nip44!.encrypt(recipientPubkey, plaintext));
         }
         if (session.loginMethod === 'bunker') {
-          return this.withBunkerSigner((b) => b.nip44Encrypt(recipientPubkey, plaintext));
+          return this.withBunkerSigner(
+            (b) => b.nip44Encrypt(recipientPubkey, plaintext),
+            { lane, label: 'nip44Encrypt' },
+          );
         }
         throw new Error(`Cannot NIP-44 encrypt with login method ${session.loginMethod}`);
       },
@@ -6706,15 +6804,25 @@ export class BridgeImpl {
           const key = nip44.utils.getConversationKey(sk, senderPubkey);
           return nip44.decrypt(ciphertext, key);
         }
+        // Remote signers only: the same wrap reaches this method from several
+        // subscriptions at once, and each round-trip is the expensive part.
+        // See `./decrypt-cache.ts`.
         if (session.loginMethod === 'nip07') {
           const w = (window as unknown as {
             nostr?: { nip44?: { decrypt: (p: string, c: string) => Promise<string> } };
           }).nostr;
           if (!w?.nip44?.decrypt) throw new Error('Extension does not support NIP-44 decryption');
-          return w.nip44.decrypt(senderPubkey, ciphertext);
+          return memoizeDecrypt('nip44', senderPubkey, ciphertext, () =>
+            enqueueSignerOp(lane, 'nip44Decrypt', () => w.nip44!.decrypt(senderPubkey, ciphertext)),
+          );
         }
         if (session.loginMethod === 'bunker') {
-          return this.withBunkerSigner((b) => b.nip44Decrypt(senderPubkey, ciphertext));
+          return memoizeDecrypt('nip44', senderPubkey, ciphertext, () =>
+            this.withBunkerSigner(
+              (b) => b.nip44Decrypt(senderPubkey, ciphertext),
+              { lane, label: 'nip44Decrypt' },
+            ),
+          );
         }
         throw new Error(`Cannot NIP-44 decrypt with login method ${session.loginMethod}`);
       },
@@ -6736,8 +6844,16 @@ export class BridgeImpl {
    * (`@nostr-wot/pq`'s `isPqEnvelope`). It exists solely so
    * {@link ingestIncomingGiftWrap} can recover `unwrapGiftWrap`'s internal
    * pq-vs-classic routing decision, which its return value doesn't expose.
+   *
+   * `lane` picks the signer-queue priority, defaulting to `'interactive'`
+   * for the same reason {@link getNipSigner} does — the send paths are what
+   * a user is waiting on. Only {@link ingestIncomingGiftWrap}, which opens
+   * inbound wraps nobody is watching a spinner for, passes `'background'`.
    */
-  private getDmSigner(pqTrack?: { current: boolean }): DmNostrSigner | null {
+  private getDmSigner(
+    pqTrack?: { current: boolean },
+    lane: SignerLane = 'interactive',
+  ): DmNostrSigner | null {
     if (!this.session) return null;
     const session = this.session;
     return {
@@ -6750,15 +6866,18 @@ export class BridgeImpl {
         if (session.loginMethod === 'nip07') {
           const w = (window as unknown as { nostr?: { signEvent: (e: unknown) => Promise<NostrEvent> } }).nostr;
           if (!w) throw new Error('NIP-07 extension unavailable');
-          return w.signEvent(template);
+          return enqueueSignerOp(lane, `signEvent:${template.kind}`, () => w.signEvent(template));
         }
         if (session.loginMethod === 'bunker') {
-          return this.withBunkerSigner((b) => b.signEvent(template) as Promise<NostrEvent>);
+          return this.withBunkerSigner(
+            (b) => b.signEvent(template) as Promise<NostrEvent>,
+            { lane, label: `signEvent:${template.kind}` },
+          );
         }
         throw new Error(`Cannot sign with login method ${session.loginMethod}`);
       },
-      nip04Encrypt: (recipientPubkey, plaintext) => this.encryptNip04(recipientPubkey, plaintext),
-      nip04Decrypt: (senderPubkey, ciphertext) => this.decryptNip04(senderPubkey, ciphertext),
+      nip04Encrypt: (recipientPubkey, plaintext) => this.encryptNip04(recipientPubkey, plaintext, lane),
+      nip04Decrypt: (senderPubkey, ciphertext) => this.decryptNip04(senderPubkey, ciphertext, lane),
       nip44Encrypt: async (recipientPubkey, plaintext, opts) => {
         if (opts?.scheme === 'pq') {
           // Only the extension path can carry the third argument today:
@@ -6778,7 +6897,7 @@ export class BridgeImpl {
               };
             }).nostr;
             if (!w?.nip44?.encrypt) throw new Error('Extension does not support NIP-44 encryption');
-            return w.nip44.encrypt(recipientPubkey, plaintext, opts);
+            return enqueueSignerOp(lane, 'nip44Encrypt:pq', () => w.nip44!.encrypt(recipientPubkey, plaintext, opts));
           }
           throw new Error(`Post-quantum NIP-44 encryption is not available for login method ${session.loginMethod}`);
         }
@@ -6792,14 +6911,21 @@ export class BridgeImpl {
             nostr?: { nip44?: { encrypt: (p: string, t: string) => Promise<string> } };
           }).nostr;
           if (!w?.nip44?.encrypt) throw new Error('Extension does not support NIP-44 encryption');
-          return w.nip44.encrypt(recipientPubkey, plaintext);
+          return enqueueSignerOp(lane, 'nip44Encrypt', () => w.nip44!.encrypt(recipientPubkey, plaintext));
         }
         if (session.loginMethod === 'bunker') {
-          return this.withBunkerSigner((b) => b.nip44Encrypt(recipientPubkey, plaintext));
+          return this.withBunkerSigner(
+            (b) => b.nip44Encrypt(recipientPubkey, plaintext),
+            { lane, label: 'nip44Encrypt' },
+          );
         }
         throw new Error(`Cannot NIP-44 encrypt with login method ${session.loginMethod}`);
       },
       nip44Decrypt: async (senderPubkey, ciphertext) => {
+        // Deliberately OUTSIDE the memo below: `ingestIncomingGiftWrap` reads
+        // this back to recover `unwrapGiftWrap`'s pq-vs-classic routing
+        // decision, so it has to be written on a cache hit too — the
+        // ciphertext is what determines it, and the ciphertext is the same.
         if (pqTrack) pqTrack.current = isPqEnvelope(ciphertext);
         if (session.loginMethod === 'nsec' && session.privKeyHex) {
           const sk = hexToBytes(session.privKeyHex);
@@ -6811,17 +6937,28 @@ export class BridgeImpl {
             nostr?: { nip44?: { decrypt: (p: string, c: string) => Promise<string> } };
           }).nostr;
           if (!w?.nip44?.decrypt) throw new Error('Extension does not support NIP-44 decryption');
-          return w.nip44.decrypt(senderPubkey, ciphertext);
+          return memoizeDecrypt('nip44', senderPubkey, ciphertext, () =>
+            enqueueSignerOp(lane, 'nip44Decrypt', () => w.nip44!.decrypt(senderPubkey, ciphertext)),
+          );
         }
         if (session.loginMethod === 'bunker') {
-          return this.withBunkerSigner((b) => b.nip44Decrypt(senderPubkey, ciphertext));
+          return memoizeDecrypt('nip44', senderPubkey, ciphertext, () =>
+            this.withBunkerSigner(
+              (b) => b.nip44Decrypt(senderPubkey, ciphertext),
+              { lane, label: 'nip44Decrypt' },
+            ),
+          );
         }
         throw new Error(`Cannot NIP-44 decrypt with login method ${session.loginMethod}`);
       },
     };
   }
 
-  private async encryptNip04(recipientPubkey: string, content: string): Promise<string> {
+  private async encryptNip04(
+    recipientPubkey: string,
+    content: string,
+    lane: SignerLane = 'interactive',
+  ): Promise<string> {
     if (!this.session) throw new Error('Not logged in');
     if (this.session.loginMethod === 'nsec' && this.session.privKeyHex) {
       return nip04.encrypt(this.session.privKeyHex, recipientPubkey, content);
@@ -6829,15 +6966,22 @@ export class BridgeImpl {
     if (this.session.loginMethod === 'nip07') {
       const w = (window as any).nostr;
       if (!w?.nip04?.encrypt) throw new Error('Extension does not support NIP-04 encryption');
-      return w.nip04.encrypt(recipientPubkey, content);
+      return enqueueSignerOp(lane, 'nip04Encrypt', () => w.nip04.encrypt(recipientPubkey, content));
     }
     if (this.session.loginMethod === 'bunker') {
-      return this.withBunkerSigner((b) => b.nip04Encrypt(recipientPubkey, content));
+      return this.withBunkerSigner(
+        (b) => b.nip04Encrypt(recipientPubkey, content),
+        { lane, label: 'nip04Encrypt' },
+      );
     }
     throw new Error('Cannot encrypt with current login method');
   }
 
-  private async decryptNip04(senderPubkey: string, ciphertext: string): Promise<string> {
+  private async decryptNip04(
+    senderPubkey: string,
+    ciphertext: string,
+    lane: SignerLane = 'interactive',
+  ): Promise<string> {
     if (!this.session) throw new Error('Not logged in');
     if (this.session.loginMethod === 'nsec' && this.session.privKeyHex) {
       return nip04.decrypt(this.session.privKeyHex, senderPubkey, ciphertext);
@@ -6845,10 +6989,17 @@ export class BridgeImpl {
     if (this.session.loginMethod === 'nip07') {
       const w = (window as any).nostr;
       if (!w?.nip04?.decrypt) throw new Error('Extension does not support NIP-04 decryption');
-      return w.nip04.decrypt(senderPubkey, ciphertext);
+      return memoizeDecrypt('nip04', senderPubkey, ciphertext, () =>
+        enqueueSignerOp(lane, 'nip04Decrypt', () => w.nip04.decrypt(senderPubkey, ciphertext)),
+      );
     }
     if (this.session.loginMethod === 'bunker') {
-      return this.withBunkerSigner((b) => b.nip04Decrypt(senderPubkey, ciphertext));
+      return memoizeDecrypt('nip04', senderPubkey, ciphertext, () =>
+        this.withBunkerSigner(
+          (b) => b.nip04Decrypt(senderPubkey, ciphertext),
+          { lane, label: 'nip04Decrypt' },
+        ),
+      );
     }
     throw new Error('Cannot decrypt with current login method');
   }
@@ -7165,9 +7316,16 @@ export class BridgeImpl {
       } else if (this.session.loginMethod === 'nip07') {
         const win = (window as any).nostr;
         if (!win) throw new Error('NIP-07 extension unavailable');
-        event = (await win.signEvent(template)) as NostrEvent;
+        event = (await enqueueSignerOp(
+          'interactive',
+          `signEvent:${template.kind}`,
+          () => win.signEvent(template) as Promise<NostrEvent>,
+        )) as NostrEvent;
       } else if (this.session.loginMethod === 'bunker') {
-        event = await this.withBunkerSigner((b) => b.signEvent(template) as Promise<NostrEvent>);
+        event = await this.withBunkerSigner(
+          (b) => b.signEvent(template) as Promise<NostrEvent>,
+          { lane: 'interactive', label: `signEvent:${template.kind}` },
+        );
       } else {
         throw new Error(`Login method ${this.session.loginMethod} cannot sign events in this build`);
       }

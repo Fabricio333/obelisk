@@ -873,3 +873,129 @@ describe('kind-10050 inbox-list publish scope', () => {
     expect(ev.relays).toContain(PROFILE_RELAY);
   });
 });
+
+/**
+ * Signer-load regression tests.
+ *
+ * The bug these exist to prevent: three independent consumers of the
+ * kind-1059 stream (the DM path plus both read-state scopes) each opened
+ * every wrap, and every one of those decrypts was fired unbounded straight
+ * from `onevent`. On a NIP-07 extension — a single serialized request
+ * channel — a user's own signature landed behind the whole backlog and took
+ * seconds.
+ *
+ * Two properties are asserted here, and both are load-bearing:
+ *   1. A wrap costs ~2 signer round-trips, not ~6 (`decrypt-cache.ts`).
+ *   2. A signature requested during a backlog does not wait for it
+ *      (`signer-queue.ts`).
+ */
+describe('signer load under an inbound gift-wrap backlog', () => {
+  const ACTIVE_RELAY = 'wss://public.obelisk.ar';
+
+  /** A real-crypto NIP-07 extension for `keys`, with counting spies. */
+  function installExtension(keys: { sk: Uint8Array; pkHex: string }) {
+    const decrypt = vi.fn(async (pk: string, ct: string) =>
+      nip44.decrypt(ct, nip44.utils.getConversationKey(keys.sk, pk)));
+    const signEvent = vi.fn(async (t: Parameters<typeof finalizeEvent>[0]) => finalizeEvent(t, keys.sk));
+    Object.defineProperty(window, 'nostr', {
+      configurable: true,
+      value: {
+        getPublicKey: vi.fn().mockResolvedValue(keys.pkHex),
+        signEvent,
+        nip04: {
+          encrypt: vi.fn(async (pk: string, text: string) => nip04.encrypt(keys.sk, pk, text)),
+          decrypt: vi.fn(async (pk: string, ct: string) => nip04.decrypt(keys.sk, pk, ct)),
+        },
+        nip44: {
+          encrypt: vi.fn(async (pk: string, text: string) =>
+            nip44.encrypt(text, nip44.utils.getConversationKey(keys.sk, pk))),
+          decrypt,
+        },
+      },
+    });
+    return { decrypt, signEvent };
+  }
+
+  /** Seed `n` inbound wraps from `from` to `to` onto the fake relay. */
+  async function seedWraps(
+    from: { sk: Uint8Array; pkHex: string },
+    to: { pkHex: string },
+    n: number,
+  ): Promise<void> {
+    const { PrivateKeySigner } = await import('@nostr-wot/signers');
+    const { buildChatMessage, sealAndGiftWrap } = await import('@nostr-wot/dm');
+    const signer = new PrivateKeySigner(from.sk);
+    for (let i = 0; i < n; i++) {
+      fake.state.published.push(
+        await sealAndGiftWrap(signer, to.pkHex, buildChatMessage(from.pkHex, to.pkHex, `msg ${i}`)),
+      );
+    }
+  }
+
+  it('opens each wrap ~twice even with all three kind-1059 consumers mounted', async () => {
+    const { getBridge } = await import('./client');
+    const { setPreference } = await import('@/lib/preferences');
+    const { startGroupsRelaySync, startDMRelaySync } = await import('@/lib/read-state/relay-sync');
+
+    const alice = makeKeypair();
+    const bob = makeKeypair();
+    const N = 5;
+    await seedWraps(alice, bob, N);
+
+    const { decrypt } = installExtension(bob);
+    setPreference('directMessagesEnabled', true);
+    const bridge = await getBridge();
+    await bridge.loginWithNip07(bob.pkHex);
+
+    let byPeer: Record<string, ReadonlyArray<unknown>> = {};
+    bridge.subscribeDirectMessages((m) => { byPeer = m as typeof byPeer; });
+
+    // Mount the other two consumers of the same `#p`-only kind-1059 filter.
+    // Without the decrypt memo these triple the round-trip count; with it
+    // they resolve from the DM path's already-cached plaintext.
+    const stopGroups = startGroupsRelaySync(ACTIVE_RELAY, []);
+    const stopDms = startDMRelaySync([ACTIVE_RELAY]);
+
+    try {
+      await vi.waitFor(() => {
+        const thread = byPeer[alice.pkHex] ?? [];
+        if (thread.length < N) throw new Error(`only ${thread.length} of ${N} ingested`);
+      }, { timeout: 5000, interval: 5 });
+
+      // Two layers per wrap (wrap → seal, seal → rumor). The pre-fix cost was
+      // 2 per consumer; the ceiling below would fail at ~6N.
+      expect(decrypt.mock.calls.length).toBeLessThanOrEqual(2 * N + 2);
+      expect(decrypt.mock.calls.length).toBeGreaterThanOrEqual(2 * N);
+    } finally {
+      stopGroups();
+      stopDms();
+    }
+  });
+
+  it('lets a signature jump a queued decrypt backlog', async () => {
+    const { getBridge } = await import('./client');
+    const { setPreference } = await import('@/lib/preferences');
+    const { signerQueueStats } = await import('./signer-queue');
+
+    const alice = makeKeypair();
+    const bob = makeKeypair();
+    const N = 8;
+    await seedWraps(alice, bob, N);
+
+    const { decrypt } = installExtension(bob);
+    setPreference('directMessagesEnabled', true);
+    const bridge = await getBridge();
+    await bridge.loginWithNip07(bob.pkHex);
+    bridge.subscribeDirectMessages(() => {});
+
+    // Let the inbound ingests enqueue their decrypts, then confirm there is
+    // genuinely a backlog to jump — otherwise this test proves nothing.
+    await flush(6);
+    expect(signerQueueStats().background).toBeGreaterThan(1);
+
+    await bridge.signEventTemplate({ kind: 1, content: 'urgent', tags: [] });
+
+    // The signature resolved without waiting for the backlog to drain.
+    expect(decrypt.mock.calls.length).toBeLessThan(2 * N);
+  });
+});

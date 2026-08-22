@@ -24,6 +24,7 @@
 import type { Filter } from 'nostr-tools';
 import { getBridgeImpl } from '@/lib/nostr-bridge/client';
 import { unwrapForSelf, wrapForSelf, type Rumor } from '@/lib/nip-59';
+import { hasSeenWrap, markWrapSeen, type WrapLedgerScope } from '@/lib/nostr-bridge/wrap-ledger';
 import { useReadStateStore, type RemoteReadState } from '@/store/read-state';
 import { useNotificationsStore } from '@/store/notifications';
 import { cacheGet, cacheSet } from '@/lib/nostr-bridge/cache';
@@ -90,6 +91,9 @@ interface SyncOptions {
   /** Cache key namespace under bridgeCache (per-relay). For DM scope there
    * are multiple relays — cache the merged snapshot under each one. */
   readonly cacheNamespace: string;
+  /** Which slot of the wrap ledger this scope marks. Each consumer of the
+   * kind-1059 stream tracks its own progress — see `wrap-ledger.ts`. */
+  readonly ledgerScope: WrapLedgerScope;
 }
 
 /**
@@ -103,7 +107,10 @@ function subscribeAndIngest<T>(
 ): () => void {
   const impl = getBridgeImpl();
   if (!impl) return () => {};
-  const signer = impl.getNipSigner();
+  // Background lane: read-state sync is invisible housekeeping. It must never
+  // sit in front of a signature the user is waiting on. (`getNipSigner`
+  // defaults to `interactive` because it also backs the zap/NWC flow.)
+  const signer = impl.getNipSigner('background');
   if (!signer) return () => {};
 
   // Track newest seen so we don't re-apply older wraps that arrive late
@@ -129,8 +136,17 @@ function subscribeAndIngest<T>(
   const unsubFns: Array<() => void> = [];
   for (const relay of opts.relays) {
     const unsub = impl.subscribeFilterWatched(filter, async (ev) => {
+      // The `#p`-only filter delivers every gift wrap addressed to us —
+      // overwhelmingly NIP-17 DMs, which this scope opens (two signer
+      // round-trips) only to discard on the `kind`/`d` checks below. Skip the
+      // ones a previous session already classified.
+      if (hasSeenWrap(opts.ledgerScope, ev.id)) return;
       const rumor = await unwrapForSelf(ev, signer);
       if (!rumor) return;
+      // Marked before the filters, not after: "not my scope's rumor" is a
+      // permanent property of an immutable event, and it is precisely the
+      // verdict we don't want to re-buy every reload.
+      markWrapSeen(opts.ledgerScope, ev.id);
       if (rumor.kind !== KIND_INNER) return;
       if (findInnerDTag(rumor) !== opts.dTag) return;
       if (rumor.created_at <= newestApplied) return;
@@ -177,7 +193,10 @@ function watchAndPublish(
 
   const flush = async () => {
     timer = null;
-    const signer = impl.getNipSigner();
+    // Background lane: read-state sync is invisible housekeeping. It must never
+  // sit in front of a signature the user is waiting on. (`getNipSigner`
+  // defaults to `interactive` because it also backs the zap/NWC flow.)
+  const signer = impl.getNipSigner('background');
     if (!signer) return;
     const payload = buildPayload();
     if (!payload) return;
@@ -280,6 +299,7 @@ export function startGroupsRelaySync(
     relays: [relayUrl],
     dTag: D_TAG_GROUPS,
     cacheNamespace: relayUrl,
+    ledgerScope: 'readstate:groups',
   };
 
   const apply = (payload: GroupsPayload) => {
@@ -356,6 +376,7 @@ export function startDMRelaySync(relays: ReadonlyArray<string>): () => void {
     relays,
     dTag: D_TAG_DMS,
     cacheNamespace: 'dm',
+    ledgerScope: 'readstate:dms',
   };
 
   const apply = (payload: DmsPayload) => {

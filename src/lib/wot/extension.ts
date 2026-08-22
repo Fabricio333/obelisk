@@ -4,7 +4,14 @@
  * Returns `null` rather than throwing when the extension is absent or any
  * call rejects — callers treat that as "no verdict, fail-open" per the
  * design in docs/wot-integration-plan.md.
+ *
+ * Every call here goes through the `background` lane of the signer queue
+ * (`src/lib/nostr-bridge/signer-queue.ts`). `window.nostr.wot` is the *same*
+ * extension object as `window.nostr.signEvent` and shares its single request
+ * channel, so an unbounded graph traversal here delays the user's next
+ * signature. Nobody is watching a spinner for a WoT verdict; signatures win.
  */
+import { enqueueSignerOp } from '@/lib/nostr-bridge/signer-queue';
 
 export type WotStatus = 'absent' | 'configured' | 'error';
 
@@ -49,7 +56,7 @@ export async function wotProbe(): Promise<WotProbe> {
   if (!hasDistance) return { status: 'absent' };
   if (typeof a.getStatus === 'function') {
     try {
-      const raw = await a.getStatus();
+      const raw = await enqueueSignerOp('background', 'wot:getStatus', () => a.getStatus!());
       if (raw && typeof raw === 'object') {
         const r = raw as { configured?: boolean; user?: string | null };
         if (r.configured === false) return { status: 'absent' };
@@ -81,6 +88,30 @@ export interface WotBatchEntry {
   paths: number | null;
 }
 
+/**
+ * Pubkeys per `getDistanceBatch` call. A cold start on a relay-default group
+ * list can produce thousands of distinct pubkeys; handing the extension one
+ * traversal that large occupies the shared request channel for as long as it
+ * takes, which is exactly the head-of-line blocking the queue exists to
+ * prevent. Sequential chunks keep each occupancy short.
+ */
+const DISTANCE_CHUNK = 100;
+
+/**
+ * Ceiling on per-pubkey `getMinPaths` round-trips in a single batch. Path
+ * count has no batch API, so it costs one extension call each. Exceeding this
+ * is logged rather than silently truncated — pubkeys past the cap come back
+ * with `paths: null`, which the engine treats as "satisfies the threshold"
+ * (fail-open per field, matching the `getMinPaths`-absent case).
+ */
+const MIN_PATHS_CALL_CAP = 200;
+
+function chunk<T>(items: ReadonlyArray<T>, size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
 export async function wotBatch(
   pubkeys: string[],
   maxHops: number,
@@ -91,41 +122,71 @@ export async function wotBatch(
   if (!a) return null;
   try {
     const out: Record<string, WotBatchEntry> = {};
-    let distanceMap: Record<string, number | null> | null = null;
+    const distanceMap: Record<string, number | null> = {};
     if (typeof a.getDistanceBatch === 'function') {
-      distanceMap = await a.getDistanceBatch(pubkeys, { maxHops, minPaths });
+      for (const part of chunk(pubkeys, DISTANCE_CHUNK)) {
+        const res = await enqueueSignerOp('background', 'wot:getDistanceBatch', () =>
+          a.getDistanceBatch!(part, { maxHops, minPaths }),
+        );
+        // A non-object answer is a broken/absent engine, not "nobody is
+        // reachable". Returning `null` here is the documented contract —
+        // callers fail *open* on null but would cache a deny for every
+        // pubkey if we handed back a map of nulls instead.
+        if (!res || typeof res !== 'object') return null;
+        for (const pk of part) distanceMap[pk] = res[pk] ?? null;
+      }
     } else if (typeof a.getDistance === 'function') {
-      distanceMap = {};
-      await Promise.all(
-        pubkeys.map(async (pk) => {
-          try {
-            const d = await a.getDistance!(pk);
-            distanceMap![pk] = typeof d === 'number' ? d : null;
-          } catch {
-            distanceMap![pk] = null;
-          }
-        }),
-      );
+      for (const part of chunk(pubkeys, DISTANCE_CHUNK)) {
+        await Promise.all(
+          part.map(async (pk) => {
+            try {
+              const d = await enqueueSignerOp('background', 'wot:getDistance', () => a.getDistance!(pk));
+              distanceMap[pk] = typeof d === 'number' ? d : null;
+            } catch {
+              distanceMap[pk] = null;
+            }
+          }),
+        );
+      }
     } else {
       return null;
     }
-    // Optional path count — only queried when the user requires more than
-    // one path, since per-pubkey calls cost extension round-trips.
-    const wantPaths = minPaths > 1 && typeof a.getMinPaths === 'function';
-    if (wantPaths) {
-      await Promise.all(
-        pubkeys.map(async (pk) => {
-          try {
-            const p = await a.getMinPaths!(pk, { maxHops });
-            out[pk] = { distance: distanceMap![pk] ?? null, paths: typeof p === 'number' ? p : null };
-          } catch {
-            out[pk] = { distance: distanceMap![pk] ?? null, paths: null };
-          }
-        }),
-      );
-    } else {
-      for (const pk of pubkeys) {
-        out[pk] = { distance: distanceMap[pk] ?? null, paths: null };
+
+    for (const pk of pubkeys) {
+      out[pk] = { distance: distanceMap[pk] ?? null, paths: null };
+    }
+
+    // Optional path count. Only queried when the user requires more than one
+    // path, and only for pubkeys that already passed the distance check — a
+    // pubkey outside `maxHops` is denied on distance alone, so buying its
+    // path count is a round-trip spent on an answer that changes nothing.
+    // (This is what turned a 200-member list into 200 graph traversals.)
+    if (minPaths > 1 && typeof a.getMinPaths === 'function') {
+      const candidates = pubkeys.filter((pk) => {
+        const d = distanceMap[pk];
+        return typeof d === 'number' && d >= 0 && d <= maxHops;
+      });
+      const queried = candidates.slice(0, MIN_PATHS_CALL_CAP);
+      if (candidates.length > queried.length && typeof console !== 'undefined') {
+        console.warn('[wot] getMinPaths capped', {
+          candidates: candidates.length,
+          queried: queried.length,
+          skippedTreatedAs: 'paths satisfied',
+        });
+      }
+      for (const part of chunk(queried, DISTANCE_CHUNK)) {
+        await Promise.all(
+          part.map(async (pk) => {
+            try {
+              const p = await enqueueSignerOp('background', 'wot:getMinPaths', () =>
+                a.getMinPaths!(pk, { maxHops }),
+              );
+              out[pk] = { distance: distanceMap[pk] ?? null, paths: typeof p === 'number' ? p : null };
+            } catch {
+              out[pk] = { distance: distanceMap[pk] ?? null, paths: null };
+            }
+          }),
+        );
       }
     }
     return out;
@@ -138,7 +199,7 @@ export async function wotDistance(pubkey: string): Promise<number | null> {
   const a = api();
   if (!a || typeof a.getDistance !== 'function') return null;
   try {
-    const d = await a.getDistance(pubkey);
+    const d = await enqueueSignerOp('background', 'wot:getDistance', () => a.getDistance!(pubkey));
     return typeof d === 'number' ? d : null;
   } catch {
     return null;
