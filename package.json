@@ -18,7 +18,7 @@
     "raise": "./scripts/raise.sh",
     "deploy": "./scripts/deploy.sh",
     "build": "next build --webpack",
-    "start": "next start",
+    "start": "next start -H 127.0.0.1",
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
