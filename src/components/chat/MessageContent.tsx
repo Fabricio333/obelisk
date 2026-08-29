@@ -18,7 +18,6 @@ import SpoilerText from './SpoilerText';
 import CodeBlock from './CodeBlock';
 import ChannelLinkPill from './ChannelLinkPill';
 import YouTubeEmbed from './YouTubeEmbed';
-import LinkPreview from './LinkPreview';
 import AttachmentCard from './AttachmentCard';
 import ImageGallery from './ImageGallery';
 import InvoiceCard from './InvoiceCard';
@@ -466,27 +465,13 @@ export default function MessageContent({
     [shortcodeResolved, memberList]
   );
 
-  // Collect non-image, non-video, non-youtube, non-upload URLs for link previews.
-  // Same-origin /chat links (channel/message/post deep-links) are rendered as
-  // ChannelLinkPill inline and must NOT also get a preview card.
-  const previewUrls = useMemo(() => {
-    const urls = extractUrls(bodyContent);
-    return urls.filter((u) => {
-      if (u.startsWith('https://njump.me/t/')) return false;
-      if (isImageUrl(u) || isVideoUrl(u) || extractYouTubeId(u) || isUploadUrl(u)) return false;
-      if (typeof window !== 'undefined') {
-        try {
-          const parsed = new URL(u, window.location.href);
-          if (parsed.origin === window.location.origin && parsed.pathname === '/chat') {
-            return false;
-          }
-        } catch {
-          /* fall through */
-        }
-      }
-      return true;
-    });
-  }, [bodyContent]);
+  // NOTE: there are deliberately no OpenGraph link-preview cards. Fetching them
+  // needs a server to do the outbound request, and this app has no backend —
+  // `src/app/api/` went away with the relay-only migration, so the old
+  // <LinkPreview> just 404'd on `/api/link-preview` for every URL in every
+  // message and every note in a profile feed. Restoring it would mean sending
+  // every URL a user merely *views* to a third-party OG service, which is not a
+  // trade we want next to the DM-metadata work. Links render as plain anchors.
 
   const components: Components = useMemo(() => ({
     // Code blocks and inline code
@@ -682,10 +667,6 @@ export default function MessageContent({
       {/* Invoice cards hoisted out of the body text */}
       {invoices.map((inv) => (
         <InvoiceCard key={inv} invoice={inv} messageId={messageId} channelId={channelId} />
-      ))}
-      {/* Link previews for non-image, non-youtube URLs */}
-      {previewUrls.map((url) => (
-        <LinkPreview key={url} url={url} />
       ))}
     </span>
   );
