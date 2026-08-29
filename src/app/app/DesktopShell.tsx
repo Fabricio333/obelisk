@@ -98,6 +98,9 @@ import { AttachmentMenu, FileDropZone, StickerIcon, VoiceNoteButton, VoiceNoteDr
 import { useMessageZaps, type MessageZapTotal } from '@/hooks/chat/useMessageZaps';
 import { useMessageZapStore } from '@/store/messageZap';
 import MessageZapModal from '@/components/chat/MessageZapModal';
+import { GameModalHost } from '@/components/chat/games/GameModal';
+import NewGameModal from '@/components/chat/games/NewGameModal';
+import { useChannelGamesSubscription } from '@/hooks/chat/useChannelGames';
 import ModalShell from '@/components/ModalShell';
 import { parseZapCommand } from '@/lib/wallet/parse-zap-command';
 import MentionAutocomplete from '@/components/chat/MentionAutocomplete';
@@ -332,6 +335,7 @@ export default function AppShell() {
       onTouchEnd={(e) => { delete (e.currentTarget as HTMLElement).dataset.swipeStart; }}
     >
       <MessageZapModal />
+      <GameModalHost />
       <RelayAccessModal />
       <BackgroundVoiceAudio />
       <DirectMessageSubscriptionAnchor />
@@ -2176,6 +2180,10 @@ function ChatPanel({
 }) {
   const { t } = useTranslation();
   const messages = useMessages(groupId);
+  // Game tables live on the channel's relay and are replayed from their own
+  // kind 2390 log — see src/lib/games/protocol.ts.
+  useChannelGamesSubscription(groupId);
+  const [newGameOpen, setNewGameOpen] = useState(false);
   // Retry-backed confidence enum — the bridge runs an internal retry
   // ladder on empty EOSE before promoting to `empty-confirmed`, so the
   // UI doesn't need its own dwell timer or auto-refresh effect. See
@@ -2600,6 +2608,16 @@ function ChatPanel({
       return;
     }
 
+    // /play — open the table picker. Frontend-only like /zap: the table is
+    // created by NewGameModal (kind 2390), and the chat message it posts is
+    // just the `[[game:<id>]]` card pointing at it.
+    if (/^\/play(\s|$)/.test(content)) {
+      setNewGameOpen(true);
+      setDraft('');
+      setReplyingTo(null);
+      return;
+    }
+
     setSendError(null);
     const replyToCopy = replyingTo ? { id: replyingTo.id, pubkey: replyingTo.pubkey } : null;
     // Open groups use the NIP-29 join request before their first message.
@@ -2816,6 +2834,18 @@ function ChatPanel({
       )}
       <MentionNavigator scrollRef={scrollRef} eventIds={channelHighlights.eventIds} />
       </div>
+
+      {newGameOpen && (
+        <NewGameModal
+          channelId={groupId}
+          onClose={() => setNewGameOpen(false)}
+          onPostMarker={(marker) => {
+            nostrActions.sendMessage(groupId, marker, null, []).catch((err) => {
+              console.error('[games] posting the table card failed', err);
+            });
+          }}
+        />
+      )}
 
       <form onSubmit={onSend} className="shrink-0 px-5 pt-3 pb-3">
         {replyingTo && (

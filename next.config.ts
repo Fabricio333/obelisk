@@ -12,7 +12,11 @@ const localIPs = Object.values(networkInterfaces())
 // site-wide (proxy.ts is HTML-only via its matcher).
 
 const nextConfig: NextConfig = {
-  transpilePackages: ['@nostr-wot/ui', '@nostr-wot/data'],
+  // `vesta` is consumed straight from its GitHub source (its package `main`
+  // is `src/vesta.ts`), so Next has to compile it like first-party code.
+  // That is deliberate: it keeps us tracking upstream by version range
+  // instead of forking the rules into this repo. See docs/games.md.
+  transpilePackages: ['@nostr-wot/ui', '@nostr-wot/data', 'vesta'],
   allowedDevOrigins: [...localIPs, 'obelisk.fabri.lat', 'obelisk.wearebitcoin.org', 'obelisk.nostr-wtf.com', 'dex-test.obelisk.ar', 'obelisk.ar'],
   // Temporary: skip typecheck during voice mesh-test runs to unblock the
   // diagnostic harness. The pre-existing LoginModal/relay-sync.test type

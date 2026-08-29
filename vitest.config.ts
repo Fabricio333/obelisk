@@ -18,7 +18,9 @@ export default defineConfig({
         // Nip46Signer imports. Published packages are externalized by
         // default, which silently bypasses the mock and lets the NIP-46
         // handshake open a real WebSocket.
-        inline: [/@nostr-wot\//],
+        // `vesta` ships TypeScript source, so it has to be inlined for
+        // Vitest to transform it rather than hand it to Node as-is.
+        inline: [/@nostr-wot\//, 'vesta'],
       },
     },
   },

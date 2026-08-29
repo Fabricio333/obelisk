@@ -121,3 +121,20 @@ export const KIND_SFU_ADVERTISE = 31313;
  * flips client topology), but it's documented here for parity.
  */
 export const KIND_SFU_ACTIVE_CALL = 31314;
+
+/**
+ * Obelisk games — every turn-based game event (create / join / start / move /
+ * timeout / resign / cancel) rides this single stored kind, scoped to a
+ * channel with `["h", channelId]` and to a table with `["e", gameId]`.
+ *
+ * Why a stored (regular) kind and not the ephemeral 25xxx voice signaling
+ * uses: a game's state IS its event log. A player who opens the tab
+ * mid-match replays the log through the pure engine to rebuild the board,
+ * so the relay has to keep the events. Voice signaling can be ephemeral
+ * because SDP is worthless a second after it's sent.
+ *
+ * 2390 sits in the regular range (1000-9999, relays persist) and is
+ * unclaimed by any NIP — 2003/2004 (torrents) are the nearest neighbours.
+ * See docs/games.md for the wire format.
+ */
+export const KIND_GAME = 2390;

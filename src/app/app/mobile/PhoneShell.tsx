@@ -161,6 +161,9 @@ import { setPreference, usePreferences } from '@/lib/preferences';
 import { useMessageZapStore } from '@/store/messageZap';
 import { presenceActivityKey, useNostrPresence, PRESENCE_WINDOW_MS } from '@/hooks/chat/useNostrPresence';
 import MessageZapModal from '@/components/chat/MessageZapModal';
+import { GameModalHost } from '@/components/chat/games/GameModal';
+import NewGameModal from '@/components/chat/games/NewGameModal';
+import { useChannelGamesSubscription } from '@/hooks/chat/useChannelGames';
 import { type ScreenName, type NavState, initialNav, urlFor, parseUrl } from './url-state';
 import { buildSeedHistory, decideSnap, decideSwipeNav, decideTabPress, isAdjacentTabSwitch, neighborsFor, NAV_ORDER, resolveParent } from './swipe-nav';
 import { useKeyboardInset } from './use-keyboard';
@@ -2586,6 +2589,9 @@ function ChannelScreen({
     ? `${parentGroup.name ?? parentGroup.id.slice(0, 8)}/${group?.name ?? groupId.slice(0, 8)}`
     : (group?.name ?? groupId.slice(0, 8));
   const messages = useMessages(groupId);
+  // Game tables ride the channel's relay — see src/lib/games/protocol.ts.
+  useChannelGamesSubscription(groupId);
+  const [newGameOpen, setNewGameOpen] = useState(false);
   // Retry-backed confidence: bridge owns the dwell + retry ladder so
   // this surface never needs to second-guess an empty EOSE. See
   // `MessagesStatus` in src/lib/nostr-bridge/types.ts.
@@ -2823,6 +2829,14 @@ function ChannelScreen({
   });
 
   const send = () => {
+    // /play opens the table picker instead of publishing — same
+    // frontend-only shape the desktop shell gives the command.
+    if (/^\/play(\s|$)/.test(draft.trim())) {
+      setNewGameOpen(true);
+      setDraft('');
+      setReplyingTo(null);
+      return;
+    }
     // The composer holds mentions as readable `@Name`; the wire format is
     // `nostr:npub1…`. Resolve before anything downstream sees the text —
     // emoji/sticker/voice tag builders and the publish path all read it.
@@ -2873,6 +2887,17 @@ function ChannelScreen({
       disabled={uploading}
       onFiles={(files) => void handleAttach(files)}
     >
+      {newGameOpen && (
+        <NewGameModal
+          channelId={groupId}
+          onClose={() => setNewGameOpen(false)}
+          onPostMarker={(marker) => {
+            nostrActions.sendMessage(groupId, marker, null, []).catch((err) => {
+              console.warn('[games] posting the table card failed', err);
+            });
+          }}
+        />
+      )}
       <div className="chat-header chat-header-compact">
         <div className="chat-row">
           <div className="chat-title-block">
@@ -6472,6 +6497,7 @@ export default function MobileShell() {
       onTouchCancel={onTouchCancel}
     >
       <MessageZapModal />
+      <GameModalHost />
       <BackgroundVoiceAudio />
       <div className="screens-host" ref={screensHostRef}>
         <div ref={dragLayerRef} className={`drag-layer ${isDragging ? 'is-dragging' : ''}`}>

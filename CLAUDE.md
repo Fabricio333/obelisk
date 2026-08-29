@@ -16,6 +16,7 @@ Group protocol    NIP-29 (kinds 9, 9000-9007, 39000-39002)
 DMs               NIP-04 (kind 4) — see src/lib/dm/
 Cache             localStorage stale-while-revalidate (src/lib/nostr-bridge/cache.ts)
 Voice (mesh)      P2P WebRTC, Nostr-signaled (kinds 20078 / 25050) + per-pair `obelisk-control` data channel (heartbeat, fast hangup, transitive discovery) — see docs/voice/
+Games             Chain Reaction over kind 2390 — event log replayed client-side (src/lib/games/)
 Voice (SFU)      mediasoup engine, Nostr-RPC signaling (kind 25050 envelopes) — src/lib/voice/sfu-client.ts (server: obelisk-app/obelisk-sfu)
 Payments          Nostr Wallet Connect (NIP-47) — src/lib/wallet/
 ```
@@ -256,6 +257,10 @@ The SFU server is a separate repo: **[obelisk-app/obelisk-sfu](https://github.co
 | NIP-78 | Application-specific data | Channel layout (kind 30078); also the inner rumor kind for NIP-59-wrapped read state |
 | NIP-98 | HTTP authentication | Blossom upload-auth |
 
+Obelisk-specific kinds (voice 20078/25050/25052, SFU 31313/31314, games 2390)
+are documented in `src/lib/nip-kinds.ts` — that file is the single source of
+truth for every kind the app publishes.
+
 ## Development Guidelines
 
 ### When coding:
@@ -346,6 +351,7 @@ for where this sits relative to the bridgeCache.
 - [docs/relay-layout-and-branding.md](docs/relay-layout-and-branding.md) — shared NIP-78 layout & branding; multi-author latest-wins, gated on group-admin union
 - [docs/relay-roles.md](docs/relay-roles.md) — operator-defined tiered roles (NIP-78 kind 30078); highest tier held is the badge shown in chat and the member list
 - [docs/dm-metadata-privacy.md](docs/dm-metadata-privacy.md) — why gift-wrapped DMs can still leak the social graph, the ordered relay ladder, AUTH modes, what cannot be fixed client-side, and the rules for changing DM routing
+- [docs/games.md](docs/games.md) — Chain Reaction on the relay: kind 2390 wire format, deterministic replay as the trust model, turn clock without a server, what it doesn't defend against
 - [docs/uploads.md](docs/uploads.md) — Blossom storage + URL format
 - [docs/cloudflare-tunnel.md](docs/cloudflare-tunnel.md) — `npm run dev:tunnel` exposes localhost:3000 at https://obelisk.fabri.lat
 - [docs/known-bugs.md](docs/known-bugs.md) — open bugs & tech debt

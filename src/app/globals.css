@@ -1097,3 +1097,134 @@ button:not(:disabled),
     text-align: center;
   }
 }
+/* Chain Reaction orb animations */
+@keyframes cr-orbit {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes cr-pop-in {
+  0% { transform: scale(0); opacity: 0; }
+  60% { transform: scale(1.25); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes cr-burst-core {
+  0%   { transform: translate(-50%, -50%) scale(0.3); opacity: 0; }
+  25%  { transform: translate(-50%, -50%) scale(1.4); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(2.8); opacity: 0; }
+}
+@keyframes cr-burst-ring {
+  0%   { transform: translate(-50%, -50%) scale(0.2); opacity: 0.9; border-width: 2px; }
+  100% { transform: translate(-50%, -50%) scale(2.6); opacity: 0; border-width: 1px; }
+}
+@keyframes cr-shard-fly {
+  0%   { transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
+  15%  { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% {
+    transform: translate(calc(-50% + var(--cr-shard-dx, 0px)), calc(-50% + var(--cr-shard-dy, 0px))) scale(0.4);
+    opacity: 0;
+  }
+}
+.cr-orb-group {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 50%;
+  animation: cr-orbit var(--cr-orbit-dur, 2.4s) linear infinite;
+}
+.cr-orb-group--still {
+  animation: none;
+}
+.cr-orb {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  box-shadow: 0 0 4px currentColor;
+  animation: cr-pop-in 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+/* Explosion overlay — sits on top of the exploding cell and overflows into
+   neighbours so shards visibly travel to adjacent tiles. */
+.cr-burst {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 5;
+}
+.cr-burst-core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 70%;
+  height: 70%;
+  border-radius: 9999px;
+  filter: blur(0.4px);
+  animation: cr-burst-core 520ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+.cr-burst-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 70%;
+  height: 70%;
+  border-radius: 9999px;
+  border: 2px solid currentColor;
+  animation: cr-burst-ring 520ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+.cr-shard {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-radius: 9999px;
+  animation: cr-shard-fly 520ms cubic-bezier(0.25, 0.7, 0.35, 1) forwards;
+}
+/* Matrix: no gaps between cells — the grid lines come from cell borders so
+   adjacent borders collapse into a single hairline tinted with the active
+   player's color. */
+.cr-matrix {
+  background: color-mix(in srgb, var(--cr-turn, #3f3f46) 8%, #000 92%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cr-turn, #3f3f46) 50%, transparent),
+              0 0 18px -6px var(--cr-turn, #3f3f46);
+  transition: background 400ms ease, box-shadow 400ms ease;
+}
+.cr-cell {
+  background: color-mix(in srgb, var(--cr-turn, #3f3f46) 4%, #0a0a0a 96%);
+  border-right: 1px solid color-mix(in srgb, var(--cr-turn, #3f3f46) 40%, #262626);
+  border-bottom: 1px solid color-mix(in srgb, var(--cr-turn, #3f3f46) 40%, #262626);
+  transition: background 300ms ease, border-color 300ms ease;
+}
+.cr-cell:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cr-turn, #3f3f46) 18%, #0a0a0a 82%);
+}
+
+/* Chain Reaction result splash — the big "you won" over the final board. */
+@keyframes cr-win-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes cr-win-title-in {
+  0%   { transform: scale(0.6); opacity: 0; }
+  55%  { transform: scale(1.12); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes cr-win-trophy-in {
+  0%   { transform: translateY(-24px) rotate(-12deg); opacity: 0; }
+  60%  { transform: translateY(4px) rotate(6deg); opacity: 1; }
+  100% { transform: translateY(0) rotate(0deg); opacity: 1; }
+}
+.cr-win {
+  animation: cr-win-in 200ms ease-out both;
+}
+.cr-win-title {
+  animation: cr-win-title-in 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  text-shadow: 0 0 24px currentColor;
+}
+.cr-win-trophy {
+  animation: cr-win-trophy-in 520ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cr-win, .cr-win-title, .cr-win-trophy { animation: none; }
+}

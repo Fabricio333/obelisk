@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { gameCatalog } from '@/lib/games/catalog';
 
 export interface SlashCommandParam {
   name: string;
@@ -92,4 +93,18 @@ export const SLASH_COMMANDS: SlashCommand[] = [
       { name: 'amount', description: 'Amount in sats', kind: 'number', optional: true },
     ],
   },
+  {
+    name: 'play',
+    // Built from the catalog rather than written out, so adding a game to the
+    // registry updates the command instead of leaving this line stale — which
+    // is exactly what happened when Vesta arrived and this still said
+    // "Chain Reaction".
+    description: `Play a game in this channel — ${playableGameNames()}`,
+  },
 ];
+
+function playableGameNames(): string {
+  const names = gameCatalog().map((g) => `${g.icon} ${g.displayName}`);
+  if (names.length <= 1) return names[0] ?? 'no games available';
+  return `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`;
+}

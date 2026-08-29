@@ -49,6 +49,7 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "simple-peer": "^9.11.1",
+    "vesta": "github:fchurca/vesta#semver:^0",
     "zustand": "^5.0.12"
   },
   "devDependencies": {

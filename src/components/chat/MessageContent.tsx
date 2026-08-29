@@ -21,6 +21,8 @@ import YouTubeEmbed from './YouTubeEmbed';
 import AttachmentCard from './AttachmentCard';
 import ImageGallery from './ImageGallery';
 import InvoiceCard from './InvoiceCard';
+import GameCard from './games/GameCard';
+import { extractGameMarkers, GAME_MARKER_REGEX } from '@/lib/games/protocol';
 import MediaLibraryModal from '@/components/media/MediaLibraryModal';
 import { INVOICE_REGEX } from '@/lib/bolt11';
 import ShootingStars from '../ShootingStars';
@@ -436,6 +438,11 @@ export default function MessageContent({
     return matches.filter((m) => { const k = m.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
   }, [content]);
 
+  // Hoist `[[game:<id>]]` markers out of the body — the host posts one when
+  // they open a table, and it renders as a card whose status is replayed from
+  // the table's own event log rather than frozen into this message.
+  const gameIds = useMemo(() => extractGameMarkers(content), [content]);
+
   const bodyContent = useMemo(() => {
     if (sticker || voiceNote) return '';
     const toStrip = [...imageUrls, ...videoUrls, ...audioUrls, ...youtubeUrls];
@@ -447,9 +454,10 @@ export default function MessageContent({
     for (const inv of invoices) {
       stripped = stripped.split(inv).join('');
     }
+    if (gameIds.length > 0) stripped = stripped.replace(GAME_MARKER_REGEX, '');
     // collapse stray whitespace/newlines left behind
     return stripped.replace(/\n{3,}/g, '\n\n').trim();
-  }, [content, imageUrls, videoUrls, audioUrls, youtubeUrls, welcomeBanner, invoices, sticker, voiceNote]);
+  }, [content, imageUrls, videoUrls, audioUrls, youtubeUrls, welcomeBanner, invoices, gameIds, sticker, voiceNote]);
 
   // Resolve `:name:` shortcodes before markdown parsing. Unicode shortcodes
   // are replaced inline (no placeholder — the char is just a char), while
@@ -667,6 +675,9 @@ export default function MessageContent({
       {/* Invoice cards hoisted out of the body text */}
       {invoices.map((inv) => (
         <InvoiceCard key={inv} invoice={inv} messageId={messageId} channelId={channelId} />
+      ))}
+      {gameIds.map((id) => (
+        <GameCard key={id} gameId={id} />
       ))}
     </span>
   );
