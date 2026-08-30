@@ -22,6 +22,7 @@ import GameOverOverlay from './GameOverOverlay';
 import VestaTable from './vesta/VestaTable';
 import StackerTable from './stacker/StackerTable';
 import StartTableModal from './StartTableModal';
+import GameResults from './GameResults';
 import type { GameState } from 'vesta';
 import type { VestaAction } from '@/lib/games/vesta/definition';
 import { seatsControlledBy } from '@/lib/games/session';
@@ -42,6 +43,11 @@ export default function GameModal({ gameId, onClose }: { gameId: string; onClose
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [seatPickerOpen, setSeatPickerOpen] = useState(false);
+  // Phones get fullscreen by default: a 20-row well plus rails does not fit
+  // in a dialog on a handset, and the board was being cut off top and bottom.
+  const [fullscreen, setFullscreen] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < 768,
+  );
 
   // Every client watching a table helps enforce its clock.
   useTurnClockEnforcer(session, myPubkey, true);
@@ -114,7 +120,11 @@ export default function GameModal({ gameId, onClose }: { gameId: string; onClose
     <ModalShell
       onClose={onClose}
       testId="game-modal"
-      panelClassName="relative w-full max-w-md mx-4 rounded-xl bg-lc-dark border border-lc-border p-5"
+      panelClassName={
+        fullscreen
+          ? 'relative flex h-[100dvh] w-screen flex-col overflow-y-auto bg-lc-dark p-3'
+          : 'relative max-h-[92vh] w-full max-w-3xl mx-4 overflow-y-auto rounded-xl bg-lc-dark border border-lc-border p-5'
+      }
     >
       {seatPickerOpen && (
         <StartTableModal
@@ -157,18 +167,44 @@ export default function GameModal({ gameId, onClose }: { gameId: string; onClose
             {session.status === 'in_progress' && secondsLeft !== null && ` · ${secondsLeft}s`}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-lc-muted hover:text-lc-white text-lg leading-none"
-          aria-label="Close"
-        >
-          ×
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setFullscreen((v) => !v)}
+            className="text-lc-muted hover:text-lc-white text-sm leading-none"
+            aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            data-testid="game-fullscreen"
+          >
+            {fullscreen ? '🗗' : '⛶'}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-lc-muted hover:text-lc-white text-lg leading-none"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       <div className="mt-4">
-        {session.status === 'waiting' || session.status === 'cancelled' ? (
+        {session.status === 'finished' ? (
+          // Anyone can open a finished table — player or not — and the log
+          // has everything needed to say how it ended, so say it.
+          <div className="space-y-4">
+            <GameResults session={session} seatLabel={seatLabelFor} myPubkey={myPubkey} />
+            {session.game === 'chain-reaction' && (
+              <ChainReactionBoard
+                game={session}
+                mySeats={[]}
+                onAction={async () => {}}
+                maxWidth={fullscreen ? 420 : 300}
+                seatLabel={seatLabelFor}
+              />
+            )}
+          </div>
+        ) : session.status === 'waiting' || session.status === 'cancelled' ? (
           <ul className="space-y-2" data-testid="game-roster">
             {roster.map((pk, i) => (
               <li key={pk} className="flex items-center gap-2">
@@ -200,6 +236,7 @@ export default function GameModal({ gameId, onClose }: { gameId: string; onClose
               publishTopOut(session.channelId, session.id, seat)
                 .catch((err) => console.warn('[stacker] topout failed to publish', err));
             }}
+            fullscreen={fullscreen}
           />
         ) : session.game === 'vesta' ? (
           <VestaTable
@@ -215,7 +252,7 @@ export default function GameModal({ gameId, onClose }: { gameId: string; onClose
             game={session}
             mySeats={mySeats}
             onAction={onAction}
-            maxWidth={360}
+            maxWidth={fullscreen ? 560 : 420}
             seatLabel={seatLabelFor}
           />
         )}

@@ -46,6 +46,8 @@ export interface SeatProgress {
   linesCleared: number;
   stackHeight: number;
   frame: number;
+  /** Latest snapshot of their well, as published. A few seconds behind. */
+  board: string | null;
   /** null until a checkpoint with a log arrives, then true/false. */
   verified: boolean | null;
   /** Set when a checkpoint's claims do not match its own input log. */
@@ -74,6 +76,7 @@ export function initialMatch(seed: number, seats: readonly string[]): MatchState
       linesCleared: 0,
       stackHeight: 0,
       frame: 0,
+      board: null,
       verified: null,
       suspect: null,
     };
@@ -115,6 +118,7 @@ export function applyMatchEvent(
         linesCleared: number;
         stackHeight: number;
         inputs?: string;
+        board?: string;
         at: number;
       },
 ): MatchState {
@@ -160,6 +164,7 @@ export function applyMatchEvent(
         : null;
       next.progress[event.seat] = {
         ...seat,
+        board: event.board ?? seat.board,
         frame: Math.max(seat.frame, event.frame),
         attacksSent: Math.max(seat.attacksSent, event.attacksSent),
         linesCleared: Math.max(seat.linesCleared, event.linesCleared),

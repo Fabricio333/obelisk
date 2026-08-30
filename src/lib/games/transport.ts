@@ -172,7 +172,10 @@ export async function publishCheckpoint(
     attacksSent: number;
     linesCleared: number;
     stackHeight: number;
-    inputs: string;
+    /** Only on the slower verification cadence. */
+    inputs?: string;
+    /** The visible well, for opponents to watch. */
+    board?: string;
   },
 ): Promise<void> {
   const b = await bridge();

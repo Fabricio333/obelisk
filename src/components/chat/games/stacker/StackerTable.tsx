@@ -1,10 +1,12 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GameSession } from '@/lib/games/session';
 import { incomingFor, type MatchState } from '@/lib/games/stacker/match';
 import { useStackerLoop } from '@/hooks/chat/useStackerLoop';
 import StackerBoard, { MiniBoard, PieceChip } from './StackerBoard';
+import StackerKeysPanel from './StackerKeysPanel';
+import { HEIGHT } from '@/lib/games/stacker/engine';
 
 export interface StackerTableProps {
   session: GameSession;
@@ -18,9 +20,12 @@ export interface StackerTableProps {
     attacksSent: number;
     linesCleared: number;
     stackHeight: number;
-    inputs: string;
+    inputs?: string;
+    board: string;
   }) => void;
   onTopOut: (seat: string) => void;
+  /** Fullscreen gives the board the whole viewport; the modal sets this. */
+  fullscreen?: boolean;
 }
 
 /**
@@ -39,6 +44,7 @@ export default function StackerTable({
   onAttack,
   onCheckpoint,
   onTopOut,
+  fullscreen,
 }: StackerTableProps) {
   const mySeat = mySeats[0] ?? null;
   const alive = match.alive;
@@ -60,7 +66,7 @@ export default function StackerTable({
     return others[Math.floor(Math.random() * others.length)];
   }, [alive, mySeat]);
 
-  const { runner, stats, prefs, toggleMuted, toggleMusic } = useStackerLoop({
+  const { runner, stats, prefs, toggleMuted, toggleMusic, reloadKeys } = useStackerLoop({
     seed: match.seed,
     incoming,
     enabled: iAmAlive && !match.over,
@@ -80,12 +86,33 @@ export default function StackerTable({
 
   const opponents = session.participants.filter((s) => s !== mySeat);
   const banner = stats.lastClear;
+  const [keysOpen, setKeysOpen] = useState(false);
+
+  /**
+   * Size the cells to the space available rather than to a constant. A fixed
+   * 26px board is 520px tall, which is taller than a phone's usable area and
+   * taller than the modal — so it was getting cut off at the top and bottom.
+   */
+  const [cell, setCell] = useState(26);
+  useEffect(() => {
+    const measure = () => {
+      if (typeof window === 'undefined') return;
+      // Leave room for the rails, the opponents strip and the controls line.
+      const chrome = fullscreen ? 190 : 260;
+      const byHeight = Math.floor((window.innerHeight - chrome) / HEIGHT);
+      const byWidth = Math.floor((window.innerWidth - 190) / 10);
+      setCell(Math.max(12, Math.min(30, byHeight, byWidth)));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [fullscreen]);
 
   return (
     <div className="space-y-3" data-testid="stacker-table">
       <div className="flex items-start justify-center gap-3">
         {/* Left rail: hold and the numbers that matter */}
-        <div className="flex w-[74px] flex-col gap-2">
+        <div className="flex w-[68px] shrink-0 flex-col gap-2">
           <div className="rounded-lg border border-lc-border bg-lc-black/40 p-1.5">
             <PieceChip kind={runner.state.hold} label="Hold" dim={!runner.state.hold} />
           </div>
@@ -108,7 +135,7 @@ export default function StackerTable({
             />
           </div>
 
-          <StackerBoard runner={runner} dimmed={!iAmAlive || match.over} />
+          <StackerBoard runner={runner} cell={cell} dimmed={!iAmAlive || match.over} />
 
           {/* Clear banner — brief, centred, never in the way of the stack */}
           {banner && (
@@ -134,7 +161,7 @@ export default function StackerTable({
         </div>
 
         {/* Right rail: what's coming */}
-        <div className="flex w-[74px] flex-col gap-1.5">
+        <div className="flex w-[68px] shrink-0 flex-col gap-1.5">
           <div className="rounded-lg border border-lc-border bg-lc-black/40 p-1.5">
             <PieceChip kind={runner.state.queue[0] ?? null} label="Next" />
             <div className="mt-1 space-y-1 opacity-80">
@@ -154,7 +181,7 @@ export default function StackerTable({
             if (!p) return null;
             return (
               <div key={seat} className="text-center" data-testid={`stacker-opponent-${seat}`}>
-                <MiniBoard height={p.stackHeight} dead={!p.alive} />
+                <MiniBoard board={p.board} height={p.stackHeight} dead={!p.alive} cell={Math.max(4, Math.round(cell / 4))} />
                 <div className="mt-1 max-w-[72px] truncate text-[10px] text-lc-white">{seatLabel(seat)}</div>
                 <div className="text-[10px] text-lc-muted">{p.attacksSent}⚔ · {p.linesCleared}▤</div>
                 {p.verified === false && (
@@ -171,8 +198,15 @@ export default function StackerTable({
         </div>
       )}
 
-      <div className="flex items-center justify-center gap-3 text-[10px] text-lc-muted">
-        <span>← → move · ↓ soft · space drop · ↑/X rotate · Z counter · A flip · C hold</span>
+      <div className="flex flex-wrap items-center justify-center gap-2 text-[10px] text-lc-muted">
+        <button
+          type="button"
+          onClick={() => setKeysOpen(true)}
+          className="rounded-full border border-lc-border px-2 py-0.5 hover:text-lc-white"
+          data-testid="stacker-keys-open"
+        >
+          ⌨ controls
+        </button>
         <button
           type="button"
           onClick={toggleMuted}
@@ -191,6 +225,10 @@ export default function StackerTable({
           {prefs.music ? '♫ music' : '♪ off'}
         </button>
       </div>
+
+      {keysOpen && (
+        <StackerKeysPanel onClose={() => { setKeysOpen(false); reloadKeys(); }} />
+      )}
 
       {match.over && (
         <p className="text-center text-xs text-lc-white" data-testid="stacker-result">

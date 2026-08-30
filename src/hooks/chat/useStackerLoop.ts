@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { StackerRunner, STACKER_KEYS, type StackerStats, type StackerSoundEvent } from '@/lib/games/stacker/runner';
+import { loadKeyMap, type KeyMap } from '@/lib/games/stacker/keymap';
 import type { AttackEvent } from '@/lib/games/stacker/match';
 import {
   ensureAudio, loadPrefs, playClear, playSfx, savePrefs, setMuted,
@@ -28,7 +29,8 @@ export function useStackerLoop(opts: {
     attacksSent: number;
     linesCleared: number;
     stackHeight: number;
-    inputs: string;
+    inputs?: string;
+    board: string;
   }) => void;
   onTopOut: () => void;
 }) {
@@ -40,6 +42,10 @@ export function useStackerLoop(opts: {
   }, [onAttack, onCheckpoint, onTopOut]);
 
   const [prefs, setPrefs] = useState<AudioPrefs>(() => loadPrefs());
+  // Re-read on every mount so a rebind in the panel takes effect on close.
+  const [keyMap, setKeyMap] = useState<KeyMap>(() => loadKeyMap());
+  const keyMapRef = useRef(keyMap);
+  useEffect(() => { keyMapRef.current = keyMap; }, [keyMap]);
   // The runner is built once per match and lives outside React, so it reads
   // preferences through a ref rather than closing over a stale value.
   // Assigned in an effect: writing a ref during render is a render side
@@ -112,7 +118,7 @@ export function useStackerLoop(opts: {
         });
         return;
       }
-      const kind = STACKER_KEYS[e.code];
+      const kind = keyMapRef.current[e.code];
       if (!kind) return;
       // The game owns these keys while it is on screen: arrows must not
       // scroll the channel underneath and space must not page down.
@@ -124,7 +130,7 @@ export function useStackerLoop(opts: {
     };
 
     const up = (e: KeyboardEvent) => {
-      const kind = STACKER_KEYS[e.code];
+      const kind = keyMapRef.current[e.code];
       if (kind) runner.release(kind);
     };
 
@@ -160,5 +166,8 @@ export function useStackerLoop(opts: {
     });
   };
 
-  return { runner, stats, prefs, toggleMuted, toggleMusic };
+  /** Called when the rebinding panel closes, so new keys apply at once. */
+  const reloadKeys = () => setKeyMap(loadKeyMap());
+
+  return { runner, stats, prefs, toggleMuted, toggleMusic, reloadKeys };
 }

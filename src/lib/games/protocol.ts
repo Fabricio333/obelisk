@@ -100,6 +100,8 @@ export type ParsedGameEvent =
       stackHeight: number;
       /** Compressed input log since the start of the match. */
       inputs?: string;
+      /** Compact snapshot of the visible well, for spectators and opponents. */
+      board?: string;
     });
 
 function tag(tags: string[][], name: string): string | undefined {
@@ -293,6 +295,7 @@ export function parseGameEvent(ev: GameEvent): ParsedGameEvent | null {
         linesCleared: typeof body.linesCleared === 'number' ? Math.floor(body.linesCleared) : 0,
         stackHeight: typeof body.stackHeight === 'number' ? Math.floor(body.stackHeight) : 0,
         ...(typeof body.inputs === 'string' ? { inputs: body.inputs } : {}),
+        ...(typeof body.board === 'string' ? { board: body.board } : {}),
       };
     }
 

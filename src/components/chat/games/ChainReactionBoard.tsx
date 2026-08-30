@@ -227,8 +227,11 @@ export default function ChainReactionBoard({ game, mySeats, onAction, maxWidth =
   const displayCells = reveal.cells;
   const animating = reveal.animating;
   const [explosions, setExplosions] = useState<Record<number, { hex: string; id: number }>>({});
-  const EXPLOSION_MS = 520;
-  const STEP_MS = 420; // delay between BFS rounds — must be long enough to read
+  // Fast enough to feel like a reaction rather than a wait. The original
+  // timings (520/420) meant a long chain locked the board for several seconds,
+  // which reads as the game lagging rather than as an animation.
+  const EXPLOSION_MS = 260;
+  const STEP_MS = 150; // delay between BFS rounds — still readable, far snappier
 
   useEffect(() => {
     const prev = prevCellsRef.current;

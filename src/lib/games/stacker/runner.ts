@@ -31,6 +31,7 @@ import {
   type InputKind,
 } from './engine';
 import { CHECKPOINT_INTERVAL_FRAMES, encodeInputs, type AttackEvent } from './match';
+import { encodeBoard } from './engine';
 
 const FRAME_MS = 1000 / 60;
 /** Frames a held key waits before it starts repeating. */
@@ -47,6 +48,14 @@ export const LOCK_RESETS = 15;
 const STATS_INTERVAL_MS = 120;
 /** How often queued attacks and checkpoints leave. */
 const FLUSH_INTERVAL_MS = 250;
+/**
+ * How often a snapshot of the well goes out so opponents can watch.
+ *
+ * Separate from the verification checkpoint, which carries the whole input log
+ * and only needs to be occasional. A board is 200 characters, so it can travel
+ * often enough to be worth looking at without flooding the relay.
+ */
+const BOARD_INTERVAL_FRAMES = 180;
 
 export interface StackerStats {
   linesCleared: number;
@@ -69,7 +78,8 @@ export interface StackerRunnerOptions {
     attacksSent: number;
     linesCleared: number;
     stackHeight: number;
-    inputs: string;
+    inputs?: string;
+    board: string;
   }) => void;
   onTopOut: () => void;
   /** Fired for sound: one per meaningful event, on the frame it happened. */
@@ -81,7 +91,7 @@ export type StackerSoundEvent =
   | { kind: 'lock' } | { kind: 'garbage'; lines: number } | { kind: 'topout' }
   | { kind: 'clear'; lines: number; spin: boolean; combo: number };
 
-export const STACKER_KEYS: Record<string, InputKind> = {
+export const DEFAULT_STACKER_KEYS: Record<string, InputKind> = {
   ArrowLeft: 'left',
   ArrowRight: 'right',
   ArrowDown: 'soft',
@@ -94,6 +104,9 @@ export const STACKER_KEYS: Record<string, InputKind> = {
   ShiftLeft: 'hold',
 };
 
+/** Kept for callers that just want the defaults. */
+export const STACKER_KEYS = DEFAULT_STACKER_KEYS;
+
 export class StackerRunner {
   state: GameState;
   frame = 0;
@@ -105,6 +118,7 @@ export class StackerRunner {
   private lockResets = 0;
   private appliedAttacks = new Set<string>();
   private lastCheckpointFrame = 0;
+  private lastBoardFrame = 0;
   private reportedDeath = false;
 
   private raf: number | null = null;
@@ -118,6 +132,7 @@ export class StackerRunner {
   /** Attack lines waiting to be published, summed. */
   private pendingAttack = 0;
   private pendingCheckpoint = false;
+  private pendingBoard = false;
   private lastClear: StackerStats['lastClear'] = null;
 
   private running = false;
@@ -300,6 +315,10 @@ export class StackerRunner {
       this.lastCheckpointFrame = this.frame;
       this.pendingCheckpoint = true;
     }
+    if (this.frame - this.lastBoardFrame >= BOARD_INTERVAL_FRAMES) {
+      this.lastBoardFrame = this.frame;
+      this.pendingBoard = true;
+    }
 
     this.emitFrame();
   };
@@ -316,14 +335,19 @@ export class StackerRunner {
       // any later replay of it agree on where the gap was.
       this.opts.onAttack(lines, Math.floor(Math.random() * 10), this.frame);
     }
-    if (this.pendingCheckpoint) {
+    // The verification checkpoint carries the whole input log; the frequent
+    // one carries only the board. Both go out as one event when they coincide.
+    if (this.pendingCheckpoint || this.pendingBoard) {
+      const withProof = this.pendingCheckpoint;
       this.pendingCheckpoint = false;
+      this.pendingBoard = false;
       this.opts.onCheckpoint({
         frame: this.frame,
         attacksSent: this.state.attacksSent,
         linesCleared: this.state.linesCleared,
         stackHeight: stackHeight(this.state),
-        inputs: encodeInputs(this.log),
+        board: encodeBoard(this.state),
+        ...(withProof ? { inputs: encodeInputs(this.log) } : {}),
       });
     }
   }

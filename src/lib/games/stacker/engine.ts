@@ -523,6 +523,40 @@ export function canFall(state: GameState): boolean {
   return !collides(state.board, { ...state.active, y: state.active.y + 1 });
 }
 
+/**
+ * Pack the visible board into a short string.
+ *
+ * Opponents' boards have to cross the relay often enough to be worth looking
+ * at, so they cannot be JSON. Each cell is one hex digit (0 empty, 1-7 piece,
+ * 8 garbage), which makes the whole visible well 200 characters — small enough
+ * to publish every few seconds without flooding anybody.
+ */
+export function encodeBoard(state: GameState): string {
+  let out = '';
+  for (let y = BUFFER; y < TOTAL_HEIGHT; y++) {
+    for (let x = 0; x < WIDTH; x++) {
+      out += (state.board[y][x] & 0xf).toString(16);
+    }
+  }
+  return out;
+}
+
+/** Unpack `encodeBoard` back into visible rows. Returns null on nonsense. */
+export function decodeBoard(encoded: string): Cell[][] | null {
+  if (encoded.length !== HEIGHT * WIDTH) return null;
+  const rows: Cell[][] = [];
+  for (let y = 0; y < HEIGHT; y++) {
+    const row: Cell[] = [];
+    for (let x = 0; x < WIDTH; x++) {
+      const value = parseInt(encoded[y * WIDTH + x], 16);
+      if (Number.isNaN(value)) return null;
+      row.push(value);
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
 /** Where the active piece would land — the ghost. */
 export function ghostOf(state: GameState): ActivePiece | null {
   if (!state.active) return null;
