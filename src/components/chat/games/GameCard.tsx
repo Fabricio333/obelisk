@@ -29,8 +29,10 @@ export default function GameCard({ gameId }: { gameId: string }) {
 
   // A finished table says who took it — the result is the whole point of
   // looking at a game card after the fact.
+  // Rendered per viewer and never published, so naming the reader is safe
+  // here — unlike the seat labels that travel in the `start` event.
   const nameOf = (pubkey: string) => {
-    if (pubkey === myPubkey) return 'Vos';
+    if (pubkey === myPubkey) return 'you';
     return memberList.find((m) => m.pubkey === pubkey)?.displayName ?? pubkey.slice(0, 8);
   };
 

@@ -27,6 +27,7 @@ import type { GameState } from 'vesta';
 import type { VestaAction } from '@/lib/games/vesta/definition';
 import { seatsControlledBy } from '@/lib/games/session';
 import { gameIcon, gameName } from '@/lib/games/catalog';
+import { seatDisplayLabel } from '@/lib/games/seat-label';
 
 /**
  * The table itself: roster while waiting, board while playing, result when
@@ -52,17 +53,29 @@ export default function GameModal({ gameId, onClose }: { gameId: string; onClose
   // Every client watching a table helps enforce its clock.
   useTurnClockEnforcer(session, myPubkey, true);
 
-  const nameOf = useCallback((pubkey: string) => {
-    if (pubkey === myPubkey) return 'Vos';
-    return memberList.find((m) => m.pubkey === pubkey)?.displayName ?? pubkey.slice(0, 8);
-  }, [memberList, myPubkey]);
+  /**
+   * A person's name — the same string for everybody looking.
+   *
+   * Deliberately NOT "you" for the current user: this feeds the seat labels
+   * that get published in the `start` event, and a viewer-relative word there
+   * is written into shared state. It was, and every other player at the table
+   * saw a player called "Vos".
+   *
+   * Marking which seat is yours is a rendering job, done per viewer below.
+   */
+  const nameOf = useCallback(
+    (pubkey: string) => memberList.find((m) => m.pubkey === pubkey)?.displayName ?? pubkey.slice(0, 8),
+    [memberList],
+  );
 
   // A seat can carry its own name — that is how two people sharing one
   // account show up as two players rather than twice as the same person.
   const seatLabelFor = useCallback((seatId: string) => {
     const seat = session?.seats.find((s2) => s2.id === seatId);
-    if (seat?.label) return seat.label;
-    return nameOf(seat?.by ?? seatId);
+    // Tables created before this was fixed carry a literal "Vos" as somebody's
+    // name. `seatDisplayLabel` treats those as absent and falls back to the
+    // profile, so nobody is shown a name that means "you" about someone else.
+    return seatDisplayLabel(seat?.label, nameOf(seat?.by ?? seatId));
   }, [session, nameOf]);
 
   const pictureOf = useCallback(
@@ -211,6 +224,9 @@ export default function GameModal({ gameId, onClose }: { gameId: string; onClose
                 <span className="h-2.5 w-2.5 rounded-full" style={{ background: SEAT_COLORS[i]?.hex }} />
                 <UserAvatar pubkey={pk} picture={pictureOf(pk)} size={6} name={nameOf(pk)} />
                 <span className="text-xs text-lc-white">{nameOf(pk)}</span>
+                {pk === myPubkey && (
+                  <span className="text-[10px] text-lc-muted">(you)</span>
+                )}
                 {pk === session.createdBy && (
                   <span className="rounded-full border border-lc-border px-1.5 text-[10px] text-lc-muted">host</span>
                 )}

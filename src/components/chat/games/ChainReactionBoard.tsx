@@ -420,7 +420,8 @@ export default function ChainReactionBoard({ game, mySeats, onAction, maxWidth =
             >
               <span className={`w-2 h-2 rounded-full ${c.dot}`} />
               <span className={isMe ? 'text-lc-white' : 'text-lc-muted'}>
-                {seatLabel ? seatLabel(pk) : isMe ? 'Vos' : pk.slice(0, 6)}
+                {seatLabel ? seatLabel(pk) : pk.slice(0, 6)}
+                {isMe && <span className="ml-1 opacity-70">(you)</span>}
               </span>
             </span>
           );
