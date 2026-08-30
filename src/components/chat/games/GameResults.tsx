@@ -1,9 +1,8 @@
 'use client';
 
 import type { GameSession } from '@/lib/games/session';
-import type { GameState as VestaState } from 'vesta';
-import type { CRState } from '@/lib/games/chain-reaction';
 import { gameIcon, gameName } from '@/lib/games/catalog';
+import { isDraw, standingsFor } from '@/lib/games/standings';
 import { SEAT_COLORS } from './ChainReactionBoard';
 import { VESTA_PLAYER_COLORS } from './vesta/VestaBoard';
 
@@ -24,7 +23,7 @@ export default function GameResults({
   seatLabel: (seatId: string) => string;
   myPubkey: string | null;
 }) {
-  const rows = standingsFor(session);
+  const rows = rowsFor(session);
   const mine = session.seats.filter((s) => s.by === myPubkey).map((s) => s.id);
 
   return (
@@ -33,9 +32,12 @@ export default function GameResults({
         <div className="text-[10px] uppercase tracking-[0.14em] text-lc-muted">Final result</div>
         <div className="mt-0.5 text-sm font-semibold text-lc-white">
           {gameIcon(session.game)} {gameName(session.game)}
-          {session.draw || !session.winner
-            ? ' · draw'
-            : ` · ${seatLabel(session.winner)} won`}
+          {session.winner
+            ? ` · ${seatLabel(session.winner)} won`
+            : isDraw(session)
+              ? ' · draw'
+              // A solo run has no winner and no draw: it simply ended.
+              : ' · game over'}
         </div>
       </div>
 
@@ -72,73 +74,20 @@ export default function GameResults({
   );
 }
 
-interface Standing {
+interface Row {
   seat: string;
   score: string;
   color: string;
   detail?: string;
 }
 
-/**
- * Each game scores differently, so each gets its own reading of the final
- * state. Anything unrecognised still gets a standings list — winner first,
- * everyone else after — rather than nothing at all.
- */
-function standingsFor(session: GameSession): Standing[] {
-  const seats = session.participants;
-
-  if (session.game === 'vesta' && session.state) {
-    const state = session.state as VestaState;
-    return seats
-      .map((seat, i) => ({
-        seat,
-        color: VESTA_PLAYER_COLORS[i] ?? '#a3a3a3',
-        score: `${state.players[i]?.vp ?? 0} VP`,
-        sort: state.players[i]?.vp ?? 0,
-        detail: 'Victory points at the end of the game',
-      }))
-      .sort((a, b) => b.sort - a.sort);
-  }
-
-  if (session.match) {
-    // Stacker: lines sent is the number that decided the match.
-    return seats
-      .map((seat, i) => {
-        const p = session.match!.progress[seat];
-        return {
-          seat,
-          color: SEAT_COLORS[i]?.hex ?? '#a3a3a3',
-          score: `${p?.attacksSent ?? 0}⚔ · ${p?.linesCleared ?? 0}▤`,
-          sort: (p?.attacksSent ?? 0) * 1000 + (p?.linesCleared ?? 0),
-          detail: 'Garbage sent · lines cleared',
-        };
-      })
-      .sort((a, b) => b.sort - a.sort);
-  }
-
-  if (session.game === 'chain-reaction' && session.state) {
-    const state = session.state as CRState;
-    // Cells owned at the end is the closest thing this game has to a score.
-    const owned = new Map<string, number>();
-    for (const cell of state.cells) {
-      if (cell.owner === null) continue;
-      const seat = state.order[cell.owner];
-      if (seat) owned.set(seat, (owned.get(seat) ?? 0) + cell.count);
-    }
-    return seats
-      .map((seat, i) => ({
-        seat,
-        color: SEAT_COLORS[i]?.hex ?? '#a3a3a3',
-        score: session.eliminated.includes(seat) ? 'out' : `${owned.get(seat) ?? 0} orbs`,
-        sort: session.eliminated.includes(seat) ? -1 : (owned.get(seat) ?? 0),
-        detail: 'Orbs held when the board was taken',
-      }))
-      .sort((a, b) => b.sort - a.sort);
-  }
-
-  return seats.map((seat, i) => ({
-    seat,
-    color: SEAT_COLORS[i]?.hex ?? '#a3a3a3',
-    score: seat === session.winner ? 'winner' : session.eliminated.includes(seat) ? 'out' : '—',
+/** Standings from the shared scorer, painted in each game's seat colours. */
+function rowsFor(session: GameSession): Row[] {
+  const palette = session.game === 'vesta' ? VESTA_PLAYER_COLORS : SEAT_COLORS.map((c) => c.hex);
+  return standingsFor(session).map((row) => ({
+    seat: row.seat,
+    score: row.score,
+    detail: row.detail,
+    color: palette[session.participants.indexOf(row.seat)] ?? '#a3a3a3',
   }));
 }

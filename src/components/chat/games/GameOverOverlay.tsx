@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import UserAvatar from '@/components/UserAvatar';
 import type { GameSession } from '@/lib/games/session';
+import { isDraw, scoreFor } from '@/lib/games/standings';
 import { SEAT_COLORS } from './ChainReactionBoard';
 
 /**
@@ -34,10 +35,14 @@ export default function GameOverOverlay({
   if (session.status !== 'finished' || dismissedResult === resultKey) return null;
 
   const winner = session.winner;
-  const iWon = !!winner && winner === myPubkey;
-  const iPlayed = !!myPubkey && session.participants.includes(myPubkey);
-  const iLost = !!winner && iPlayed && !iWon;
-  const draw = session.draw || !winner;
+  // Seats, not pubkeys: one account can hold several, and on a solo table the
+  // seat id is not the pubkey once extra seats exist.
+  const mySeats = session.seats.filter((s) => s.by === myPubkey).map((s) => s.id);
+  const iWon = !!winner && (winner === myPubkey || mySeats.includes(winner));
+  const iPlayed = mySeats.length > 0 || (!!myPubkey && session.participants.includes(myPubkey));
+  const iLost = iPlayed && !iWon;
+  const draw = isDraw(session);
+  const myScore = scoreFor(session, mySeats[0] ?? (iPlayed ? myPubkey : null));
 
   const winnerSeat = winner ? session.participants.indexOf(winner) : -1;
   const accent = winnerSeat >= 0 ? SEAT_COLORS[winnerSeat]?.hex ?? '#b4f953' : '#a3a3a3';
@@ -83,6 +88,13 @@ export default function GameOverOverlay({
       )}
 
       {draw && <p className="mt-3 text-sm text-lc-muted">Nobody took the board.</p>}
+
+      {/* What you finished with — the thing you actually want to see. */}
+      {myScore && (
+        <p className="mt-2 font-mono text-sm text-lc-white" data-testid="game-over-score">
+          {myScore}
+        </p>
+      )}
 
       <button
         type="button"

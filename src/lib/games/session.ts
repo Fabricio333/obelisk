@@ -273,7 +273,12 @@ export function deriveSession(
         if (!seat || seat !== ev.seat) break;
         session.match = applyMatchEvent(session.match, { ...ev, at: ev.createdAt } as Parameters<typeof applyMatchEvent>[1]);
         if (session.match.over) {
-          finish(session.match.winner, session.match.winner === null, ev.createdAt);
+          // No winner is only a draw when there was somebody to draw WITH. A
+          // solo run ends with nobody winning because nobody else was playing;
+          // recording that as a draw told a player who had just lost with a
+          // score on the board that nobody took it.
+          const drawn = session.match.winner === null && session.participants.length > 1;
+          finish(session.match.winner, drawn, ev.createdAt);
         }
         break;
       }
