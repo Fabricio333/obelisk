@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GameSession } from '@/lib/games/session';
 import { incomingFor, type MatchState } from '@/lib/games/stacker/match';
 import { useStackerLoop } from '@/hooks/chat/useStackerLoop';
+import { MUSIC_CREDIT } from '@/lib/games/stacker/audio';
 import StackerBoard, { MiniBoard, PieceChip } from './StackerBoard';
 import StackerKeysPanel from './StackerKeysPanel';
 import { HEIGHT } from '@/lib/games/stacker/engine';
@@ -224,6 +225,18 @@ export default function StackerTable({
         >
           {prefs.music ? '♫ music' : '♪ off'}
         </button>
+        {prefs.music && !prefs.muted && (
+          <a
+            href={MUSIC_CREDIT.source}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="text-[10px] text-lc-muted underline decoration-dotted hover:text-lc-white"
+            title={`${MUSIC_CREDIT.title} — ${MUSIC_CREDIT.author}, ${MUSIC_CREDIT.note}`}
+            data-testid="stacker-music-credit"
+          >
+            ♫ {MUSIC_CREDIT.title} — {MUSIC_CREDIT.author}
+          </a>
+        )}
       </div>
 
       {keysOpen && (

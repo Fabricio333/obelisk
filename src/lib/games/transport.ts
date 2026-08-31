@@ -31,6 +31,37 @@ async function bridge() {
 }
 
 /**
+ * Publish, and try once more if the confirmation never came back.
+ *
+ * The relay closes connections on a five minute timer (`max_connection_duration`
+ * and `idle_timeout` in its config, and its logs are full of `Broken pipe`
+ * writing to sockets that already went away). A client holding a long-lived
+ * socket does not necessarily notice: the EVENT goes into a half-open
+ * connection, no OK comes back, and nostr-tools times the publish out. Open
+ * the app, sit in a channel for a few minutes, then start a game — that is the
+ * shape of it.
+ *
+ * The first failure is what makes the dead socket observable, so a second
+ * attempt lands on a fresh one. Anything that is not a timeout — a real
+ * refusal, with a reason — is passed straight through, because retrying a
+ * rejection just annoys the relay twice.
+ */
+async function publishResilient(
+  template: { kind: number; content: string; tags: string[][] },
+): Promise<{ id: string }> {
+  const b = await bridge();
+  try {
+    return await b.publishEvent(template);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!looksLikeLostConfirmation(message)) throw err;
+    // A beat for the socket teardown to be noticed before we ask again.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    return b.publishEvent(template);
+  }
+}
+
+/**
  * Create a table. Resolves with the table id (the create event's id).
  *
  * A publish that times out has NOT necessarily failed. The relay's OK travels
@@ -48,12 +79,11 @@ export async function publishCreate(
   channelId: string,
   params: { game: string; opts?: Record<string, unknown>; turnTimeoutS: number },
 ): Promise<string> {
-  const b = await bridge();
   const nonce = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   const template = buildCreate(channelId, { ...params, nonce });
 
   try {
-    const ev = await b.publishEvent(template);
+    const ev = await publishResilient(template);
     return ev.id;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -114,8 +144,7 @@ export async function findCreateByNonce(
 }
 
 export async function publishJoin(channelId: string, gameId: string): Promise<void> {
-  const b = await bridge();
-  await b.publishEvent(buildGameOp(channelId, gameId, 'join'));
+  await publishResilient(buildGameOp(channelId, gameId, 'join'));
 }
 
 export async function publishStart(
@@ -123,8 +152,7 @@ export async function publishStart(
   gameId: string,
   seats: readonly SeatSpec[],
 ): Promise<void> {
-  const b = await bridge();
-  await b.publishEvent(buildGameOp(channelId, gameId, 'start', { seats }));
+  await publishResilient(buildGameOp(channelId, gameId, 'start', { seats }));
 }
 
 export async function publishMove(
@@ -135,8 +163,7 @@ export async function publishMove(
   /** Which seat is being played. Required when the signer holds several. */
   seat?: string,
 ): Promise<void> {
-  const b = await bridge();
-  await b.publishEvent(buildGameOp(channelId, gameId, 'move', {
+  await publishResilient(buildGameOp(channelId, gameId, 'move', {
     n,
     action,
     ...(seat ? { seat } : {}),
@@ -149,14 +176,12 @@ export async function publishAttack(
   gameId: string,
   payload: { seat: string; target: string; lines: number; hole: number; nonce: number },
 ): Promise<void> {
-  const b = await bridge();
-  await b.publishEvent(buildGameOp(channelId, gameId, 'attack', payload));
+  await publishResilient(buildGameOp(channelId, gameId, 'attack', payload));
 }
 
 /** "I'm out" — the only event that removes a player from a real-time match. */
 export async function publishTopOut(channelId: string, gameId: string, seat: string): Promise<void> {
-  const b = await bridge();
-  await b.publishEvent(buildGameOp(channelId, gameId, 'topout', { seat }));
+  await publishResilient(buildGameOp(channelId, gameId, 'topout', { seat }));
 }
 
 /**
@@ -178,13 +203,11 @@ export async function publishCheckpoint(
     board?: string;
   },
 ): Promise<void> {
-  const b = await bridge();
-  await b.publishEvent(buildGameOp(channelId, gameId, 'checkpoint', payload));
+  await publishResilient(buildGameOp(channelId, gameId, 'checkpoint', payload));
 }
 
 export async function publishTimeout(channelId: string, gameId: string, n: number): Promise<void> {
-  const b = await bridge();
-  await b.publishEvent(buildGameOp(channelId, gameId, 'timeout', { n }));
+  await publishResilient(buildGameOp(channelId, gameId, 'timeout', { n }));
 }
 
 export async function publishResign(
@@ -193,13 +216,11 @@ export async function publishResign(
   /** Which seat is giving up. Required when the signer holds several. */
   seat?: string | null,
 ): Promise<void> {
-  const b = await bridge();
-  await b.publishEvent(buildGameOp(channelId, gameId, 'resign', seat ? { seat } : {}));
+  await publishResilient(buildGameOp(channelId, gameId, 'resign', seat ? { seat } : {}));
 }
 
 export async function publishCancel(channelId: string, gameId: string): Promise<void> {
-  const b = await bridge();
-  await b.publishEvent(buildGameOp(channelId, gameId, 'cancel'));
+  await publishResilient(buildGameOp(channelId, gameId, 'cancel'));
 }
 
 /**
