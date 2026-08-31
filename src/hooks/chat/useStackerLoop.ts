@@ -94,9 +94,9 @@ export function useStackerLoop(opts: {
     runner.receive(incoming);
   }, [runner, incoming]);
 
-  // Danger music: the fuller the well, the more insistent the bed.
+  // Danger music: the fuller the well, the more insistent it gets.
   useEffect(() => {
-    if (prefs.muted || !prefs.music) return;
+    if (prefs.muted) return;
     setMusicIntensity(Math.max(0, (stats.stackHeight - 8) / 12));
   }, [stats.stackHeight, prefs.muted, prefs.music]);
 
@@ -113,7 +113,7 @@ export function useStackerLoop(opts: {
           savePrefs(next);
           setMuted(next.muted);
           if (next.muted) stopMusic();
-          else if (next.music) startMusic();
+          else startMusic();
           return next;
         });
         return;
@@ -125,7 +125,9 @@ export function useStackerLoop(opts: {
       e.preventDefault();
       // Browsers only allow audio to start from a gesture, so the first
       // keypress is where the sound comes up.
-      if (!prefsRef.current.muted && ensureAudio() && prefsRef.current.music) startMusic();
+      // Music is not a choice the player makes — it just plays, once the
+      // browser has let us start audio at all.
+      if (!prefsRef.current.muted && ensureAudio()) startMusic();
       runner.press(kind);
     };
 
@@ -150,18 +152,7 @@ export function useStackerLoop(opts: {
       ensureAudio();
       setMuted(next.muted);
       if (next.muted) stopMusic();
-      else if (next.music) startMusic();
-      return next;
-    });
-  };
-
-  const toggleMusic = () => {
-    setPrefs((p) => {
-      const next = { ...p, music: !p.music };
-      savePrefs(next);
-      ensureAudio();
-      if (next.music && !next.muted) startMusic();
-      else stopMusic();
+      else startMusic();
       return next;
     });
   };
@@ -169,5 +160,5 @@ export function useStackerLoop(opts: {
   /** Called when the rebinding panel closes, so new keys apply at once. */
   const reloadKeys = () => setKeyMap(loadKeyMap());
 
-  return { runner, stats, prefs, toggleMuted, toggleMusic, reloadKeys };
+  return { runner, stats, prefs, toggleMuted, reloadKeys };
 }

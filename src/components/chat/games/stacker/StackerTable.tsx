@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GameSession } from '@/lib/games/session';
 import { incomingFor, type MatchState } from '@/lib/games/stacker/match';
 import { useStackerLoop } from '@/hooks/chat/useStackerLoop';
-import { MUSIC_CREDIT } from '@/lib/games/stacker/audio';
+import { MUSIC_CREDIT, currentTrack, setTrackListener } from '@/lib/games/stacker/audio';
 import StackerBoard, { MiniBoard, PieceChip } from './StackerBoard';
 import StackerKeysPanel from './StackerKeysPanel';
 import { HEIGHT } from '@/lib/games/stacker/engine';
@@ -67,7 +67,7 @@ export default function StackerTable({
     return others[Math.floor(Math.random() * others.length)];
   }, [alive, mySeat]);
 
-  const { runner, stats, prefs, toggleMuted, toggleMusic, reloadKeys } = useStackerLoop({
+  const { runner, stats, prefs, toggleMuted, reloadKeys } = useStackerLoop({
     seed: match.seed,
     incoming,
     enabled: iAmAlive && !match.over,
@@ -88,6 +88,12 @@ export default function StackerTable({
   const opponents = session.participants.filter((s) => s !== mySeat);
   const banner = stats.lastClear;
   const [keysOpen, setKeysOpen] = useState(false);
+  // The credit line follows whatever the playlist moved on to.
+  const [track, setTrack] = useState(() => currentTrack().title);
+  useEffect(() => {
+    setTrackListener(setTrack);
+    return () => setTrackListener(null);
+  }, []);
 
   /**
    * Size the cells to the space available rather than to a constant. A fixed
@@ -119,6 +125,7 @@ export default function StackerTable({
           </div>
           <Stat label="Sent" value={stats.attacksSent} accent="#b4f953" testId="stacker-sent" />
           <Stat label="Lines" value={stats.linesCleared} />
+          <Stat label="Level" value={stats.level} accent="#22d3ee" testId="stacker-level" />
           {stats.combo > 1 && <Stat label="Combo" value={`${stats.combo}×`} accent="#facc15" />}
           {stats.backToBack > 0 && <Stat label="B2B" value={stats.backToBack} accent="#a855f7" />}
         </div>
@@ -216,25 +223,16 @@ export default function StackerTable({
         >
           {prefs.muted ? '🔇 muted' : '🔊 sound'}
         </button>
-        <button
-          type="button"
-          onClick={toggleMusic}
-          disabled={prefs.muted}
-          className="rounded-full border border-lc-border px-2 py-0.5 hover:text-lc-white disabled:opacity-30"
-          data-testid="stacker-music"
-        >
-          {prefs.music ? '♫ music' : '♪ off'}
-        </button>
-        {prefs.music && !prefs.muted && (
+        {!prefs.muted && (
           <a
             href={MUSIC_CREDIT.source}
             target="_blank"
             rel="noreferrer noopener"
             className="text-[10px] text-lc-muted underline decoration-dotted hover:text-lc-white"
-            title={`${MUSIC_CREDIT.title} — ${MUSIC_CREDIT.author}, ${MUSIC_CREDIT.note}`}
+            title={`${track} — ${MUSIC_CREDIT.author}, ${MUSIC_CREDIT.note}`}
             data-testid="stacker-music-credit"
           >
-            ♫ {MUSIC_CREDIT.title} — {MUSIC_CREDIT.author}
+            ♫ {track} — {MUSIC_CREDIT.author}
           </a>
         )}
       </div>

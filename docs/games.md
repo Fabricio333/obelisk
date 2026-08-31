@@ -288,19 +288,25 @@ Effects are synthesized at runtime in `stacker/audio.ts` — line clears pitched
 by how many lines, a distinct chime for spins, garbage rumble, a falling
 top-out. No asset files, and they fire straight off engine events.
 
-The music is a track from
+The music is the `ncc`-prefixed set from
 [TETRA](https://github.com/soyezequiel/tetris-para-luna-negra) by
 **soyezequiel**, a La Crypta hackathon project. That repo marks its
-royalty-free tracks with an `ncc` filename prefix — see `ROYALTY_FREE_PREFIX`
-in its `src/audio/music.ts` — and this is one of them, generated with Suno. It
-ships as `public/games/stacker/retro-game-ncc.mp3` and is credited in the game
-UI, linking back to the source repo.
+royalty-free tracks with that prefix — see `ROYALTY_FREE_PREFIX` in its
+`src/audio/music.ts` — and they were generated with Suno. All three ship under
+`public/games/stacker/` and are credited in the game UI, linking back to the
+source.
 
-The other tracks in that repo are **not** ours to take: most are commercial
-recordings (Duel of the Fates, The Final Countdown, a Bonnie Tyler cover, two
-Tetris theme recordings), and two of the `ncc` ones are titled after
-third-party works. Only the one with no third-party work in its title was
-taken. If more are added, check the prefix *and* the title.
+It just plays: the playlist is shuffled once per session and advances on its
+own, with no picker. `MUSIC_TRACKS` in `audio.ts` is the whole catalogue —
+adding or removing a file there is the entire job.
+
+**The rest of that folder is not ours to ship.** It holds commercial
+recordings — Duel of the Fates, The Final Countdown, a Bonnie Tyler cover,
+orchestral Tetris theme recordings — and no prefix or folder makes those
+redistributable. The `ncc` marker is the uploader's statement about their own
+generated tracks, not a licence covering anybody else's. If you hold licences
+for others, or the author confirms a specific file is their own original, add
+that file to `MUSIC_TRACKS`.
 
 If the track cannot load or the browser refuses autoplay, a generative synth
 bed plays instead, so the game is never silent because of a missing file.

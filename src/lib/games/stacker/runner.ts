@@ -38,8 +38,36 @@ const FRAME_MS = 1000 / 60;
 export const DAS_FRAMES = 10;
 /** Frames between repeats once it does. */
 export const ARR_FRAMES = 2;
-/** Gravity interval at the start, in frames. */
-export const BASE_GRAVITY_FRAMES = 48;
+/**
+ * Frames between gravity steps, by level. Ten lines is a level.
+ *
+ * The old formula stepped 48 → 4 in flat blocks of four frames, which meant
+ * the first hundred lines barely changed pace and then it fell off a cliff.
+ * This is the classic curve instead: gentle at the start, sharply faster
+ * through the teens, and a hard floor so it stays humanly playable.
+ */
+export const GRAVITY_BY_LEVEL = [
+  48, 43, 38, 33, 28, 23, 18, 13, 8, 6,
+  5, 5, 5, 4, 4, 4, 3, 3, 3, 2,
+  2, 2, 2, 2, 2, 2, 2, 2, 2, 1,
+];
+
+/** Ten lines to a level. */
+export const LINES_PER_LEVEL = 10;
+
+/** Gravity interval at level 0, in frames. Kept for callers that want it. */
+export const BASE_GRAVITY_FRAMES = GRAVITY_BY_LEVEL[0];
+
+/** The level a line count has reached. */
+export function levelFor(lines: number): number {
+  return Math.floor(lines / LINES_PER_LEVEL);
+}
+
+/** Frames between gravity steps at this line count. */
+export function gravityFramesFor(lines: number): number {
+  const level = levelFor(lines);
+  return GRAVITY_BY_LEVEL[Math.min(level, GRAVITY_BY_LEVEL.length - 1)];
+}
 /** Grace a landed piece gets before it cements. */
 export const LOCK_DELAY_FRAMES = 30;
 /** How many slides may refresh that grace. */
@@ -64,6 +92,8 @@ export interface StackerStats {
   combo: number;
   backToBack: number;
   stackHeight: number;
+  /** Ten lines to a level; drives how fast pieces fall. */
+  level: number;
   dead: boolean;
   frame: number;
   /** Most recent clear, for the banner. Cleared after a moment. */
@@ -188,6 +218,7 @@ export class StackerRunner {
       combo: this.state.combo,
       backToBack: this.state.backToBack,
       stackHeight: stackHeight(this.state),
+      level: levelFor(this.state.linesCleared),
       dead: this.state.dead,
       frame: this.frame,
       lastClear: this.lastClear,
@@ -287,8 +318,8 @@ export class StackerRunner {
         this.apply({ frame: this.frame, kind });
       }
 
-      // Gravity quickens as the match goes on.
-      const gravityFrames = Math.max(4, BASE_GRAVITY_FRAMES - Math.floor(this.state.linesCleared / 10) * 4);
+      // Gravity quickens with every ten lines cleared.
+      const gravityFrames = gravityFramesFor(this.state.linesCleared);
       this.gravity += 1;
       if (this.gravity >= gravityFrames) {
         this.gravity = 0;

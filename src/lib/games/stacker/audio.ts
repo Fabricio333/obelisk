@@ -229,16 +229,54 @@ export function playClear(lines: number, spin: boolean, combo: number): void {
  * If it will not load or play, the synthesized bed below takes over, so the
  * game is never silent because of a missing file or an autoplay policy.
  */
-export const MUSIC_TRACK_URL = '/games/stacker/retro-game-ncc.mp3';
+export const MUSIC_SOURCE = 'https://github.com/soyezequiel/tetris-para-luna-negra';
+export const MUSIC_AUTHOR = 'soyezequiel';
+
+/**
+ * The playlist — the `ncc`-prefixed (royalty-free) tracks from TETRA.
+ *
+ * It just plays: no picker, no per-track controls. One track ends and the
+ * next starts, shuffled once per session so a match does not always open on
+ * the same song.
+ */
+export const MUSIC_TRACKS: Array<{ url: string; title: string }> = [
+  { url: '/games/stacker/retro-game-ncc.mp3', title: 'Retro Game' },
+  { url: '/games/stacker/digital-circus-ncc.mp3', title: 'Digital Circus' },
+  { url: '/games/stacker/shoebody-bop-ncc.mp3', title: 'Shoebody Bop' },
+];
+
 export const MUSIC_CREDIT = {
-  title: 'Retro Game',
-  author: 'soyezequiel',
-  source: 'https://github.com/soyezequiel/tetris-para-luna-negra',
+  author: MUSIC_AUTHOR,
+  source: MUSIC_SOURCE,
   note: 'royalty-free (Suno)',
 };
 
 let trackEl: HTMLAudioElement | null = null;
 let trackFailed = false;
+let order: number[] = [];
+let orderPos = 0;
+let onTrackChange: ((title: string) => void) | null = null;
+
+function ensureOrder(): void {
+  if (order.length === MUSIC_TRACKS.length) return;
+  order = MUSIC_TRACKS.map((_, i) => i);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  orderPos = 0;
+}
+
+/** Which track is playing, for the credit line. */
+export function currentTrack(): { url: string; title: string } {
+  ensureOrder();
+  return MUSIC_TRACKS[order[orderPos % order.length]];
+}
+
+/** Lets the credit line follow the music without the player having to care. */
+export function setTrackListener(listener: ((title: string) => void) | null): void {
+  onTrackChange = listener;
+}
 
 /**
  * A generative bed rather than a loop: a bass line under a shifting arpeggio,
@@ -261,11 +299,17 @@ const ROOTS = [110, 110, 98, 87.31, 98]; // A, A, G, F, G
 export function startMusic(): void {
   if (!trackFailed && typeof Audio !== 'undefined') {
     if (!trackEl) {
-      trackEl = new Audio(MUSIC_TRACK_URL);
-      trackEl.loop = true;
+      trackEl = new Audio(currentTrack().url);
       trackEl.volume = 0.35;
+      // One track ends, the next begins. Nobody has to choose anything.
+      trackEl.addEventListener('ended', advance);
       trackEl.addEventListener('error', () => {
-        // Missing or undecodable: never mind, the synth can carry it.
+        // Missing or undecodable: move on, and fall back to the synth only
+        // once the whole playlist has failed.
+        if (orderPos + 1 < MUSIC_TRACKS.length) {
+          advance();
+          return;
+        }
         trackFailed = true;
         trackEl = null;
         startSynthMusic();
@@ -277,9 +321,21 @@ export function startMusic(): void {
       trackEl = null;
       startSynthMusic();
     });
+    onTrackChange?.(currentTrack().title);
     return;
   }
   startSynthMusic();
+}
+
+function advance(): void {
+  ensureOrder();
+  orderPos = (orderPos + 1) % order.length;
+  if (trackEl) {
+    trackEl.src = currentTrack().url;
+    trackEl.currentTime = 0;
+    void trackEl.play().catch(() => { /* the error handler moves us along */ });
+  }
+  onTrackChange?.(currentTrack().title);
 }
 
 export function stopMusic(): void {
