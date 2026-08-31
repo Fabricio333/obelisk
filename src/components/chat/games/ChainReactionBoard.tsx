@@ -19,15 +19,23 @@ interface Props {
   seatLabel?: (seatId: string) => string;
 }
 
+/**
+ * Seat colours, picked to stay apart from each other on a near-black board.
+ *
+ * The first four are the ones most games actually use, so they are the most
+ * separated: warm red, the brand lime, a cold cyan, and amber. Nothing sits
+ * next to its neighbour in hue, and every one is bright enough to read as a
+ * glowing orb rather than a dark dot.
+ */
 export const SEAT_COLORS = [
-  { hex: '#ef4444', dot: 'bg-red-500' },     // red
-  { hex: '#b4f953', dot: 'bg-lc-green' },    // lc-green
-  { hex: '#60a5fa', dot: 'bg-blue-400' },    // blue
-  { hex: '#facc15', dot: 'bg-yellow-400' },  // yellow
-  { hex: '#a855f7', dot: 'bg-purple-500' },  // purple
-  { hex: '#ec4899', dot: 'bg-pink-500' },    // pink
-  { hex: '#f97316', dot: 'bg-orange-500' },  // orange
-  { hex: '#22d3ee', dot: 'bg-cyan-400' },    // cyan
+  { hex: '#ff4d5e', dot: 'bg-red-500' },     // red
+  { hex: '#b4f953', dot: 'bg-lc-green' },    // lime (brand)
+  { hex: '#38bdf8', dot: 'bg-sky-400' },     // sky
+  { hex: '#fbbf24', dot: 'bg-amber-400' },   // amber
+  { hex: '#c084fc', dot: 'bg-purple-400' },  // violet
+  { hex: '#f472b6', dot: 'bg-pink-400' },    // pink
+  { hex: '#fb923c', dot: 'bg-orange-400' },  // orange
+  { hex: '#2dd4bf', dot: 'bg-teal-400' },    // teal
 ];
 
 // CSS custom properties aren't in React's CSSProperties, so styles that set
@@ -47,9 +55,11 @@ function Orbs({ count, hex, orbit }: { count: number; hex: string; orbit: boolea
   // Stack three gradients: a tight specular highlight, the main lit sphere,
   // and a dark crescent on the far side — reads much more 3D than one ramp.
   const sphere = [
-    `radial-gradient(circle at 28% 22%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0) 22%)`,
-    `radial-gradient(circle at 32% 30%, color-mix(in srgb, ${hex} 15%, white) 0%, ${hex} 38%, color-mix(in srgb, ${hex} 45%, black) 85%)`,
-    `radial-gradient(circle at 72% 78%, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0) 38%)`,
+    // Tight specular, then the lit body, then a dark crescent on the far
+    // side. Three stops read as a sphere; one reads as a circle.
+    `radial-gradient(circle at 30% 24%, rgba(255,255,255,0.98) 0%, rgba(255,255,255,0) 20%)`,
+    `radial-gradient(circle at 34% 32%, color-mix(in srgb, ${hex} 8%, white) 0%, ${hex} 42%, color-mix(in srgb, ${hex} 55%, black) 88%)`,
+    `radial-gradient(circle at 74% 80%, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0) 42%)`,
   ].join(', ');
   return (
     <div
@@ -64,7 +74,8 @@ function Orbs({ count, hex, orbit }: { count: number; hex: string; orbit: boolea
             transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`,
             background: sphere,
             boxShadow: [
-              `0 0 8px ${hex}`,
+              `0 0 10px ${hex}`,
+              `0 0 20px color-mix(in srgb, ${hex} 45%, transparent)`,
               `0 1px 2px rgba(0,0,0,0.6)`,
               `inset -1.5px -2px 2.5px color-mix(in srgb, ${hex} 40%, black)`,
               `inset 1.5px 2px 1.5px rgba(255,255,255,0.35)`,
@@ -147,6 +158,25 @@ function cellsRoughlyEqual(a: CellSnapshot[], b: CellSnapshot[]): boolean {
     if (a[i].owner !== b[i].owner) return false;
   }
   return true;
+}
+
+/**
+ * How closely a simulated board resembles the real one.
+ *
+ * The engine stops a cascade the moment the mover owns everything
+ * (`isDominant` in chain-reaction.ts), so on the winning move — and only on
+ * the winning move — a full local simulation always overshoots and nothing
+ * matches exactly. That used to mean the biggest explosion in the game was
+ * the one nobody got to watch. Scoring the candidates lets us animate the
+ * closest one and snap to the authoritative board at the end.
+ */
+function matchScore(a: CellSnapshot[], b: CellSnapshot[]): number {
+  let score = 0;
+  for (let i = 0; i < a.length && i < b.length; i++) {
+    if (a[i].owner === b[i].owner) score += 1;
+    if (a[i].count === b[i].count) score += 1;
+  }
+  return score;
 }
 
 function Explosion({ hex }: { hex: string }) {
@@ -271,12 +301,21 @@ export default function ChainReactionBoard({ game, mySeats, onAction, maxWidth =
         myClickRef.current = null;
         return ownClick;
       }
+      let best = -1;
+      let bestScore = -1;
       for (let i = 0; i < prev.length; i++) {
         if (prev[i].owner !== null && prev[i].owner !== actorSeat) continue;
         const sim = simulateFull(prev, rows, cols, actorSeat, i);
         if (cellsRoughlyEqual(sim, cells)) return i;
+        const score = matchScore(sim, cells);
+        if (score > bestScore) {
+          bestScore = score;
+          best = i;
+        }
       }
-      return -1;
+      // No exact match: the winning move, where the engine cut the cascade
+      // short. Animate the closest candidate rather than snapping silently.
+      return best;
     };
     const clickCell = findClick();
 

@@ -202,22 +202,7 @@ export default function GameModal({ gameId, onClose }: { gameId: string; onClose
       </div>
 
       <div className="mt-4">
-        {session.status === 'finished' ? (
-          // Anyone can open a finished table — player or not — and the log
-          // has everything needed to say how it ended, so say it.
-          <div className="space-y-4">
-            <GameResults session={session} seatLabel={seatLabelFor} myPubkey={myPubkey} />
-            {session.game === 'chain-reaction' && (
-              <ChainReactionBoard
-                game={session}
-                mySeats={[]}
-                onAction={async () => {}}
-                maxWidth={fullscreen ? 420 : 300}
-                seatLabel={seatLabelFor}
-              />
-            )}
-          </div>
-        ) : session.status === 'waiting' || session.status === 'cancelled' ? (
+        {session.status === 'waiting' || session.status === 'cancelled' ? (
           <ul className="space-y-2" data-testid="game-roster">
             {roster.map((pk, i) => (
               <li key={pk} className="flex items-center gap-2">
@@ -264,6 +249,10 @@ export default function GameModal({ gameId, onClose }: { gameId: string; onClose
             busy={busy}
           />
         ) : (
+          // Deliberately the same element in the same place whether the table
+          // is running or finished: swapping it for a results panel unmounted
+          // the board mid-animation, so the winning explosion — the one worth
+          // watching — was the one nobody ever saw.
           <ChainReactionBoard
             game={session}
             mySeats={mySeats}
@@ -273,6 +262,12 @@ export default function GameModal({ gameId, onClose }: { gameId: string; onClose
           />
         )}
       </div>
+
+      {session.status === 'finished' && (
+        <div className="mt-4">
+          <GameResults session={session} seatLabel={seatLabelFor} myPubkey={myPubkey} />
+        </div>
+      )}
 
       {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
 
