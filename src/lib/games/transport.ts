@@ -55,8 +55,13 @@ async function publishResilient(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (!looksLikeLostConfirmation(message)) throw err;
-    // A beat for the socket teardown to be noticed before we ask again.
-    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    // Retrying on the same pooled connection is pointless: SimplePool hands
+    // back the same relay object, and if that socket is half-open the second
+    // attempt dies exactly like the first. Drop it, so `publishEvent` opens a
+    // fresh one, then ask again.
+    b.dropRelayConnection();
+    await new Promise((resolve) => setTimeout(resolve, 300));
     return b.publishEvent(template);
   }
 }

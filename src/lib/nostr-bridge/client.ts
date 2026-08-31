@@ -4023,6 +4023,33 @@ export class BridgeImpl {
    * (e.g. voice presence beacons, gift-wrapped voice signaling) that need to
    * publish events outside the NIP-29 group flow.
    */
+  /**
+   * Drop the pooled connection to a relay so the next publish or REQ opens a
+   * fresh one.
+   *
+   * `SimplePool` caches a connection per URL and hands the same object back
+   * every time. When that socket is half-open — the relay closed it on its
+   * five minute `max_connection_duration` and the client has not noticed —
+   * every retry goes into the same dead pipe and times out identically. There
+   * was no way to say "that one is gone" short of
+   * `resetPoolForSessionChange`, which is the login path and tears down every
+   * subscription in the app.
+   *
+   * Closing a socket that is already dead costs nothing: the REQs on it are
+   * dead too, and the subscription watchdogs re-issue them on the new
+   * connection.
+   */
+  dropRelayConnection(url?: string): void {
+    const targets = url ? [url] : [...this.relays];
+    if (targets.length === 0) return;
+    this.poolSocketAlive = false;
+    try {
+      this.pool.close(targets);
+    } catch {
+      /* already gone, which is the outcome we wanted */
+    }
+  }
+
   async publishEvent(template: {
     kind: number;
     content: string;
